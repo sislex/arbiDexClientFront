@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: arbidex_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: arbidex
+      POSTGRES_PASSWORD: arbidex_pass
+      POSTGRES_DB: arbidex_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U arbidex -d arbidex_db']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build:
+      context: ./arbi-dex-server
+      dockerfile: Dockerfile
+    container_name: arbidex_server
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      APP_PORT: 3000
+      NODE_ENV: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: arbidex
+      DB_PASSWORD: arbidex_pass
+      DB_NAME: arbidex_db
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      CORS_ORIGIN: http://localhost:4200
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+
+
