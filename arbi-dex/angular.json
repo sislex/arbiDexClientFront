@@ -100,6 +100,26 @@
             ],
             "scripts": []
           }
+        },
+        "storybook": {
+          "builder": "@storybook/angular:start-storybook",
+          "options": {
+            "configDir": ".storybook",
+            "browserTarget": "arbi-dex:build",
+            "tsConfig": "tsconfig.storybook.json",
+            "compodoc": false,
+            "port": 6006
+          }
+        },
+        "build-storybook": {
+          "builder": "@storybook/angular:build-storybook",
+          "options": {
+            "configDir": ".storybook",
+            "browserTarget": "arbi-dex:build",
+            "tsConfig": "tsconfig.storybook.json",
+            "compodoc": false,
+            "outputDir": "dist/storybook/arbi-dex"
+          }
         }
       }
     }

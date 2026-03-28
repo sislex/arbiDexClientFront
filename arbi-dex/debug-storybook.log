@@ -1,39 +1,27 @@
-[16:27:54.377] [INFO] storybook v10.3.3
-[16:27:55.317] [DEBUG] Getting package.json info for /Users/alexeyrozhnov/PhpstormProjects/arbiDexClientFront/arbi-dex/package.json...
-[16:27:55.319] [WARN] You are currently using Storybook [1m10.3.3[22m but you have packages which are incompatible with it:
+[16:49:32.276] [INFO] storybook v10.3.3
+[16:49:32.552] [DEBUG] Getting package.json info for /Users/alexeyrozhnov/PhpstormProjects/arbiDexClientFront/arbi-dex/package.json...
+[16:49:32.772] [INFO] Starting...
+[16:49:32.862] [DEBUG] Starting preview..
+[16:49:32.866] [INFO] Using implicit CSS loaders
+[16:49:33.088] [ERROR] Failed to build the preview
+[16:49:33.089] [ERROR] [38;2;241;97;97mSB_FRAMEWORK_ANGULAR_0001 (AngularLegacyBuildOptionsError): Your Storybook startup script uses a solution that is not supported anymore.
+You must use Angular builder to have an explicit configuration on the project used in angular.json.
 
-- @storybook/addon-essentials@8.6.14 which depends on 8.6.14
- Repo: https://github.com/storybookjs/storybook/tree/next/code/addons/essentials
-- @storybook/addon-interactions@8.6.14 which depends on 8.6.14
- Repo: https://github.com/storybookjs/storybook/tree/next/code/addons/interactions
-- @storybook/test@8.6.15 which depends on 8.6.15
- Repo: https://github.com/storybookjs/storybook/tree/next/code/lib/test
-
-Please consider updating your packages or contacting the maintainers for compatibility details.
-
-For more details on compatibility guidance, see:
-https://github.com/storybookjs/storybook/issues/32836
-[16:27:55.458] [INFO] Storybook collects completely anonymous usage telemetry. We use it to shape Storybook's roadmap and prioritize features. You can learn more, including how to opt out, at https://storybook.js.org/telemetry
-[16:27:55.627] [INFO] Starting...
-[16:27:55.785] [ERROR] [38;2;241;97;97mSB_CORE-SERVER_0004 (NoMatchingExportError): There was an exports mismatch error when trying to build Storybook.
-Please check whether the versions of your Storybook packages match whenever possible, as this might be the cause.
-
-Problematic example:
-{ "@storybook/react": "7.5.3", "@storybook/react-vite": "7.4.5", "storybook": "7.3.0" }
-
-Correct example:
-{ "@storybook/react": "7.5.3", "@storybook/react-vite": "7.5.3", "storybook": "7.5.3" }
-
-Please run `npx storybook doctor` for guidance on how to fix this issue.
+Please run 'npx storybook automigrate' to automatically fix your config.
 
 More info: 
+	- https://github.com/storybookjs/storybook/blob/next/MIGRATION.md#angular-drop-support-for-calling-storybook-directly
+	- https://github.com/storybookjs/storybook/tree/next/code/frameworks/angular#how-do-i-migrate-to-an-angular-storybook-builder
 [39m
-    at buildOrThrow (file://./node_modules/storybook/dist/core-server/index.js:4513:9)
-    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at checkForLegacyBuildOptions (file://./node_modules/@storybook/angular/dist/server/framework-preset-angular-cli.js:159:11)
+    at Object.webpackFinal (file://./node_modules/@storybook/angular/dist/server/framework-preset-angular-cli.js:93:3)
+    at async Object.webpack (file://./node_modules/@storybook/builder-webpack5/dist/presets/custom-webpack-preset.js:282:28)
+    at async starter (file://./node_modules/@storybook/builder-webpack5/dist/index.js:753:16)
+    at async Module.start (file://./node_modules/@storybook/builder-webpack5/dist/index.js:857:14)
+    at async storybookDevServer (file://./node_modules/storybook/dist/core-server/index.js:7502:83)
+    at async buildOrThrow (file://./node_modules/storybook/dist/core-server/index.js:4508:12)
     at async buildDevStandalone (file://./node_modules/storybook/dist/core-server/index.js:8029:41)
     at async withTelemetry (file://./node_modules/storybook/dist/_node-chunks/chunk-6PADJQ3N.js:218:12)
     at async dev (file://./node_modules/storybook/dist/bin/core.js:2736:3)
-    at async _Command.<anonymous> (file://./node_modules/storybook/dist/bin/core.js:2806:92)
-[16:27:55.788] [WARN] Broken build, fix the error above.
+[16:49:33.096] [WARN] Broken build, fix the error above.
 You may need to refresh the browser.
-[16:28:05.096] [PROMPT] Would you like to send anonymous crash reports to improve Storybook and fix bugs faster? {"choice":true}

@@ -2,16 +2,11 @@ import type { StorybookConfig } from '@storybook/angular';
 
 const config: StorybookConfig = {
   stories: ['../src/**/*.stories.@(js|jsx|ts|tsx)'],
-  addons: [
-    '@storybook/addon-essentials',
-    '@storybook/addon-interactions',
-  ],
+  addons: [],
+
   framework: {
     name: '@storybook/angular',
     options: {},
-  },
-  docs: {
-    autodocs: 'tag',
   },
 };
 

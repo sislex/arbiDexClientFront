@@ -8,16 +8,22 @@ const preview: Preview = {
       providers: [provideAnimationsAsync()],
     }),
   ],
+
   parameters: {
     controls: { matchers: { color: /(background|color)$/i, date: /Date$/ } },
     backgrounds: {
-      default: 'light',
-      values: [
-        { name: 'light', value: '#f8f9fc' },
-        { name: 'dark',  value: '#0d1117' },
-      ],
+      options: {
+        light: { name: 'light', value: '#f8f9fc' },
+        dark: { name: 'dark',  value: '#0d1117' }
+      }
     },
   },
+
+  initialGlobals: {
+    backgrounds: {
+      value: 'light'
+    }
+  }
 };
 
 export default preview;
