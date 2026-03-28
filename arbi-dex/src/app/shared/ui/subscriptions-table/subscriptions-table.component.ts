@@ -8,6 +8,7 @@ import { LoadingStateComponent } from '../loading-state/loading-state.component'
 import { EmptyStateComponent } from '../empty-state/empty-state.component';
 import { LayoutFacade } from '../../../features/layout/facades/layout.facade';
 import { AG_THEME_LIGHT, AG_THEME_DARK } from '../../utils/ag-grid-themes';
+import { ensureAgGridModules } from '../../utils/ag-grid-setup';
 
 @Component({
   selector: 'app-subscriptions-table',
@@ -41,6 +42,8 @@ import { AG_THEME_LIGHT, AG_THEME_DARK } from '../../utils/ag-grid-themes';
   `],
 })
 export class SubscriptionsTableComponent implements OnChanges {
+  constructor() { ensureAgGridModules(); }
+
   @Input() subscriptions: Subscription[] = [];
   @Input() sources: Source[] = [];
   @Input() pairs: TradingPair[] = [];

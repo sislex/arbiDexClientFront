@@ -9,6 +9,7 @@ import { EmptyStateComponent } from '../empty-state/empty-state.component';
 import { formatPrice, formatSpreadPct, formatTimestamp } from '../../utils/format.utils';
 import { LayoutFacade } from '../../../features/layout/facades/layout.facade';
 import { AG_THEME_LIGHT, AG_THEME_DARK } from '../../utils/ag-grid-themes';
+import { ensureAgGridModules } from '../../utils/ag-grid-setup';
 
 @Component({
   selector: 'app-quotes-table',
@@ -40,6 +41,8 @@ import { AG_THEME_LIGHT, AG_THEME_DARK } from '../../utils/ag-grid-themes';
   `],
 })
 export class QuotesTableComponent implements OnChanges {
+  constructor() { ensureAgGridModules(); }
+
   @Input() quotes: Quote[] = [];
   @Input() sources: Source[] = [];
   @Input() pairs: TradingPair[] = [];
