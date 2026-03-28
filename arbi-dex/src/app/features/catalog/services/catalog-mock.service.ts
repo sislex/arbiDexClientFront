@@ -4,11 +4,10 @@ import { Source, TradingPair } from '../../../shared/models';
 import { MOCK_SOURCES } from '../../../shared/mock-data/mock-sources';
 import { MOCK_PAIRS } from '../../../shared/mock-data/mock-pairs';
 import { MOCK_CATALOG_LOAD_DELAY_MS } from '../../../shared/constants';
+import { ICatalogService } from './catalog.service.interface';
 
-export abstract class ICatalogService {
-  abstract getSources(): Observable<Source[]>;
-  abstract getPairs(): Observable<TradingPair[]>;
-}
+// Ре-экспорт для обратной совместимости импортов
+export { ICatalogService } from './catalog.service.interface';
 
 @Injectable()
 export class CatalogMockService extends ICatalogService {

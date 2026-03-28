@@ -1,40 +1,81 @@
 import { inject, Injectable } from '@angular/core';
 import { Actions, createEffect, ofType } from '@ngrx/effects';
-import { map, switchMap } from 'rxjs/operators';
-import { v4 as uuidv4 } from 'uuid';
-import { Subscription } from '../../../shared/models';
+import { of } from 'rxjs';
+import { catchError, map, switchMap } from 'rxjs/operators';
+import { ISubscriptionsService } from '../services/subscriptions.service.interface';
 import {
   addSubscription,
   addSubscriptionSuccess,
+  addSubscriptionFailure,
+  removeSubscription,
+  removeSubscriptionSuccess,
+  removeSubscriptionFailure,
+  toggleSubscription,
+  toggleSubscriptionSuccess,
+  toggleSubscriptionFailure,
   loadSubscriptions,
   loadSubscriptionsSuccess,
+  loadSubscriptionsFailure,
 } from './subscriptions.actions';
 
 @Injectable()
 export class SubscriptionsEffects {
   private readonly actions$ = inject(Actions);
+  private readonly service = inject(ISubscriptionsService);
+
+  loadSubscriptions$ = createEffect(() =>
+    this.actions$.pipe(
+      ofType(loadSubscriptions),
+      switchMap(() =>
+        this.service.getAll().pipe(
+          map((subscriptions) => loadSubscriptionsSuccess({ subscriptions })),
+          catchError((err: unknown) =>
+            of(loadSubscriptionsFailure({ error: String(err) })),
+          ),
+        ),
+      ),
+    ),
+  );
 
   addSubscription$ = createEffect(() =>
     this.actions$.pipe(
       ofType(addSubscription),
-      map(({ sourceId, pairId }) => {
-        const subscription: Subscription = {
-          id: uuidv4(),
-          sourceId,
-          pairId,
-          enabled: true,
-          createdAt: Date.now(),
-        };
-        return addSubscriptionSuccess({ subscription });
-      }),
+      switchMap(({ sourceId, pairId }) =>
+        this.service.create(sourceId, pairId).pipe(
+          map((subscription) => addSubscriptionSuccess({ subscription })),
+          catchError((err: unknown) =>
+            of(addSubscriptionFailure({ error: String(err) })),
+          ),
+        ),
+      ),
     ),
   );
 
-  // Returns empty list — no persistence in this prototype
-  loadSubscriptions$ = createEffect(() =>
+  toggleSubscription$ = createEffect(() =>
     this.actions$.pipe(
-      ofType(loadSubscriptions),
-      map(() => loadSubscriptionsSuccess({ subscriptions: [] })),
+      ofType(toggleSubscription),
+      switchMap(({ id }) =>
+        this.service.toggle(id).pipe(
+          map((subscription) => toggleSubscriptionSuccess({ subscription })),
+          catchError((err: unknown) =>
+            of(toggleSubscriptionFailure({ error: String(err) })),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  removeSubscription$ = createEffect(() =>
+    this.actions$.pipe(
+      ofType(removeSubscription),
+      switchMap(({ id }) =>
+        this.service.remove(id).pipe(
+          map(() => removeSubscriptionSuccess({ id })),
+          catchError((err: unknown) =>
+            of(removeSubscriptionFailure({ error: String(err) })),
+          ),
+        ),
+      ),
     ),
   );
 }

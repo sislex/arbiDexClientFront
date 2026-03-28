@@ -5,7 +5,7 @@ import {
 } from './subscriptions.reducer';
 import {
   addSubscriptionSuccess,
-  removeSubscription,
+  removeSubscriptionSuccess,
   toggleSubscription,
   setDraft,
   clearDraft,
@@ -37,14 +37,14 @@ describe('subscriptionsReducer', () => {
     expect(state.draft).toEqual({ sourceId: null, pairId: null });
   });
 
-  it('should remove subscription on removeSubscription', () => {
+  it('should remove subscription on removeSubscriptionSuccess', () => {
     const stateWithOne = subscriptionsReducer(
       initialSubscriptionsState,
       addSubscriptionSuccess({ subscription: mockSub }),
     );
     const state = subscriptionsReducer(
       stateWithOne,
-      removeSubscription({ id: 'sub-1' }),
+      removeSubscriptionSuccess({ id: 'sub-1' }),
     );
     const all = subscriptionsAdapter.getSelectors().selectAll(state.saved);
     expect(all.length).toBe(0);

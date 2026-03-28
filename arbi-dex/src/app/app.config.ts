@@ -1,6 +1,7 @@
 import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
 import { provideRouter, withComponentInputBinding } from '@angular/router';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideStore } from '@ngrx/store';
 import { provideEffects } from '@ngrx/effects';
 import { provideStoreDevtools } from '@ngrx/store-devtools';
@@ -21,17 +22,29 @@ import { CatalogEffects } from './features/catalog/store/catalog.effects';
 import { SubscriptionsEffects } from './features/subscriptions/store/subscriptions.effects';
 import { QuotesEffects } from './features/quotes/store/quotes.effects';
 
-// Mock Services
+// Interceptors
+import { authInterceptor } from './core/interceptors/auth.interceptor';
+
+// Service interfaces
 import { IAuthService } from './features/auth/services/auth.service.interface';
-import { AuthMockService } from './features/auth/services/auth-mock.service';
-import { ICatalogService, CatalogMockService } from './features/catalog/services/catalog-mock.service';
-import { IQuotesService, QuotesMockService } from './features/quotes/services/quotes-mock.service';
+import { ICatalogService } from './features/catalog/services/catalog.service.interface';
+import { IQuotesService } from './features/quotes/services/quotes.service.interface';
+import { ISubscriptionsService } from './features/subscriptions/services/subscriptions.service.interface';
+
+// HTTP service implementations (backend integration)
+import { AuthHttpService } from './features/auth/services/auth-http.service';
+import { CatalogHttpService } from './features/catalog/services/catalog-http.service';
+import { SubscriptionsHttpService } from './features/subscriptions/services/subscriptions-http.service';
+
+// Mock services (оставлены для Quotes — бэкенд пока не имеет /api/quotes)
+import { QuotesMockService } from './features/quotes/services/quotes-mock.service';
 
 export const appConfig: ApplicationConfig = {
   providers: [
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(routes, withComponentInputBinding()),
     provideAnimationsAsync(),
+    provideHttpClient(withInterceptors([authInterceptor])),
     provideStore({
       [AUTH_FEATURE_KEY]: authReducer,
       [CATALOG_FEATURE_KEY]: catalogReducer,
@@ -41,9 +54,12 @@ export const appConfig: ApplicationConfig = {
     }),
     provideEffects([AuthEffects, CatalogEffects, SubscriptionsEffects, QuotesEffects]),
     provideStoreDevtools({ maxAge: 25, logOnly: !isDevMode() }),
-    // Mock services — swap these for real implementations when ready
-    { provide: IAuthService, useClass: AuthMockService },
-    { provide: ICatalogService, useClass: CatalogMockService },
+    // ── Сервисы ─────────────────────────────────────────────────────
+    // Auth, Catalog, Subscriptions → реальный бэкенд
+    { provide: IAuthService, useClass: AuthHttpService },
+    { provide: ICatalogService, useClass: CatalogHttpService },
+    { provide: ISubscriptionsService, useClass: SubscriptionsHttpService },
+    // Quotes → мок (бэкенд-эндпоинт котировок ещё не реализован)
     { provide: IQuotesService, useClass: QuotesMockService },
   ],
 };

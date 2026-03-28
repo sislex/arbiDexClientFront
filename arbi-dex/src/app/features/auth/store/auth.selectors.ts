@@ -39,3 +39,18 @@ export const selectIsConnecting = createSelector(
   (status) => status === 'connecting',
 );
 
+export const selectAccessToken = createSelector(
+  selectAuthState,
+  (s) => s.accessToken,
+);
+
+export const selectRefreshToken = createSelector(
+  selectAuthState,
+  (s) => s.refreshToken,
+);
+
+export const selectUserId = createSelector(
+  selectAuthState,
+  (s) => s.userId,
+);
+

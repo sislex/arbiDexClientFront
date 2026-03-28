@@ -4,6 +4,7 @@ import {
   connectWalletRequest,
   connectWalletSuccess,
   connectWalletFailure,
+  restoreSession,
   logout,
 } from './auth.actions';
 
@@ -12,6 +13,9 @@ export const AUTH_FEATURE_KEY = 'auth';
 export const initialAuthState: AuthState = {
   walletAddress: null,
   walletProvider: null,
+  userId: null,
+  accessToken: null,
+  refreshToken: null,
   isConnected: false,
   isAuthenticated: false,
   status: 'idle',
@@ -27,10 +31,26 @@ export const authReducer = createReducer(
     error: null,
   })),
 
-  on(connectWalletSuccess, (state, { walletInfo }) => ({
+  on(connectWalletSuccess, (state, { authResult }) => ({
     ...state,
-    walletAddress: walletInfo.address,
-    walletProvider: walletInfo.provider,
+    walletAddress: authResult.walletInfo.address,
+    walletProvider: authResult.walletInfo.provider,
+    userId: authResult.userId,
+    accessToken: authResult.accessToken,
+    refreshToken: authResult.refreshToken,
+    isConnected: true,
+    isAuthenticated: true,
+    status: 'connected' as const,
+    error: null,
+  })),
+
+  on(restoreSession, (state, { authResult }) => ({
+    ...state,
+    walletAddress: authResult.walletInfo.address,
+    walletProvider: authResult.walletInfo.provider,
+    userId: authResult.userId,
+    accessToken: authResult.accessToken,
+    refreshToken: authResult.refreshToken,
     isConnected: true,
     isAuthenticated: true,
     status: 'connected' as const,

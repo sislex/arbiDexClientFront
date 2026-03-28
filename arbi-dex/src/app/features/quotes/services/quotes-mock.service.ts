@@ -3,10 +3,10 @@ import { Observable, delay, of } from 'rxjs';
 import { Quote } from '../../../shared/models';
 import { MOCK_QUOTES } from '../../../shared/mock-data/mock-quotes';
 import { MOCK_QUOTES_LOAD_DELAY_MS } from '../../../shared/constants';
+import { IQuotesService } from './quotes.service.interface';
 
-export abstract class IQuotesService {
-  abstract getLatestQuotes(): Observable<Quote[]>;
-}
+// Ре-экспорт для обратной совместимости импортов
+export { IQuotesService } from './quotes.service.interface';
 
 @Injectable()
 export class QuotesMockService extends IQuotesService {
