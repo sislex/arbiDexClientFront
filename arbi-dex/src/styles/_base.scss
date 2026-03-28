@@ -1,0 +1,255 @@
+@use 'tokens' as t;
+
+// --- Base resets ---
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  font-family: t.$font-family-base;
+  font-size: t.$font-size-base;
+  line-height: t.$line-height-normal;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+// ─────────────────────────────────────────────
+// CSS Custom Properties — Light (default)
+// ─────────────────────────────────────────────
+:root {
+  --color-bg:             #{t.$color-bg-light};
+  --color-surface:        #{t.$color-surface-light};
+  --color-surface-2:      #{t.$color-surface-2-light};
+  --color-border:         #{t.$color-border-light};
+  --color-text-primary:   #{t.$color-text-primary-light};
+  --color-text-secondary: #{t.$color-text-secondary-light};
+  --color-text-muted:     #{t.$color-text-muted-light};
+  --color-shadow:         rgba(0, 0, 0, 0.08);
+  color-scheme: light;
+}
+
+// ─────────────────────────────────────────────
+// CSS Custom Properties — Dark
+// ─────────────────────────────────────────────
+[data-theme='dark'] {
+  --color-bg:             #{t.$color-bg-dark};
+  --color-surface:        #{t.$color-surface-dark};
+  --color-surface-2:      #{t.$color-surface-2-dark};
+  --color-border:         #{t.$color-border-dark};
+  --color-text-primary:   #{t.$color-text-primary-dark};
+  --color-text-secondary: #{t.$color-text-secondary-dark};
+  --color-text-muted:     #{t.$color-text-muted-dark};
+  --color-shadow:         rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
+}
+
+// ─────────────────────────────────────────────
+// Base styles
+// ─────────────────────────────────────────────
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  transition: background-color t.$transition-normal, color t.$transition-normal;
+}
+
+// ─────────────────────────────────────────────
+// Scrollbar
+// ─────────────────────────────────────────────
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+  &:hover { background: var(--color-text-muted); }
+}
+
+// ─────────────────────────────────────────────
+// Angular Material overrides — both themes
+// ─────────────────────────────────────────────
+.mat-mdc-card {
+  background-color: var(--color-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: t.$radius-md !important;
+  box-shadow: 0 1px 4px var(--color-shadow) !important;
+}
+
+.mat-toolbar {
+  background-color: var(--color-surface) !important;
+  border-bottom: 1px solid var(--color-border) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.mat-mdc-dialog-container {
+  --mdc-dialog-container-color: var(--color-surface);
+  --mdc-dialog-supporting-text-color: var(--color-text-secondary);
+}
+
+.mat-mdc-form-field {
+  width: 100%;
+}
+
+.mat-drawer,
+.mat-sidenav {
+  background-color: var(--color-surface) !important;
+  border-right: 1px solid var(--color-border) !important;
+}
+
+.mat-drawer-container,
+.mat-sidenav-container {
+  background-color: var(--color-bg) !important;
+}
+
+.mat-mdc-list-item {
+  color: var(--color-text-primary) !important;
+}
+
+.mat-mdc-menu-panel {
+  background-color: var(--color-surface) !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+.mat-mdc-snack-bar-container {
+  --mdc-snackbar-container-color: var(--color-surface-2);
+  --mdc-snackbar-supporting-text-color: var(--color-text-primary);
+}
+
+// ─────────────────────────────────────────────
+// ag-Grid CSS-variable overrides (legacy class approach)
+// The new themeAlpine.withParams() is used in components for programmatic theming
+// These are fallbacks for any non-programmatic usage
+// ─────────────────────────────────────────────
+.ag-theme-alpine {
+  --ag-background-color:        var(--color-surface);
+  --ag-header-background-color: var(--color-surface-2);
+  --ag-odd-row-background-color:var(--color-surface);
+  --ag-row-hover-color:         var(--color-surface-2);
+  --ag-border-color:            var(--color-border);
+  --ag-header-foreground-color: var(--color-text-secondary);
+  --ag-foreground-color:        var(--color-text-primary);
+  --ag-font-family:             #{t.$font-family-base};
+  --ag-font-size:               #{t.$font-size-base};
+  --ag-row-height:              48px;
+  --ag-header-height:           44px;
+  --ag-cell-horizontal-padding: #{t.$spacing-md};
+}
+
+// ─────────────────────────────────────────────
+// Utility classes
+// ─────────────────────────────────────────────
+.text-muted     { color: var(--color-text-muted); }
+.text-secondary { color: var(--color-text-secondary); }
+.text-primary   { color: var(--color-text-primary); }
+.surface        { background-color: var(--color-surface); }
+.surface-2      { background-color: var(--color-surface-2); }
+.full-width     { width: 100%; }
+.flex-1         { flex: 1; }
+.flex-center    { display: flex; align-items: center; justify-content: center; }
+.flex-gap-sm    { gap: t.$spacing-sm; }
+.flex-gap-md    { gap: t.$spacing-md; }
+
+
+html, body {
+  height: 100%;
+  margin: 0;
+  font-family: t.$font-family-base;
+  font-size: t.$font-size-base;
+  line-height: t.$line-height-normal;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+// --- CSS Custom Properties (Light theme default) ---
+:root {
+  --color-bg:             #{t.$color-bg-light};
+  --color-surface:        #{t.$color-surface-light};
+  --color-surface-2:      #{t.$color-surface-2-light};
+  --color-border:         #{t.$color-border-light};
+  --color-text-primary:   #{t.$color-text-primary-light};
+  --color-text-secondary: #{t.$color-text-secondary-light};
+  --color-text-muted:     #{t.$color-text-muted-light};
+  --color-shadow:         rgba(0, 0, 0, 0.08);
+}
+
+[data-theme='dark'] {
+  --color-bg:             #{t.$color-bg-dark};
+  --color-surface:        #{t.$color-surface-dark};
+  --color-surface-2:      #{t.$color-surface-2-dark};
+  --color-border:         #{t.$color-border-dark};
+  --color-text-primary:   #{t.$color-text-primary-dark};
+  --color-text-secondary: #{t.$color-text-secondary-dark};
+  --color-text-muted:     #{t.$color-text-muted-dark};
+  --color-shadow:         rgba(0, 0, 0, 0.3);
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+}
+
+// --- Scrollbar ---
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+  &:hover { background: var(--color-text-muted); }
+}
+
+// --- Angular Material overrides ---
+.mat-mdc-card {
+  background-color: var(--color-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: t.$radius-md !important;
+  box-shadow: t.$shadow-sm !important;
+}
+
+.mat-toolbar {
+  background-color: var(--color-surface) !important;
+  border-bottom: 1px solid var(--color-border) !important;
+}
+
+.mat-mdc-dialog-container {
+  --mdc-dialog-container-color: var(--color-surface);
+}
+
+.mat-mdc-form-field {
+  width: 100%;
+}
+
+// --- ag-Grid theme overrides ---
+.ag-theme-alpine,
+.ag-theme-alpine-dark {
+  --ag-background-color: var(--color-surface);
+  --ag-header-background-color: var(--color-surface-2);
+  --ag-odd-row-background-color: var(--color-surface);
+  --ag-row-hover-color: var(--color-surface-2);
+  --ag-border-color: var(--color-border);
+  --ag-header-foreground-color: var(--color-text-secondary);
+  --ag-foreground-color: var(--color-text-primary);
+  --ag-font-family: #{t.$font-family-base};
+  --ag-font-size: #{t.$font-size-base};
+  --ag-cell-horizontal-padding: #{t.$spacing-md};
+  --ag-row-height: 48px;
+  --ag-header-height: 44px;
+  border-radius: t.$radius-md;
+  overflow: hidden;
+}
+
+// --- Utility classes ---
+.text-muted { color: var(--color-text-muted); }
+.text-secondary { color: var(--color-text-secondary); }
+.text-primary { color: var(--color-text-primary); }
+
+.surface { background-color: var(--color-surface); }
+.surface-2 { background-color: var(--color-surface-2); }
+
+.full-width { width: 100%; }
+.flex-1 { flex: 1; }
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.flex-gap-sm { gap: t.$spacing-sm; }
+.flex-gap-md { gap: t.$spacing-md; }
+
