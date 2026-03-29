@@ -11,8 +11,11 @@ async function bootstrap() {
   const cfg = app.get(ConfigService);
 
   // ── CORS ────────────────────────────────────────────────────────────────────
+  const corsOriginRaw = cfg.get<string>('app.corsOrigin') ?? 'http://localhost:4200';
+  // '*' несовместим с credentials: true — используем true (отражение Origin)
+  const corsOrigin: string | boolean = corsOriginRaw === '*' ? true : corsOriginRaw;
   app.enableCors({
-    origin: cfg.get<string>('app.corsOrigin'),
+    origin: corsOrigin,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
