@@ -3,6 +3,7 @@ export const APP_ROUTES = {
   DASHBOARD: 'dashboard',
   MARKET: 'market',
   SUBSCRIPTIONS: 'subscriptions',
+  SUBSCRIPTION_DETAIL: 'subscriptions/:id',
   PROFILE: 'profile',
 } as const;
 

@@ -40,6 +40,13 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'subscriptions/:id',
+        loadComponent: () =>
+          import('./pages/subscription-detail-page/subscription-detail-page.component').then(
+            (m) => m.SubscriptionDetailPageComponent,
+          ),
+      },
+      {
         path: 'profile',
         loadComponent: () =>
           import('./pages/profile-page/profile-page.component').then(

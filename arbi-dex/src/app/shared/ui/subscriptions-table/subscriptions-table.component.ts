@@ -1,7 +1,7 @@
 import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges, ElementRef, inject } from '@angular/core';
 import { CommonModule, AsyncPipe } from '@angular/common';
 import { AgGridAngular } from 'ag-grid-angular';
-import { ColDef, GridReadyEvent, GridApi } from 'ag-grid-community';
+import { ColDef, GridReadyEvent, GridApi, RowClickedEvent } from 'ag-grid-community';
 import { map } from 'rxjs/operators';
 import { Subscription, Source, TradingPair } from '../../models';
 import { LoadingStateComponent } from '../loading-state/loading-state.component';
@@ -32,6 +32,8 @@ import { ensureAgGridModules } from '../../utils/ag-grid-setup';
         [defaultColDef]="defaultColDef"
         [domLayout]="'autoHeight'"
         [animateRows]="true"
+        [rowStyle]="{ cursor: 'pointer' }"
+        (rowClicked)="onRowClicked($event)"
         (gridReady)="onGridReady($event)" />
     </div>
   `,
@@ -50,6 +52,7 @@ export class SubscriptionsTableComponent implements OnChanges {
   @Input() loading = false;
   @Output() remove = new EventEmitter<string>();
   @Output() toggle = new EventEmitter<string>();
+  @Output() view = new EventEmitter<string>();
   @Output() addClicked = new EventEmitter<void>();
 
   rows: Subscription[] = [];
@@ -76,10 +79,11 @@ export class SubscriptionsTableComponent implements OnChanges {
     { headerName: 'Status',  field: 'enabled',   width: 120, valueFormatter: (p) => (p.value ? 'Active' : 'Inactive') },
     { headerName: 'Created', field: 'createdAt',  width: 180, valueFormatter: (p) => new Date(p.value).toLocaleString() },
     {
-      headerName: 'Actions', field: 'id', width: 180, sortable: false,
+      headerName: 'Actions', field: 'id', width: 260, sortable: false,
       cellRenderer: (p: { value: string; data: Subscription }) => {
         const lbl = p.data.enabled ? 'Disable' : 'Enable';
-        return `<span data-action="toggle" data-id="${p.value}" style="margin-right:8px;cursor:pointer;color:#3b82f6">${lbl}</span>`
+        return `<span data-action="view"   data-id="${p.value}" style="margin-right:8px;cursor:pointer;color:#0ecb81">View Chart</span>`
+             + `<span data-action="toggle" data-id="${p.value}" style="margin-right:8px;cursor:pointer;color:#3b82f6">${lbl}</span>`
              + `<span data-action="remove" data-id="${p.value}" style="cursor:pointer;color:#ef4444">Remove</span>`;
       },
     },
@@ -87,6 +91,13 @@ export class SubscriptionsTableComponent implements OnChanges {
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['subscriptions']) this.rows = [...this.subscriptions];
+  }
+
+  onRowClicked(event: RowClickedEvent<Subscription>): void {
+    // Игнорируем клик по кнопкам Actions
+    const target = event.event?.target as HTMLElement | undefined;
+    if (target?.closest('[data-action]')) return;
+    if (event.data?.id) this.view.emit(event.data.id);
   }
 
   onGridReady(e: GridReadyEvent): void {
@@ -98,6 +109,7 @@ export class SubscriptionsTableComponent implements OnChanges {
       if (!action || !id) return;
       if (action === 'remove') this.remove.emit(id);
       if (action === 'toggle') this.toggle.emit(id);
+      if (action === 'view')   this.view.emit(id);
     });
   }
 }

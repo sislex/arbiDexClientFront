@@ -1,6 +1,6 @@
 import { Component, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule } from '@angular/router';
+import { Router, RouterModule } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { SubscriptionsFacade } from '../../features/subscriptions/facades/subscriptions.facade';
@@ -33,6 +33,7 @@ import { SubscriptionsTableComponent } from '../../shared/ui/subscriptions-table
         [loading]="(loading$ | async) ?? false"
         (remove)="onRemove($event)"
         (toggle)="onToggle($event)"
+        (view)="onView($event)"
         (addClicked)="onAddClicked()" />
     </app-page-container>
   `,
@@ -40,6 +41,7 @@ import { SubscriptionsTableComponent } from '../../shared/ui/subscriptions-table
 export class SubscriptionsPageComponent implements OnInit {
   private readonly subs = inject(SubscriptionsFacade);
   private readonly catalog = inject(CatalogFacade);
+  private readonly router = inject(Router);
 
   readonly saved$ = this.subs.saved$;
   readonly loading$ = this.subs.loading$;
@@ -53,6 +55,7 @@ export class SubscriptionsPageComponent implements OnInit {
 
   onRemove(id: string): void { this.subs.remove(id); }
   onToggle(id: string): void { this.subs.toggle(id); }
+  onView(id: string): void   { this.router.navigate(['/subscriptions', id]); }
   onAddClicked(): void {}
 }
 
