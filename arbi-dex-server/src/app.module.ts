@@ -2,12 +2,13 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { appConfig, dbConfig, jwtConfig } from './config/configuration';
+import { appConfig, dbConfig, jwtConfig, botsConfig } from './config/configuration';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { SettingsModule } from './settings/settings.module';
 import { CatalogModule } from './catalog/catalog.module';
+import { PricesModule } from './prices/prices.module';
 import { User } from './users/entities/user.entity';
 import { Subscription } from './subscriptions/entities/subscription.entity';
 import { UserSettings } from './settings/entities/user-settings.entity';
@@ -18,7 +19,7 @@ import { TradingPair } from './catalog/entities/trading-pair.entity';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, dbConfig, jwtConfig],
+      load: [appConfig, dbConfig, jwtConfig, botsConfig],
     }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
@@ -39,6 +40,7 @@ import { TradingPair } from './catalog/entities/trading-pair.entity';
     SubscriptionsModule,
     SettingsModule,
     CatalogModule,
+    PricesModule,
   ],
   controllers: [AppController],
 })

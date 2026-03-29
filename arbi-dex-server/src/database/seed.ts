@@ -7,6 +7,9 @@ const SOURCES: Partial<Source>[] = [
   { id: 'cex_binance',  name: 'cex_binance',  displayName: 'Binance',      type: 'cex', isActive: true },
   { id: 'cex_mex',      name: 'cex_mex',      displayName: 'MEXC',         type: 'cex', isActive: true },
   { id: 'cex_bybit',    name: 'cex_bybit',    displayName: 'Bybit',        type: 'cex', isActive: true },
+  { id: 'cex_okx',      name: 'cex_okx',      displayName: 'OKX',          type: 'cex', isActive: true },
+  { id: 'cex_kucoin',   name: 'cex_kucoin',   displayName: 'KuCoin',       type: 'cex', isActive: true },
+  { id: 'cex_gateio',   name: 'cex_gateio',   displayName: 'Gate.io',      type: 'cex', isActive: true },
 ];
 
 const PAIRS: Partial<TradingPair>[] = [

@@ -21,3 +21,7 @@ export const jwtConfig = registerAs('jwt', () => ({
   refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '7d',
 }));
 
+export const botsConfig = registerAs('bots', () => ({
+  url: process.env.BOTS_SERVER_URL ?? 'http://localhost:3000',
+}));
+

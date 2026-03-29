@@ -3,14 +3,16 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterModule } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { map, combineLatest } from 'rxjs';
+import { map, combineLatest, BehaviorSubject } from 'rxjs';
 import { PageContainerComponent } from '../../shared/ui/page-container/page-container.component';
 import { PageHeaderComponent } from '../../shared/ui/page-header/page-header.component';
 import { PageSectionComponent } from '../../shared/ui/page-section/page-section.component';
-import { PriceChartComponent } from '../../shared/ui/price-chart/price-chart.component';
+import { PriceChartComponent, PricePoint, PriceSeriesConfig } from '../../shared/ui/price-chart/price-chart.component';
+import { LoadingStateComponent } from '../../shared/ui/loading-state/loading-state.component';
+import { EmptyStateComponent } from '../../shared/ui/empty-state/empty-state.component';
 import { SubscriptionsFacade } from '../../features/subscriptions/facades/subscriptions.facade';
 import { CatalogFacade } from '../../features/catalog/facades/catalog.facade';
-import { priceChartStubs_medium, twoLineSeries } from '../../shared/ui/price-chart/price-chart.stubs';
+import { IPricesService } from '../../features/subscriptions/services/prices.service.interface';
 
 @Component({
   selector: 'app-subscription-detail-page',
@@ -18,12 +20,12 @@ import { priceChartStubs_medium, twoLineSeries } from '../../shared/ui/price-cha
   imports: [
     CommonModule, RouterModule, MatButtonModule, MatIconModule,
     PageContainerComponent, PageHeaderComponent, PageSectionComponent,
-    PriceChartComponent,
+    PriceChartComponent, LoadingStateComponent, EmptyStateComponent,
   ],
   template: `
     <app-page-container>
       <app-page-header
-[title]="(title$ | async) ?? 'Subscription'"
+        [title]="(title$ | async) ?? 'Subscription'"
         subtitle="Price chart for selected subscription">
         <div slot="actions">
           <button mat-stroked-button routerLink="/subscriptions">
@@ -33,12 +35,19 @@ import { priceChartStubs_medium, twoLineSeries } from '../../shared/ui/price-cha
       </app-page-header>
 
       <app-page-section>
-        <div class="chart-wrap">
+        <app-loading-state *ngIf="loading$ | async" label="Loading price data…" />
+        <app-empty-state
+          *ngIf="(loading$ | async) === false && (chartData$ | async)?.length === 0"
+          icon="show_chart"
+          title="No price data"
+          description="Price data is not available for this subscription yet. Make sure arbiDexServerBots is running." />
+        <div class="chart-wrap" *ngIf="(loading$ | async) === false && ((chartData$ | async)?.length ?? 0) > 0">
           <app-price-chart
-            [data]="chartData"
-            [series]="chartSeries"
+            [data]="(chartData$ | async) ?? []"
+            [series]="(chartSeries$ | async) ?? []"
             [streaming]="false" />
         </div>
+        <div class="error-msg" *ngIf="error$ | async as error">{{ error }}</div>
       </app-page-section>
     </app-page-container>
   `,
@@ -49,16 +58,23 @@ import { priceChartStubs_medium, twoLineSeries } from '../../shared/ui/price-cha
       border-radius: 8px;
       overflow: hidden;
     }
+    .error-msg {
+      color: #ef4444;
+      padding: 16px;
+      text-align: center;
+    }
   `],
 })
 export class SubscriptionDetailPageComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly subs = inject(SubscriptionsFacade);
   private readonly catalog = inject(CatalogFacade);
+  private readonly pricesService = inject(IPricesService);
 
-  /** Стабленные данные для графика */
-  readonly chartData = priceChartStubs_medium;
-  readonly chartSeries = twoLineSeries;
+  readonly loading$ = new BehaviorSubject<boolean>(true);
+  readonly chartData$ = new BehaviorSubject<PricePoint[]>([]);
+  readonly chartSeries$ = new BehaviorSubject<PriceSeriesConfig[]>([]);
+  readonly error$ = new BehaviorSubject<string | null>(null);
 
   readonly title$ = combineLatest([
     this.subs.saved$,
@@ -78,8 +94,26 @@ export class SubscriptionDetailPageComponent implements OnInit {
   ngOnInit(): void {
     this.subs.load();
     this.catalog.loadAll();
+    this.loadPrices();
+  }
+
+  private loadPrices(): void {
+    const id = this.route.snapshot.paramMap.get('id');
+    if (!id) return;
+
+    this.loading$.next(true);
+    this.error$.next(null);
+
+    this.pricesService.getPricesBySubscription(id).subscribe({
+      next: (result) => {
+        this.chartSeries$.next(result.series);
+        this.chartData$.next(result.data);
+        this.loading$.next(false);
+      },
+      error: (err) => {
+        this.error$.next(err?.error?.message ?? 'Failed to load price data');
+        this.loading$.next(false);
+      },
+    });
   }
 }
-
-
-

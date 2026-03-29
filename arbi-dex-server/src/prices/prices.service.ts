@@ -1,0 +1,144 @@
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
+import { Subscription } from '../subscriptions/entities/subscription.entity';
+import { getPriceStoreKeys } from './price-key-mapping';
+
+/** Точка из PriceStore arbiDexServerBots */
+interface BotsPricePoint {
+  t: number; // timestamp ms
+  v: number; // value
+}
+
+/** Ответ от /prices/keys (POST) — каждый ключ содержит объект с полем points */
+interface BotsPriceKeyData {
+  points: BotsPricePoint[];
+  count?: number;
+  last?: BotsPricePoint;
+}
+
+interface BotsPriceKeysResponse {
+  [key: string]: BotsPriceKeyData;
+}
+
+/** Конфиг серии для фронтенда */
+export interface PriceSeriesConfig {
+  key: string;
+  name: string;
+  color: string;
+}
+
+/** Точка данных для фронтенда */
+export interface ChartPricePoint {
+  time: number;
+  [field: string]: number;
+}
+
+/** Полный ответ для фронтенда */
+export interface SubscriptionPriceData {
+  series: PriceSeriesConfig[];
+  data: ChartPricePoint[];
+}
+
+@Injectable()
+export class PricesService {
+  private readonly logger = new Logger(PricesService.name);
+  private readonly botsUrl: string;
+
+  constructor(
+    private readonly httpService: HttpService,
+    private readonly configService: ConfigService,
+    @InjectRepository(Subscription)
+    private readonly subsRepo: Repository<Subscription>,
+  ) {
+    this.botsUrl = this.configService.get<string>('bots.url') ?? 'http://localhost:3000';
+  }
+
+  /**
+   * Получить ценовые данные по subscriptionId.
+   * Маппит sourceId+pairId → ключи PriceStore, запрашивает историю из arbiDexServerBots,
+   * трансформирует в формат PriceChartComponent.
+   */
+  async getPricesBySubscription(subscriptionId: string, userId: string): Promise<SubscriptionPriceData> {
+    // 1. Найти подписку
+    const sub = await this.subsRepo.findOne({ where: { id: subscriptionId, userId } });
+    if (!sub) {
+      throw new NotFoundException('Подписка не найдена');
+    }
+
+    // 2. Маппинг в ключи PriceStore
+    const keys = getPriceStoreKeys(sub.sourceId, sub.pairId);
+    if (!keys) {
+      throw new BadRequestException(
+        `Маппинг не найден для sourceId="${sub.sourceId}", pairId="${sub.pairId}". ` +
+        `Проверьте конфигурацию price-key-mapping.ts`,
+      );
+    }
+
+    // 3. Запрос к arbiDexServerBots
+    const { bidKey, askKey, mapping } = keys;
+    let botsData: BotsPriceKeysResponse;
+
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post<BotsPriceKeysResponse>(`${this.botsUrl}/prices/keys`, {
+          keys: [bidKey, askKey],
+        }),
+      );
+      botsData = response.data;
+    } catch (error) {
+      this.logger.error(`Ошибка при запросе к arbiDexServerBots: ${error.message}`);
+      throw new BadRequestException(
+        `Не удалось получить данные от сервера котировок (${this.botsUrl}). ` +
+        `Убедитесь что arbiDexServerBots запущен.`,
+      );
+    }
+
+    // 4. Трансформация в формат PriceChartComponent
+    const bidPoints: BotsPricePoint[] = botsData[bidKey]?.points ?? [];
+    const askPoints: BotsPricePoint[] = botsData[askKey]?.points ?? [];
+
+    // Merge bid и ask по timestamp с помощью Map
+    const timeMap = new Map<number, ChartPricePoint>();
+
+    for (const p of bidPoints) {
+      timeMap.set(p.t, { time: p.t, bidPrice: p.v, askPrice: 0 });
+    }
+
+    for (const p of askPoints) {
+      const existing = timeMap.get(p.t);
+      if (existing) {
+        existing.askPrice = p.v;
+      } else {
+        timeMap.set(p.t, { time: p.t, bidPrice: 0, askPrice: p.v });
+      }
+    }
+
+    // Сортировка по времени, заполнение пропусков предыдущим значением
+    const sorted = Array.from(timeMap.values()).sort((a, b) => a.time - b.time);
+
+    let lastBid = 0;
+    let lastAsk = 0;
+    for (const point of sorted) {
+      if (point.bidPrice === 0 && lastBid !== 0) point.bidPrice = lastBid;
+      if (point.askPrice === 0 && lastAsk !== 0) point.askPrice = lastAsk;
+      lastBid = point.bidPrice;
+      lastAsk = point.askPrice;
+    }
+
+    // 5. Конфиг серий
+    const sourceName = mapping.sourcePrefix;
+    const series: PriceSeriesConfig[] = [
+      { key: 'bidPrice', name: `${sourceName} Bid`, color: '#0ecb81' },
+      { key: 'askPrice', name: `${sourceName} Ask`, color: '#f6465d' },
+    ];
+
+    return { series, data: sorted };
+  }
+}
+
+
+

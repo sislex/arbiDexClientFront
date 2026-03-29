@@ -30,11 +30,13 @@ import { IAuthService } from './features/auth/services/auth.service.interface';
 import { ICatalogService } from './features/catalog/services/catalog.service.interface';
 import { IQuotesService } from './features/quotes/services/quotes.service.interface';
 import { ISubscriptionsService } from './features/subscriptions/services/subscriptions.service.interface';
+import { IPricesService } from './features/subscriptions/services/prices.service.interface';
 
 // HTTP service implementations (backend integration)
 import { AuthHttpService } from './features/auth/services/auth-http.service';
 import { CatalogHttpService } from './features/catalog/services/catalog-http.service';
 import { SubscriptionsHttpService } from './features/subscriptions/services/subscriptions-http.service';
+import { PricesHttpService } from './features/subscriptions/services/prices-http.service';
 
 // Mock services (оставлены для Quotes — бэкенд пока не имеет /api/quotes)
 import { QuotesMockService } from './features/quotes/services/quotes-mock.service';
@@ -59,6 +61,7 @@ export const appConfig: ApplicationConfig = {
     { provide: IAuthService, useClass: AuthHttpService },
     { provide: ICatalogService, useClass: CatalogHttpService },
     { provide: ISubscriptionsService, useClass: SubscriptionsHttpService },
+    { provide: IPricesService, useClass: PricesHttpService },
     // Quotes → мок (бэкенд-эндпоинт котировок ещё не реализован)
     { provide: IQuotesService, useClass: QuotesMockService },
   ],
