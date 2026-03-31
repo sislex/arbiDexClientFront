@@ -34,6 +34,7 @@ import { SubscriptionsTableComponent } from '../../shared/ui/subscriptions-table
         (remove)="onRemove($event)"
         (toggle)="onToggle($event)"
         (view)="onView($event)"
+        (liveChart)="onLiveChart($event)"
         (addClicked)="onAddClicked()" />
     </app-page-container>
   `,
@@ -56,6 +57,7 @@ export class SubscriptionsPageComponent implements OnInit {
   onRemove(id: string): void { this.subs.remove(id); }
   onToggle(id: string): void { this.subs.toggle(id); }
   onView(id: string): void   { this.router.navigate(['/subscriptions', id]); }
+  onLiveChart(id: string): void { this.router.navigate(['/subscriptions/liveChart', id]); }
   onAddClicked(): void {}
 }
 

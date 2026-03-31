@@ -46,7 +46,7 @@ export interface SubscriptionPriceData {
 @Injectable()
 export class PricesService {
   private readonly logger = new Logger(PricesService.name);
-  private readonly botsUrl: string;
+  private readonly marketDataUrl: string;
 
   constructor(
     private readonly httpService: HttpService,
@@ -54,7 +54,7 @@ export class PricesService {
     @InjectRepository(Subscription)
     private readonly subsRepo: Repository<Subscription>,
   ) {
-    this.botsUrl = this.configService.get<string>('bots.url') ?? 'http://localhost:3000';
+    this.marketDataUrl = this.configService.get<string>('marketData.url') ?? 'http://45.135.182.251:3002';
   }
 
   /**
@@ -84,16 +84,16 @@ export class PricesService {
 
     try {
       const response = await firstValueFrom(
-        this.httpService.post<BotsPriceKeysResponse>(`${this.botsUrl}/prices/keys`, {
+        this.httpService.post<BotsPriceKeysResponse>(`${this.marketDataUrl}/store/keys`, {
           keys: [bidKey, askKey],
         }),
       );
       botsData = response.data;
     } catch (error) {
-      this.logger.error(`Ошибка при запросе к arbiDexServerBots: ${error.message}`);
+      this.logger.error(`Ошибка при запросе к arbiDexMarketData: ${error.message}`);
       throw new BadRequestException(
-        `Не удалось получить данные от сервера котировок (${this.botsUrl}). ` +
-        `Убедитесь что arbiDexServerBots запущен.`,
+        `Не удалось получить данные от сервиса котировок (${this.marketDataUrl}). ` +
+        `Убедитесь что arbiDexMarketData запущен.`,
       );
     }
 
@@ -139,6 +139,3 @@ export class PricesService {
     return { series, data: sorted };
   }
 }
-
-
-

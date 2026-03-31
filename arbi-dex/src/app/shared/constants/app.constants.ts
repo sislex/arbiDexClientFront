@@ -4,6 +4,7 @@ export const APP_ROUTES = {
   MARKET: 'market',
   SUBSCRIPTIONS: 'subscriptions',
   SUBSCRIPTION_DETAIL: 'subscriptions/:id',
+  LIVE_CHART: 'subscriptions/liveChart/:id',
   PROFILE: 'profile',
 } as const;
 

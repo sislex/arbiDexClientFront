@@ -53,6 +53,7 @@ export class SubscriptionsTableComponent implements OnChanges {
   @Output() remove = new EventEmitter<string>();
   @Output() toggle = new EventEmitter<string>();
   @Output() view = new EventEmitter<string>();
+  @Output() liveChart = new EventEmitter<string>();
   @Output() addClicked = new EventEmitter<void>();
 
   rows: Subscription[] = [];
@@ -79,12 +80,13 @@ export class SubscriptionsTableComponent implements OnChanges {
     { headerName: 'Status',  field: 'enabled',   width: 120, valueFormatter: (p) => (p.value ? 'Active' : 'Inactive') },
     { headerName: 'Created', field: 'createdAt',  width: 180, valueFormatter: (p) => new Date(p.value).toLocaleString() },
     {
-      headerName: 'Actions', field: 'id', width: 260, sortable: false,
+      headerName: 'Actions', field: 'id', width: 340, sortable: false,
       cellRenderer: (p: { value: string; data: Subscription }) => {
         const lbl = p.data.enabled ? 'Disable' : 'Enable';
-        return `<span data-action="view"   data-id="${p.value}" style="margin-right:8px;cursor:pointer;color:#0ecb81">View Chart</span>`
-             + `<span data-action="toggle" data-id="${p.value}" style="margin-right:8px;cursor:pointer;color:#3b82f6">${lbl}</span>`
-             + `<span data-action="remove" data-id="${p.value}" style="cursor:pointer;color:#ef4444">Remove</span>`;
+        return `<span data-action="view"      data-id="${p.value}" style="margin-right:8px;cursor:pointer;color:#0ecb81">View Chart</span>`
+             + `<span data-action="liveChart" data-id="${p.value}" style="margin-right:8px;cursor:pointer;color:#a78bfa">View Live Chart</span>`
+             + `<span data-action="toggle"    data-id="${p.value}" style="margin-right:8px;cursor:pointer;color:#3b82f6">${lbl}</span>`
+             + `<span data-action="remove"    data-id="${p.value}" style="cursor:pointer;color:#ef4444">Remove</span>`;
       },
     },
   ];
@@ -107,9 +109,10 @@ export class SubscriptionsTableComponent implements OnChanges {
       const action = t.dataset['action'];
       const id = t.dataset['id'];
       if (!action || !id) return;
-      if (action === 'remove') this.remove.emit(id);
-      if (action === 'toggle') this.toggle.emit(id);
-      if (action === 'view')   this.view.emit(id);
+      if (action === 'remove')    this.remove.emit(id);
+      if (action === 'toggle')    this.toggle.emit(id);
+      if (action === 'view')      this.view.emit(id);
+      if (action === 'liveChart') this.liveChart.emit(id);
     });
   }
 }
