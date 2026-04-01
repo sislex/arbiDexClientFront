@@ -17,5 +17,8 @@ export class CatalogMockService extends ICatalogService {
   getPairs(): Observable<TradingPair[]> {
     return of(MOCK_PAIRS).pipe(delay(MOCK_CATALOG_LOAD_DELAY_MS));
   }
+  getPairsBySource(_sourceId: string): Observable<TradingPair[]> {
+    return of(MOCK_PAIRS).pipe(delay(MOCK_CATALOG_LOAD_DELAY_MS));
+  }
 }
 

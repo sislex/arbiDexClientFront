@@ -82,6 +82,20 @@ export class CatalogService {
     }
   }
 
+  /**
+   * Получить торговые пары, доступные для конкретного источника.
+   * Фильтрует ключи arbiDexMarketData по sourceId.
+   */
+  async getPairsBySource(sourceId: string): Promise<PairDto[]> {
+    try {
+      const keys = await this.fetchMarketDataKeys();
+      return this.derivePairs(keys, sourceId);
+    } catch (err) {
+      this.logger.warn(`Fallback на БД для pairs (source=${sourceId}): ${err.message}`);
+      return this.pairsRepo.find();
+    }
+  }
+
   /** Запрос GET /store/keys из arbiDexMarketData */
   private async fetchMarketDataKeys(): Promise<string[]> {
     const response = await firstValueFrom(
@@ -116,13 +130,14 @@ export class CatalogService {
     );
   }
 
-  /** Извлечь уникальные торговые пары из ключей */
-  private derivePairs(keys: string[]): PairDto[] {
+  /** Извлечь уникальные торговые пары из ключей, опционально фильтруя по источнику */
+  private derivePairs(keys: string[], sourceFilter?: string): PairDto[] {
     const seen = new Map<string, PairDto>();
 
     for (const key of keys) {
       const parsed = parseMarketDataKey(key);
       if (!parsed) continue;
+      if (sourceFilter && parsed.source !== sourceFilter) continue;
 
       const pairId = makePairId(parsed.base, parsed.quote);
       if (!seen.has(pairId)) {

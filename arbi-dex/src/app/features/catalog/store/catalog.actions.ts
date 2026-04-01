@@ -21,3 +21,8 @@ export const loadPairsFailure = createAction(
   props<{ error: string }>(),
 );
 
+export const loadPairsBySource = createAction(
+  '[Catalog] Load Pairs By Source',
+  props<{ sourceId: string }>(),
+);
+

@@ -49,10 +49,10 @@ import { LoadingStateComponent } from '../../shared/ui/loading-state/loading-sta
           </div>
         </app-page-section>
 
-        <!-- Pairs -->
-        <app-page-section title="Trading Pairs">
-          <app-loading-state *ngIf="loading$ | async" size="sm" label="Loading pairs…" />
-          <div *ngIf="!(loading$ | async)" class="card-grid">
+        <!-- Pairs (показываем только когда выбран source) -->
+        <app-page-section *ngIf="selectedSourceId" title="Trading Pairs for {{ selectedSourceLabel }}">
+          <app-loading-state *ngIf="pairsLoading" size="sm" label="Loading pairs…" />
+          <div *ngIf="!pairsLoading" class="card-grid">
             <div
               *ngFor="let pair of filteredPairs"
               class="catalog-card"
@@ -117,6 +117,7 @@ export class MarketPageComponent implements OnInit {
 
   filteredSources: Source[] = [];
   filteredPairs: TradingPair[] = [];
+  pairsLoading = false;
   selectedSourceId: string | null = null;
   selectedPairId: string | null = null;
   selectedSourceLabel = '';
@@ -127,9 +128,13 @@ export class MarketPageComponent implements OnInit {
   private currentFilter: FilterBarState = { search: '', sourceType: '' };
 
   ngOnInit(): void {
-    this.catalog.loadAll();
+    this.catalog.loadSources();
     this.catalog.sources$.subscribe((s) => { this.allSources = s; this.applyFilter(); });
-    this.catalog.pairs$.subscribe((p) => { this.allPairs = p; this.applyFilter(); });
+    this.catalog.pairs$.subscribe((p) => {
+      this.allPairs = p;
+      this.pairsLoading = false;
+      this.applyFilter();
+    });
   }
 
   onFilter(f: FilterBarState): void {
@@ -153,6 +158,11 @@ export class MarketPageComponent implements OnInit {
   selectSource(src: Source): void {
     this.selectedSourceId = src.id;
     this.selectedSourceLabel = src.displayName;
+    this.selectedPairId = null;
+    this.selectedPairLabel = '';
+    this.pairsLoading = true;
+    this.filteredPairs = [];
+    this.catalog.loadPairsBySource(src.id);
   }
 
   selectPair(pair: TradingPair): void {

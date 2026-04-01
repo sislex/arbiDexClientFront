@@ -17,5 +17,9 @@ export class CatalogHttpService extends ICatalogService {
   getPairs(): Observable<TradingPair[]> {
     return this.http.get<TradingPair[]>(`${this.apiUrl}/catalog/pairs`);
   }
+
+  getPairsBySource(sourceId: string): Observable<TradingPair[]> {
+    return this.http.get<TradingPair[]>(`${this.apiUrl}/catalog/sources/${sourceId}/pairs`);
+  }
 }
 

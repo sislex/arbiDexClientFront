@@ -1,6 +1,6 @@
 import { inject, Injectable } from '@angular/core';
 import { Store } from '@ngrx/store';
-import { loadPairs, loadSources } from '../store/catalog.actions';
+import { loadPairs, loadPairsBySource, loadSources } from '../store/catalog.actions';
 import {
   selectCatalogLoading,
   selectPairs,
@@ -21,6 +21,10 @@ export class CatalogFacade {
 
   loadPairs(): void {
     this.store.dispatch(loadPairs());
+  }
+
+  loadPairsBySource(sourceId: string): void {
+    this.store.dispatch(loadPairsBySource({ sourceId }));
   }
 
   loadAll(): void {

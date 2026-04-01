@@ -2,9 +2,10 @@ import { inject, Injectable } from '@angular/core';
 import { Actions, createEffect, ofType } from '@ngrx/effects';
 import { catchError, map, switchMap } from 'rxjs/operators';
 import { of } from 'rxjs';
-import { ICatalogService } from '../services/catalog-mock.service';
+import { ICatalogService } from '../services/catalog.service.interface';
 import {
   loadPairs, loadPairsFailure, loadPairsSuccess,
+  loadPairsBySource,
   loadSources, loadSourcesFailure, loadSourcesSuccess,
 } from './catalog.actions';
 
@@ -32,6 +33,20 @@ export class CatalogEffects {
       ofType(loadPairs),
       switchMap(() =>
         this.catalogService.getPairs().pipe(
+          map((pairs) => loadPairsSuccess({ pairs })),
+          catchError((err: unknown) =>
+            of(loadPairsFailure({ error: String(err) })),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  loadPairsBySource$ = createEffect(() =>
+    this.actions$.pipe(
+      ofType(loadPairsBySource),
+      switchMap(({ sourceId }) =>
+        this.catalogService.getPairsBySource(sourceId).pipe(
           map((pairs) => loadPairsSuccess({ pairs })),
           catchError((err: unknown) =>
             of(loadPairsFailure({ error: String(err) })),

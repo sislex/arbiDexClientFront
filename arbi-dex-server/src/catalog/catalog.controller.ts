@@ -1,5 +1,5 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { CatalogService } from './catalog.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -45,6 +45,19 @@ export class CatalogController {
   })
   getPairs() {
     return this.service.getPairs();
+  }
+
+  @Get('sources/:sourceId/pairs')
+  @ApiOperation({
+    summary: 'Торговые пары для конкретного источника',
+    description:
+      'Возвращает только те торговые пары, которые доступны для указанного источника ' +
+      'в arbiDexMarketData. Например, для gateio может быть только ETH/USDT.',
+  })
+  @ApiParam({ name: 'sourceId', example: 'mexc' })
+  @ApiResponse({ status: 200, description: 'Массив торговых пар для источника' })
+  getPairsBySource(@Param('sourceId') sourceId: string) {
+    return this.service.getPairsBySource(sourceId);
   }
 }
 
