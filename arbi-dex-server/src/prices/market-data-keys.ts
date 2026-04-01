@@ -1,24 +1,31 @@
 /**
  * Утилиты для разбора ключей arbiDexMarketData.
  *
- * Поддерживает два формата ключей:
- * 1. С разделителем `|`:  `source|base|quote|field`  (напр. `mexc|ETH|USDT|bidPrice`)
- * 2. Без разделителей:    `sourceSymbolField`         (напр. `mexcETHUSDTbidPrice`)
+ * Реальный формат ключей (без разделителей между частями):
+ *   `{source}{base/quote}{field}`
+ *
+ * Примеры:
+ *   `mexcETH/USDTbidPrice`       → source=mexc,  pair=ETH/USDT, field=bidPrice
+ *   `binanceETH/USDCaskPrice`    → source=binance, pair=ETH/USDC, field=askPrice
+ *   `dex:arbitrum0x82af…/0xaf88…bidPrice` → source=dex:arbitrum, pair=0x82af…/0xaf88…, field=bidPrice
+ *
+ * Также поддерживается формат с `|` разделителем:
+ *   `mexc|ETH/USDT|bidPrice`     → source=mexc, pair=ETH/USDT, field=bidPrice
  */
 
 /** Результат разбора ключа */
 export interface ParsedMarketKey {
-  /** Источник: 'mexc', 'binance', 'dex:arbitrum', ... */
+  /** Источник: 'mexc', 'binance', 'dex:arbitrum', … */
   source: string;
-  /** Базовая валюта/токен: 'ETH', '0x82af...' */
+  /** Базовая валюта/токен: 'ETH', '0x82af…' */
   base: string;
-  /** Котируемая валюта/токен: 'USDT', '0xaf88...' */
+  /** Котируемая валюта/токен: 'USDT', '0xaf88…' */
   quote: string;
   /** Поле: 'bidPrice' | 'askPrice' */
   field: 'bidPrice' | 'askPrice';
 }
 
-/** Маппинг адреса контракта → человекочитаемый символ */
+/** Маппинг адреса контракта → человекочитаемое символ */
 const TOKEN_NAMES: Record<string, string> = {
   '0x82af49447d8a07e3bd95bd0d56f35241523fbab1': 'WETH',
   '0xaf88d065e77c8cc2239327c5edb3a432268e5831': 'USDC',
@@ -42,41 +49,41 @@ export const SOURCE_META: Record<string, { displayName: string; type: 'dex' | 'c
 /** Известные префиксы источников, отсортированные по длине (longest first) */
 const KNOWN_SOURCES_SORTED = Object.keys(SOURCE_META).sort((a, b) => b.length - a.length);
 
-/** Известные символы CEX (для формата без разделителей) */
-const KNOWN_SYMBOLS = ['ETHUSDT', 'ETHUSDC', 'BTCUSDT', 'BTCUSDC'];
-
-/** Маппинг символа CEX → { base, quote } (для формата без разделителей) */
-const SYMBOL_SPLIT: Record<string, { base: string; quote: string }> = {
-  'ETHUSDT': { base: 'ETH', quote: 'USDT' },
-  'ETHUSDC': { base: 'ETH', quote: 'USDC' },
-  'BTCUSDT': { base: 'BTC', quote: 'USDT' },
-  'BTCUSDC': { base: 'BTC', quote: 'USDC' },
-};
-
 /**
- * Разбирает ключ arbiDexMarketData в любом формате.
- * Возвращает null если ключ не удалось разобрать.
+ * Разбирает ключ arbiDexMarketData.
+ *
+ * Поддерживает два формата:
+ *   1. С `|`:  `source|pair|field`   — напр. `mexc|ETH/USDT|bidPrice`
+ *   2. Без:    `sourcePairField`     — напр. `mexcETH/USDTbidPrice`
+ *
+ * Пара всегда содержит `/` внутри (ETH/USDT, 0x…/0x…).
  */
 export function parseMarketDataKey(key: string): ParsedMarketKey | null {
-  // ── Формат с разделителем `|` ──
+  // ── Формат с `|` разделителем: source|pair|field ──
   if (key.includes('|')) {
     const parts = key.split('|');
-    // source|base|quote|field — 4 части
-    if (parts.length === 4) {
-      const field = parts[3];
+    if (parts.length === 3) {
+      const [source, pair, field] = parts;
       if (field !== 'bidPrice' && field !== 'askPrice') return null;
-      return { source: parts[0], base: parts[1], quote: parts[2], field };
+      const slashIdx = pair.indexOf('/');
+      if (slashIdx < 0) return null;
+      return {
+        source,
+        base: pair.slice(0, slashIdx),
+        quote: pair.slice(slashIdx + 1),
+        field,
+      };
     }
     return null;
   }
 
-  // ── Формат без разделителей ──
+  // ── Формат без разделителей: sourcePairField ──
   let field: 'bidPrice' | 'askPrice';
   let rest: string;
 
   if (key.endsWith('bidPrice')) {
     field = 'bidPrice';
-    rest = key.slice(0, -8); // 'bidPrice'.length = 8
+    rest = key.slice(0, -8); // 'bidPrice'.length === 8
   } else if (key.endsWith('askPrice')) {
     field = 'askPrice';
     rest = key.slice(0, -8);
@@ -84,25 +91,18 @@ export function parseMarketDataKey(key: string): ParsedMarketKey | null {
     return null;
   }
 
+  // Ищем известный источник (longest prefix first)
   for (const src of KNOWN_SOURCES_SORTED) {
     if (rest.startsWith(src)) {
-      const symbolPart = rest.slice(src.length);
-
-      // Для DEX — ищем адреса контрактов (0x... + 0x...)
-      if (src.startsWith('dex:')) {
-        const addrMatch = symbolPart.match(/^(0x[0-9a-f]{40})(0x[0-9a-f]{40})$/i);
-        if (addrMatch) {
-          return { source: src, base: addrMatch[1].toLowerCase(), quote: addrMatch[2].toLowerCase(), field };
-        }
-        return null;
-      }
-
-      // Для CEX — ищем известный символ
-      const split = SYMBOL_SPLIT[symbolPart];
-      if (split) {
-        return { source: src, base: split.base, quote: split.quote, field };
-      }
-      return null;
+      const pair = rest.slice(src.length); // 'ETH/USDT' или '0x…/0x…'
+      const slashIdx = pair.indexOf('/');
+      if (slashIdx < 0) return null;
+      return {
+        source: src,
+        base: pair.slice(0, slashIdx),
+        quote: pair.slice(slashIdx + 1),
+        field,
+      };
     }
   }
 
@@ -114,12 +114,13 @@ export function parseMarketDataKey(key: string): ParsedMarketKey | null {
  * Если адрес неизвестен — возвращает укороченный адрес.
  */
 export function tokenDisplayName(token: string): string {
-  return TOKEN_NAMES[token.toLowerCase()] ?? `${token.slice(0, 6)}…${token.slice(-4)}`;
+  return TOKEN_NAMES[token.toLowerCase()] ?? token;
 }
 
 /**
  * Генерирует pairId из base и quote.
  * Для адресов использует человекочитаемые имена.
+ * Пример: ('ETH', 'USDT') → 'ETH_USDT';  ('0x82af…', '0xaf88…') → 'WETH_USDC'
  */
 export function makePairId(base: string, quote: string): string {
   const b = TOKEN_NAMES[base.toLowerCase()] ?? base;
@@ -137,7 +138,7 @@ export function makePairDisplayName(base: string, quote: string): string {
 }
 
 /**
- * Определяет формат ключей на сервере по массиву ключей.
+ * Определяет формат ключей по массиву ключей.
  */
 export function detectKeyFormat(keys: string[]): 'pipe' | 'concat' {
   return keys.some((k) => k.includes('|')) ? 'pipe' : 'concat';
@@ -145,14 +146,16 @@ export function detectKeyFormat(keys: string[]): 'pipe' | 'concat' {
 
 /**
  * Генерирует ключи arbiDexMarketData (bid + ask) для данного sourceId + pairId.
- * Пробует оба формата и возвращает оба варианта для совместимости.
+ *
+ * @param sourceId  напр. 'mexc', 'dex:arbitrum'
+ * @param pairId    напр. 'ETH_USDT', 'WETH_USDC'
+ * @param format    'pipe' → 'mexc|ETH/USDT|bidPrice'; 'concat' → 'mexcETH/USDTbidPrice'
  */
 export function buildStoreKeys(
   sourceId: string,
   pairId: string,
   format: 'pipe' | 'concat' = 'concat',
 ): { bidKey: string; askKey: string } | null {
-  // pairId = 'ETH_USDT' или 'WETH_USDC'
   const parts = pairId.split('_');
   if (parts.length !== 2) return null;
 
@@ -164,30 +167,21 @@ export function buildStoreKeys(
     reverseTokens[name] = addr;
   }
 
-  const base = reverseTokens[baseDisplay] ?? baseDisplay;
-  const quote = reverseTokens[quoteDisplay] ?? quoteDisplay;
+  // Для DEX подставляем адреса, для CEX используем символы как есть
+  const base = sourceId.startsWith('dex:') ? (reverseTokens[baseDisplay] ?? baseDisplay) : baseDisplay;
+  const quote = sourceId.startsWith('dex:') ? (reverseTokens[quoteDisplay] ?? quoteDisplay) : quoteDisplay;
+
+  const pair = `${base}/${quote}`;
 
   if (format === 'pipe') {
     return {
-      bidKey: `${sourceId}|${base}|${quote}|bidPrice`,
-      askKey: `${sourceId}|${base}|${quote}|askPrice`,
+      bidKey: `${sourceId}|${pair}|bidPrice`,
+      askKey: `${sourceId}|${pair}|askPrice`,
     };
   }
 
-  // Concat format
-  if (sourceId.startsWith('dex:')) {
-    // DEX: source + addr0 + addr1 + field
-    return {
-      bidKey: `${sourceId}${base}${quote}bidPrice`,
-      askKey: `${sourceId}${base}${quote}askPrice`,
-    };
-  }
-
-  // CEX: source + BASEQUOTE + field
-  const symbol = `${base}${quote}`;
   return {
-    bidKey: `${sourceId}${symbol}bidPrice`,
-    askKey: `${sourceId}${symbol}askPrice`,
+    bidKey: `${sourceId}${pair}bidPrice`,
+    askKey: `${sourceId}${pair}askPrice`,
   };
 }
-

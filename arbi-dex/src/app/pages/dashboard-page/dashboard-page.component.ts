@@ -75,6 +75,12 @@ import { StatusBadgeComponent } from '../../shared/ui/status-badge/status-badge.
 
       <!-- Latest quotes table -->
       <app-page-section title="Latest Quotes">
+        <button slot="header-actions"
+                mat-stroked-button
+                (click)="refreshQuotes()"
+                [disabled]="(quotesLoading$ | async) ?? false">
+          <mat-icon>refresh</mat-icon> Refresh
+        </button>
         <app-content-card>
           <app-quotes-table
             [quotes]="(latestQuotes$ | async) ?? []"
@@ -137,6 +143,10 @@ export class DashboardPageComponent implements OnInit {
     let result: any;
     this.pairs$.pipe(map((p) => p.find((x) => x.id === id))).subscribe((v) => (result = v)).unsubscribe();
     return result;
+  }
+
+  refreshQuotes(): void {
+    this.quotes.loadLatest();
   }
 }
 
