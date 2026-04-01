@@ -20,7 +20,7 @@ export class LiveChartSocketService {
   private socket: Socket | null = null;
 
   /** Базовый URL WebSocket-сервера (без /api prefix) */
-  private readonly wsUrl = 'http://localhost:3002';
+  private readonly wsUrl = 'http://localhost:3003';
 
   /**
    * Подключиться к Gateway и вернуть Observable с входящими сообщениями.

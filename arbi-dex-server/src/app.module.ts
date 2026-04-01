@@ -9,6 +9,7 @@ import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { SettingsModule } from './settings/settings.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { PricesModule } from './prices/prices.module';
+import { QuotesModule } from './quotes/quotes.module';
 import { LiveChartModule } from './live-chart/live-chart.module';
 import { User } from './users/entities/user.entity';
 import { Subscription } from './subscriptions/entities/subscription.entity';
@@ -42,6 +43,7 @@ import { TradingPair } from './catalog/entities/trading-pair.entity';
     SettingsModule,
     CatalogModule,
     PricesModule,
+    QuotesModule,
     LiveChartModule,
   ],
   controllers: [AppController],

@@ -5,7 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { Subscription } from '../subscriptions/entities/subscription.entity';
-import { getPriceStoreKeys } from './price-key-mapping';
+import { buildStoreKeys, detectKeyFormat, SOURCE_META } from './market-data-keys';
 
 /** Точка из PriceStore arbiDexServerBots */
 interface BotsPricePoint {
@@ -69,17 +69,26 @@ export class PricesService {
       throw new NotFoundException('Подписка не найдена');
     }
 
-    // 2. Маппинг в ключи PriceStore
-    const keys = getPriceStoreKeys(sub.sourceId, sub.pairId);
+    // 2. Определяем формат ключей и строим bid/ask ключи
+    let format: 'pipe' | 'concat' = 'concat';
+    try {
+      const keysResp = await firstValueFrom(
+        this.httpService.get<string[]>(`${this.marketDataUrl}/store/keys`),
+      );
+      format = detectKeyFormat(keysResp.data);
+    } catch {
+      // используем формат по умолчанию
+    }
+
+    const keys = buildStoreKeys(sub.sourceId, sub.pairId, format);
     if (!keys) {
       throw new BadRequestException(
-        `Маппинг не найден для sourceId="${sub.sourceId}", pairId="${sub.pairId}". ` +
-        `Проверьте конфигурацию price-key-mapping.ts`,
+        `Не удалось построить ключи для sourceId="${sub.sourceId}", pairId="${sub.pairId}".`,
       );
     }
 
-    // 3. Запрос к arbiDexServerBots
-    const { bidKey, askKey, mapping } = keys;
+    // 3. Запрос к arbiDexMarketData
+    const { bidKey, askKey } = keys;
     let botsData: BotsPriceKeysResponse;
 
     try {
@@ -130,7 +139,7 @@ export class PricesService {
     }
 
     // 5. Конфиг серий
-    const sourceName = mapping.sourcePrefix;
+    const sourceName = SOURCE_META[sub.sourceId]?.displayName ?? sub.sourceId;
     const series: PriceSeriesConfig[] = [
       { key: 'bidPrice', name: `${sourceName} Bid`, color: '#0ecb81' },
       { key: 'askPrice', name: `${sourceName} Ask`, color: '#f6465d' },

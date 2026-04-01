@@ -37,9 +37,10 @@ import { AuthHttpService } from './features/auth/services/auth-http.service';
 import { CatalogHttpService } from './features/catalog/services/catalog-http.service';
 import { SubscriptionsHttpService } from './features/subscriptions/services/subscriptions-http.service';
 import { PricesHttpService } from './features/subscriptions/services/prices-http.service';
+import { QuotesHttpService } from './features/quotes/services/quotes-http.service';
 
-// Mock services (оставлены для Quotes — бэкенд пока не имеет /api/quotes)
-import { QuotesMockService } from './features/quotes/services/quotes-mock.service';
+// Unused mock kept for reference:
+// import { QuotesMockService } from './features/quotes/services/quotes-mock.service';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -62,7 +63,7 @@ export const appConfig: ApplicationConfig = {
     { provide: ICatalogService, useClass: CatalogHttpService },
     { provide: ISubscriptionsService, useClass: SubscriptionsHttpService },
     { provide: IPricesService, useClass: PricesHttpService },
-    // Quotes → мок (бэкенд-эндпоинт котировок ещё не реализован)
-    { provide: IQuotesService, useClass: QuotesMockService },
+    // Quotes → реальный бэкенд (arbiDexMarketData snapshot)
+    { provide: IQuotesService, useClass: QuotesHttpService },
   ],
 };

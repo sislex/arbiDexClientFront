@@ -12,7 +12,7 @@ import { Repository } from 'typeorm';
 import type { Namespace, Socket } from 'socket.io';
 import { io as ioClient, Socket as ClientSocket } from 'socket.io-client';
 import { Subscription } from '../subscriptions/entities/subscription.entity';
-import { getPriceStoreKeys } from '../prices/price-key-mapping';
+import { buildStoreKeys, detectKeyFormat } from '../prices/market-data-keys';
 
 /** Сообщение dataChange от arbiDexMarketData */
 interface DataChangeMessage {
@@ -143,20 +143,28 @@ export class LiveChartGateway
       where: { id: subscriptionId },
     });
 
-    let bidKey = 'dex:arbitrum|WETH/USDC|bidPrice';
-    let askKey = 'dex:arbitrum|WETH/USDC|askPrice';
+    let bidKey = 'dex:arbitrumWETHUSdCbidPrice';
+    let askKey = 'dex:arbitrumWETHUSDCaskPrice';
 
     if (sub) {
-      const keys = getPriceStoreKeys(sub.sourceId, sub.pairId);
+      // Определяем формат ключей на сервере
+      let format: 'pipe' | 'concat' = 'concat';
+      try {
+        const resp = await fetch(`${this.marketDataUrl}/store/keys`);
+        const allKeys: string[] = await resp.json();
+        format = detectKeyFormat(allKeys);
+      } catch { /* fallback */ }
+
+      const keys = buildStoreKeys(sub.sourceId, sub.pairId, format);
       if (keys) {
         bidKey = keys.bidKey;
         askKey = keys.askKey;
         this.logger.log(
-          `Комната ${roomId}: маппинг найден → bid=${bidKey}, ask=${askKey}`,
+          `Комната ${roomId}: ключи построены → bid=${bidKey}, ask=${askKey}`,
         );
       } else {
         this.logger.warn(
-          `Комната ${roomId}: маппинг не найден для sourceId="${sub.sourceId}", pairId="${sub.pairId}", используем fallback`,
+          `Комната ${roomId}: не удалось построить ключи для sourceId="${sub.sourceId}", pairId="${sub.pairId}", используем fallback`,
         );
       }
     } else {
