@@ -14,6 +14,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard',     icon: 'dashboard',     route: '/dashboard' },
   { label: 'Market Catalog',icon: 'explore',       route: '/market' },
   { label: 'Subscriptions', icon: 'bookmark',      route: '/subscriptions' },
+  { label: 'Live Chart',    icon: 'show_chart',    route: '/live-chart' },
   { label: 'Profile',       icon: 'account_circle',route: '/profile' },
 ];
 

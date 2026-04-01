@@ -40,7 +40,7 @@ export const routes: Routes = [
           ),
       },
       {
-        path: 'subscriptions/liveChart/:id',
+        path: 'live-chart',
         loadComponent: () =>
           import('./pages/live-chart-page/live-chart-page.component').then(
             (m) => m.LiveChartPageComponent,

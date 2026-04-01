@@ -57,7 +57,7 @@ export class SubscriptionsPageComponent implements OnInit {
   onRemove(id: string): void { this.subs.remove(id); }
   onToggle(id: string): void { this.subs.toggle(id); }
   onView(id: string): void   { this.router.navigate(['/subscriptions', id]); }
-  onLiveChart(id: string): void { this.router.navigate(['/subscriptions/liveChart', id]); }
+  onLiveChart(id: string): void { this.router.navigate(['/live-chart']); }
   onAddClicked(): void {}
 }
 
