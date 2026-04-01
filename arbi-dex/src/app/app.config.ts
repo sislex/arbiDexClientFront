@@ -15,12 +15,14 @@ import { catalogReducer, CATALOG_FEATURE_KEY } from './features/catalog/store/ca
 import { subscriptionsReducer, SUBSCRIPTIONS_FEATURE_KEY } from './features/subscriptions/store/subscriptions.reducer';
 import { quotesReducer, QUOTES_FEATURE_KEY } from './features/quotes/store/quotes.reducer';
 import { layoutReducer, LAYOUT_FEATURE_KEY } from './features/layout/store/layout.reducer';
+import { demoAccountReducer, DEMO_ACCOUNT_FEATURE_KEY } from './features/demo-account/store/demo-account.reducer';
 
 // Effects
 import { AuthEffects } from './features/auth/store/auth.effects';
 import { CatalogEffects } from './features/catalog/store/catalog.effects';
 import { SubscriptionsEffects } from './features/subscriptions/store/subscriptions.effects';
 import { QuotesEffects } from './features/quotes/store/quotes.effects';
+import { DemoAccountEffects } from './features/demo-account/store/demo-account.effects';
 
 // Interceptors
 import { authInterceptor } from './core/interceptors/auth.interceptor';
@@ -54,8 +56,9 @@ export const appConfig: ApplicationConfig = {
       [SUBSCRIPTIONS_FEATURE_KEY]: subscriptionsReducer,
       [QUOTES_FEATURE_KEY]: quotesReducer,
       [LAYOUT_FEATURE_KEY]: layoutReducer,
+      [DEMO_ACCOUNT_FEATURE_KEY]: demoAccountReducer,
     }),
-    provideEffects([AuthEffects, CatalogEffects, SubscriptionsEffects, QuotesEffects]),
+    provideEffects([AuthEffects, CatalogEffects, SubscriptionsEffects, QuotesEffects, DemoAccountEffects]),
     provideStoreDevtools({ maxAge: 25, logOnly: !isDevMode() }),
     // ── Сервисы ─────────────────────────────────────────────────────
     // Auth, Catalog, Subscriptions → реальный бэкенд

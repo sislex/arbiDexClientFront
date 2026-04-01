@@ -60,6 +60,13 @@ export const routes: Routes = [
             (m) => m.ProfilePageComponent,
           ),
       },
+      {
+        path: 'demo-account',
+        loadComponent: () =>
+          import('./pages/demo-account-page/demo-account-page.component').then(
+            (m) => m.DemoAccountPageComponent,
+          ),
+      },
     ],
   },
   { path: '**', redirectTo: 'login' },
