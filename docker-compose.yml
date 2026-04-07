@@ -24,23 +24,36 @@ services:
     container_name: arbidex_server
     restart: unless-stopped
     ports:
-      - '3000:3000'
+      - '3006:3006'
     environment:
-      APP_PORT: 3000
+      APP_PORT: 3006
       NODE_ENV: production
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: arbidex
       DB_PASSWORD: arbidex_pass
       DB_NAME: arbidex_db
-      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-super-secret-access-key}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-super-secret-refresh-key}
       JWT_ACCESS_EXPIRES_IN: 15m
       JWT_REFRESH_EXPIRES_IN: 7d
       CORS_ORIGIN: http://localhost:4200
     depends_on:
       postgres:
         condition: service_healthy
+
+  frontend:
+    build:
+      context: ./arbi-dex
+      dockerfile: Dockerfile
+    container_name: arbidex_frontend
+    restart: unless-stopped
+    ports:
+      - '8231:80'
+    environment:
+      API_BASE_URL: /api
+    depends_on:
+      - server
 
 volumes:
   postgres_data:

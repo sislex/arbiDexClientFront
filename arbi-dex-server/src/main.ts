@@ -70,7 +70,7 @@ async function bootstrap() {
   await seedCatalog(dataSource);
 
   // ── Start ───────────────────────────────────────────────────────────────────
-  const port = cfg.get<number>('app.port') ?? 3000;
+  const port = cfg.get<number>('app.port') ?? 3006;
   await app.listen(port);
   console.log(`🚀 Server running at http://localhost:${port}/api`);
   console.log(`📚 Swagger docs at http://localhost:${port}/api/docs`);
