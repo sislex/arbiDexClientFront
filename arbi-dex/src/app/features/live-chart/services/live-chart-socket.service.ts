@@ -1,6 +1,7 @@
-import { Injectable } from '@angular/core';
+import { Inject, Injectable } from '@angular/core';
 import { Observable, merge } from 'rxjs';
 import { io, Socket } from 'socket.io-client';
+import { API_BASE_URL } from '../../../core/config/api.config';
 
 /** Формат одного сообщения от live-chart gateway */
 export interface LiveChartMessage {
@@ -28,7 +29,12 @@ export class LiveChartSocketService {
   private sockets = new Map<string, Socket>();
 
   /** Базовый URL WebSocket-сервера (без /api prefix) */
-  private readonly wsUrl = 'http://localhost:3003';
+  private readonly wsUrl: string;
+
+  constructor(@Inject(API_BASE_URL) apiBaseUrl: string) {
+    // Убираем /api суффикс, чтобы получить базовый URL сервера для WebSocket
+    this.wsUrl = apiBaseUrl.replace(/\/api\/?$/, '');
+  }
 
   /**
    * Подключиться к Gateway и вернуть Observable с входящими сообщениями.
