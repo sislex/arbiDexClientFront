@@ -15,12 +15,19 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { Subscription as RxSubscription, combineLatest } from 'rxjs';
 import { filter, take } from 'rxjs/operators';
 import { PageContainerComponent } from '../../shared/ui/page-container/page-container.component';
 import { PageHeaderComponent } from '../../shared/ui/page-header/page-header.component';
 import { StatCardComponent } from '../../shared/ui/stat-card/stat-card.component';
 import { ContentCardComponent } from '../../shared/ui/content-card/content-card.component';
+import { PlaybackPlayerComponent } from '../../shared/ui/playback-player/playback-player.component';
+import {
+  PriceChartComponent,
+  PriceSeriesConfig,
+  PricePoint,
+} from '../../shared/ui/price-chart/price-chart.component';
 import { DemoAccountFacade } from '../../features/demo-account/facades/demo-account.facade';
 import { QuotesFacade } from '../../features/quotes/facades/quotes.facade';
 import { SubscriptionsFacade } from '../../features/subscriptions/facades/subscriptions.facade';
@@ -29,8 +36,22 @@ import {
   LiveChartSocketService,
   LiveChartMessage,
 } from '../../features/live-chart/services/live-chart-socket.service';
+import { HistoricalPlaybackService } from '../../features/demo-account/services/historical-playback.service';
 import { selectAccessToken } from '../../features/auth/store/auth.selectors';
-import { Quote, SwapDirection, DemoTrade, Subscription, Source, TradingPair } from '../../shared/models';
+import {
+  Quote,
+  SwapDirection,
+  DemoTrade,
+  DemoTradeMode,
+  Subscription,
+  Source,
+  TradingPair,
+  PlaybackState,
+  PlaybackSpeed,
+} from '../../shared/models';
+
+/** Максимальное количество точек на графике в историческом режиме */
+const MAX_HIST_CHART_POINTS = 3000;
 
 @Component({
   selector: 'app-demo-account-page',
@@ -45,17 +66,34 @@ import { Quote, SwapDirection, DemoTrade, Subscription, Source, TradingPair } fr
     MatInputModule,
     MatTooltipModule,
     MatSnackBarModule,
+    MatButtonToggleModule,
     PageContainerComponent,
     PageHeaderComponent,
     StatCardComponent,
     ContentCardComponent,
+    PlaybackPlayerComponent,
+    PriceChartComponent,
   ],
   template: `
     <app-page-container>
       <app-page-header
         title="Demo Account"
-        subtitle="Simulated USDC ↔ WETH trading with live prices">
-        <div slot="actions">
+        [subtitle]="mode === 'live'
+          ? 'Simulated USDC ↔ WETH trading with live prices'
+          : 'Simulated USDC ↔ WETH trading with historical playback'">
+        <div slot="actions" class="header-actions">
+          <mat-button-toggle-group
+            [value]="mode"
+            (change)="onModeChange($event.value)"
+            appearance="standard"
+            class="mode-toggle">
+            <mat-button-toggle value="live">
+              <mat-icon>wifi</mat-icon> Live
+            </mat-button-toggle>
+            <mat-button-toggle value="historical">
+              <mat-icon>history</mat-icon> Historical
+            </mat-button-toggle>
+          </mat-button-toggle-group>
           <button mat-stroked-button (click)="resetAccount()" matTooltip="Reset to initial balance">
             <mat-icon>restart_alt</mat-icon> Reset
           </button>
@@ -99,6 +137,35 @@ import { Quote, SwapDirection, DemoTrade, Subscription, Source, TradingPair } fr
         </div>
       </app-content-card>
 
+      <!-- ── HISTORICAL MODE: Playback Player ── -->
+      <ng-container *ngIf="mode === 'historical'">
+        <app-content-card title="Historical Playback" [compact]="true">
+          <div *ngIf="playbackState.loading" class="playback-loading">
+            <mat-icon>hourglass_top</mat-icon> Loading historical data…
+          </div>
+          <div *ngIf="playbackState.error" class="error-msg">
+            <mat-icon>error_outline</mat-icon>
+            <span>{{ playbackState.error }}</span>
+          </div>
+          <app-playback-player
+            *ngIf="!playbackState.loading && !playbackState.error && playbackState.totalPoints > 0"
+            [state]="playbackState"
+            (play)="onPlaybackPlay()"
+            (pause)="onPlaybackPause()"
+            (stop)="onPlaybackStop()"
+            (speedChange)="onPlaybackSpeedChange($event)"
+            (seek)="onPlaybackSeek($event)" />
+        </app-content-card>
+
+        <!-- Chart -->
+        <app-content-card *ngIf="histChartSeries.length > 0" title="Price Chart" [compact]="true">
+          <app-price-chart
+            [series]="histChartSeries"
+            [data]="histChartData"
+            [streaming]="false" />
+        </app-content-card>
+      </ng-container>
+
       <!-- Котировка Arbitrum DEX — WETH/USDC -->
       <app-content-card title="Arbitrum DEX — WETH/USDC" [compact]="true" *ngIf="midPrice > 0">
         <div class="quote-info-row">
@@ -123,12 +190,15 @@ import { Quote, SwapDirection, DemoTrade, Subscription, Source, TradingPair } fr
             <span class="quote-item__value">{{ quoteTimestamp | date:'HH:mm:ss.SSS' }}</span>
           </div>
           <div class="quote-item quote-item--live">
-            <span class="live-badge-sm"><span class="dot"></span> LIVE</span>
+            <span class="live-badge-sm" [class.live-badge-sm--hist]="mode === 'historical'">
+              <span class="dot"></span>
+              {{ mode === 'live' ? 'LIVE' : 'PLAYBACK' }}
+            </span>
           </div>
         </div>
       </app-content-card>
 
-      <div *ngIf="wsError" class="error-msg">
+      <div *ngIf="wsError && mode === 'live'" class="error-msg">
         <mat-icon>error_outline</mat-icon>
         <span>{{ wsError }}</span>
       </div>
@@ -170,10 +240,11 @@ import { Quote, SwapDirection, DemoTrade, Subscription, Source, TradingPair } fr
               <span matTextSuffix>%</span>
             </mat-form-field>
             <span class="price-info" *ngIf="midPrice > 0">
-              <span class="live-dot"></span>
+              <span class="live-dot" [class.live-dot--hist]="mode === 'historical'"></span>
               <strong>{{ priceSourceLabel }} — WETH/USDC</strong>
+              <em *ngIf="mode === 'historical'" class="price-info__hist-note">(historical)</em>
             </span>
-            <span class="price-info price-info--warn" *ngIf="midPrice === 0 && !wsError">
+            <span class="price-info price-info--warn" *ngIf="midPrice === 0 && !wsError && mode === 'live'">
               <mat-icon>warning</mat-icon> Connecting to price feed…
             </span>
           </div>
@@ -229,6 +300,22 @@ import { Quote, SwapDirection, DemoTrade, Subscription, Source, TradingPair } fr
   styles: [`
     @use 'styles/tokens' as t;
 
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: t.$spacing-md;
+      flex-wrap: wrap;
+    }
+
+    .mode-toggle {
+      ::ng-deep .mat-button-toggle-label-content {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 13px;
+      }
+    }
+
     .balance-row {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -255,6 +342,14 @@ import { Quote, SwapDirection, DemoTrade, Subscription, Source, TradingPair } fr
       color: var(--color-danger, #ef4444);
       justify-content: center;
       margin-bottom: t.$spacing-md;
+    }
+
+    .playback-loading {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--color-text-muted);
+      padding: 8px 0;
     }
 
     /* ── Quote info row ── */
@@ -307,13 +402,19 @@ import { Quote, SwapDirection, DemoTrade, Subscription, Source, TradingPair } fr
       font-size: 11px;
       font-weight: 600;
       letter-spacing: 1px;
+
+      &--hist {
+        background: rgba(33, 150, 243, 0.15);
+        border-color: #2196f3;
+        color: #2196f3;
+      }
     }
 
     .dot {
       width: 7px;
       height: 7px;
       border-radius: 50%;
-      background: #0ecb81;
+      background: currentColor;
       animation: pulse 1.5s ease-in-out infinite;
     }
 
@@ -393,6 +494,13 @@ import { Quote, SwapDirection, DemoTrade, Subscription, Source, TradingPair } fr
         color: var(--color-danger, #ef4444);
         mat-icon { font-size: 18px; width: 18px; height: 18px; }
       }
+
+      &__hist-note {
+        font-style: italic;
+        font-weight: 400;
+        color: var(--color-text-muted);
+        font-size: t.$font-size-xs;
+      }
     }
 
     .live-dot {
@@ -401,6 +509,10 @@ import { Quote, SwapDirection, DemoTrade, Subscription, Source, TradingPair } fr
       border-radius: 50%;
       background: #0ecb81;
       animation: pulse 1.5s ease-in-out infinite;
+
+      &--hist {
+        background: #2196f3;
+      }
     }
 
     @keyframes pulse {
@@ -474,8 +586,12 @@ export class DemoAccountPageComponent implements OnInit, OnDestroy {
   private readonly subsFacade = inject(SubscriptionsFacade);
   private readonly catalogFacade = inject(CatalogFacade);
   private readonly liveChartSocket = inject(LiveChartSocketService);
+  private readonly playbackService = inject(HistoricalPlaybackService);
   private readonly snackBar = inject(MatSnackBar);
   private readonly cdr = inject(ChangeDetectorRef);
+
+  // Mode
+  mode: DemoTradeMode = 'live';
 
   // Балансы
   usdcBalance = 100;
@@ -504,6 +620,19 @@ export class DemoAccountPageComponent implements OnInit, OnDestroy {
 
   // Trade history
   trades: DemoTrade[] = [];
+
+  // Playback state
+  playbackState: PlaybackState = {
+    isPlaying: false, speed: 1, currentTime: 0, startTime: 0, endTime: 0,
+    progress: 0, totalPoints: 0, currentIndex: 0, loading: false, error: '',
+  };
+
+  // Historical chart
+  histChartSeries: PriceSeriesConfig[] = [];
+  histChartData: PricePoint[] = [];
+
+  /** ID подписки Arbitrum DEX */
+  private arbitrumSubId: string | null = null;
 
   private rxSubs: RxSubscription[] = [];
 
@@ -572,12 +701,76 @@ export class DemoAccountPageComponent implements OnInit, OnDestroy {
       this.cdr.markForCheck();
     });
     this.rxSubs.push(bSub);
+
+    // 5. Подписка на состояние playback-сервиса
+    const pbStateSub = this.playbackService.state$.subscribe((s) => {
+      this.playbackState = s;
+      this.cdr.markForCheck();
+    });
+    this.rxSubs.push(pbStateSub);
   }
 
   ngOnDestroy(): void {
     this.rxSubs.forEach((s) => s.unsubscribe());
     this.liveChartSocket.disconnect();
+    this.playbackService.stop();
   }
+
+  /* ── Mode switching ── */
+
+  onModeChange(newMode: DemoTradeMode): void {
+    if (newMode === this.mode) return;
+    this.mode = newMode;
+
+    if (newMode === 'historical') {
+      // Отключаем live WS
+      this.liveChartSocket.disconnect();
+      this.wsError = '';
+      // Запускаем загрузку исторических данных
+      this.startHistoricalMode();
+    } else {
+      // Останавливаем playback
+      this.playbackService.stop();
+      this.histChartSeries = [];
+      this.histChartData = [];
+      // Переподключаем live WS
+      if (this.arbitrumSubId) {
+        this.connectWebSocket(this.arbitrumSubId);
+      }
+    }
+    this.cdr.markForCheck();
+  }
+
+  /* ── Playback controls ── */
+
+  onPlaybackPlay(): void { this.playbackService.play(); }
+  onPlaybackPause(): void { this.playbackService.pause(); }
+
+  onPlaybackStop(): void {
+    this.playbackService.stop();
+    this.histChartData = [];
+    // Перезагрузить данные
+    this.startHistoricalMode();
+  }
+
+  onPlaybackSpeedChange(speed: PlaybackSpeed): void {
+    this.playbackService.setSpeed(speed);
+  }
+
+  onPlaybackSeek(progress: number): void {
+    this.playbackService.seekTo(progress);
+    // Перестроить график до этой точки
+    if (this.allHistPoints.length > 0) {
+      const idx = Math.min(
+        Math.floor(progress * this.allHistPoints.length),
+        this.allHistPoints.length - 1,
+      );
+      this.histChartData = this.allHistPoints.slice(0, idx + 1);
+      this.cdr.markForCheck();
+    }
+  }
+
+  /* ── Swap ── */
 
   flipDirection(): void {
     if (this.direction === 'USDC_TO_WETH') {
@@ -644,11 +837,101 @@ export class DemoAccountPageComponent implements OnInit, OnDestroy {
     this.snackBar.open('Demo account reset to 100 USDC', 'OK', { duration: 3000 });
   }
 
-  /* ── WebSocket ── */
+  /* ── Historical Mode ── */
+
+  /** Все загруженные исторические точки (для seek) */
+  private allHistPoints: PricePoint[] = [];
+
+  private async startHistoricalMode(): Promise<void> {
+    if (!this.arbitrumSubId) {
+      this.playbackState = {
+        ...this.playbackState,
+        error: 'No Arbitrum DEX — WETH/USDC subscription found.',
+      };
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const data = await this.playbackService.load(this.arbitrumSubId);
+    if (!data || data.data.length === 0) return;
+
+    // Настраиваем серии для графика
+    this.histChartSeries = data.series.map((s) => ({ ...s }));
+    this.allHistPoints = [...data.data];
+    this.histChartData = [];
+    this.cdr.markForCheck();
+
+    // Подписываемся на playback-обновления
+    const pbSub = this.playbackService.priceUpdate$.subscribe((msg) => {
+      this.onPlaybackMessage(msg, data);
+    });
+    this.rxSubs.push(pbSub);
+  }
+
+  /**
+   * Обработка сообщения от playback-сервиса: обновляет bid/ask и добавляет точку на график.
+   */
+  private onPlaybackMessage(msg: LiveChartMessage, originalData: { series: PriceSeriesConfig[] } | null): void {
+    // msg.key = "playback|bidPrice" / "playback|askPrice" / "playback|midPrice"
+    const parts = msg.key.split('|');
+    const fieldKey = parts.length > 1 ? parts[1] : parts[0];
+    const keyLower = fieldKey.toLowerCase();
+
+    const isBid = keyLower.includes('bid');
+    const isAsk = keyLower.includes('ask');
+    const isMid = keyLower.includes('mid');
+
+    const rawValue = msg.point.v;
+    this.quoteTimestamp = msg.point.t;
+
+    if (this.invertedPair) {
+      if (rawValue <= 0) return;
+      if (isBid) {
+        this.askPrice = 1 / rawValue;
+      } else if (isAsk) {
+        this.bidPrice = 1 / rawValue;
+      }
+    } else {
+      if (isBid) {
+        this.bidPrice = rawValue;
+      } else if (isAsk) {
+        this.askPrice = rawValue;
+      } else if (isMid) {
+        // midPrice — CEX-like серия
+        this.bidPrice = rawValue;
+        this.askPrice = rawValue;
+      }
+    }
+
+    // Пересчитываем mid и spread
+    if (this.bidPrice > 0 && this.askPrice > 0) {
+      this.midPrice = (this.bidPrice + this.askPrice) / 2;
+      this.spreadPct = ((this.askPrice - this.bidPrice) / this.midPrice) * 100;
+    } else if (this.bidPrice > 0) {
+      this.midPrice = this.bidPrice;
+    } else if (this.askPrice > 0) {
+      this.midPrice = this.askPrice;
+    }
+
+    // Обновляем график: добавляем точку из allHistPoints по текущему индексу
+    const state = this.playbackService.state;
+    if (state.currentIndex < this.allHistPoints.length) {
+      // Добавляем все точки до текущего индекса
+      const targetLen = state.currentIndex + 1;
+      if (this.histChartData.length < targetLen) {
+        this.histChartData = this.allHistPoints.slice(0, targetLen);
+      }
+    }
+
+    this.recalcEstimate();
+    this.updatePortfolio();
+    this.cdr.markForCheck();
+  }
+
+  /* ── WebSocket (Live Mode) ── */
 
   /**
    * Ищем подписку на Arbitrum DEX + WETH/USDC среди подписок пользователя.
-   * Для определения берём каталог sources/pairs.
    */
   private findAndConnectArbitrumSub(): void {
     const sub = combineLatest([
@@ -667,7 +950,6 @@ export class DemoAccountPageComponent implements OnInit, OnDestroy {
         const source = sourceMap.get(s.sourceId);
         const pair = pairMap.get(s.pairId);
 
-        // Матч через каталог
         if (source && pair) {
           const isArbitrum = source.name.toLowerCase().includes('arbitrum') ||
                              source.displayName.toLowerCase().includes('arbitrum');
@@ -677,7 +959,6 @@ export class DemoAccountPageComponent implements OnInit, OnDestroy {
           if (isArbitrum && isWethUsdc) return true;
         }
 
-        // Fallback: матч по raw sourceId/pairId
         const sid = s.sourceId.toLowerCase();
         const pid = s.pairId.toUpperCase();
         const isArbRaw = sid.includes('arbitrum');
@@ -692,13 +973,16 @@ export class DemoAccountPageComponent implements OnInit, OnDestroy {
         return;
       }
 
-      // Определяем порядок пары (нужна ли инверсия)
       const pair = pairMap.get(targetSub.pairId);
       const pidRaw = (pair?.id ?? targetSub.pairId).toUpperCase();
       this.invertedPair = pidRaw.startsWith('USDC') || pidRaw.startsWith('USDT');
-
       this.priceSourceLabel = 'Arbitrum DEX';
-      this.connectWebSocket(targetSub.id);
+      this.arbitrumSubId = targetSub.id;
+
+      // Подключаем WS только в live-режиме
+      if (this.mode === 'live') {
+        this.connectWebSocket(targetSub.id);
+      }
     });
     this.rxSubs.push(sub);
   }
@@ -723,9 +1007,10 @@ export class DemoAccountPageComponent implements OnInit, OnDestroy {
 
   /**
    * Обработка WS-сообщения: обновляет bid или ask в реальном времени.
-   * Ключ: "dex:arbitrum|WETH/USDC|bidPrice" или "dex:arbitrum0x.../0x...askPrice"
    */
   private onWsMessage(msg: LiveChartMessage): void {
+    if (this.mode !== 'live') return; // Игнорируем WS в историческом режиме
+
     const key = msg.key.toLowerCase();
     const isBid = key.endsWith('bidprice');
     const isAsk = key.endsWith('askprice');
@@ -735,13 +1020,10 @@ export class DemoAccountPageComponent implements OnInit, OnDestroy {
     this.quoteTimestamp = msg.point.t;
 
     if (this.invertedPair) {
-      // Пара USDC/WETH: значение = цена USDC в WETH, инвертируем
       if (rawValue <= 0) return;
       if (isBid) {
-        // bid USDC/WETH → ask WETH/USDC
         this.askPrice = 1 / rawValue;
       } else {
-        // ask USDC/WETH → bid WETH/USDC
         this.bidPrice = 1 / rawValue;
       }
     } else {
@@ -752,7 +1034,6 @@ export class DemoAccountPageComponent implements OnInit, OnDestroy {
       }
     }
 
-    // Пересчитываем mid и spread
     if (this.bidPrice > 0 && this.askPrice > 0) {
       this.midPrice = (this.bidPrice + this.askPrice) / 2;
       this.spreadPct = ((this.askPrice - this.bidPrice) / this.midPrice) * 100;
@@ -770,10 +1051,6 @@ export class DemoAccountPageComponent implements OnInit, OnDestroy {
 
   /* ── Snapshot (начальные котировки) ── */
 
-  /**
-   * Применяет начальный snapshot из quotes-стора для первого отображения
-   * (пока WS ещё не подключился).
-   */
   private applySnapshot(quotes: Quote[]): void {
     const isArbitrum = (sid: string) =>
       sid === 'dex:arbitrum' || sid === 'dex_arbitrum' || sid.toLowerCase().includes('arbitrum');
@@ -827,8 +1104,4 @@ export class DemoAccountPageComponent implements OnInit, OnDestroy {
     this.pnlDisplay = `${sign}${this.pnl.toFixed(2)} USDC`;
   }
 }
-
-
-
-
 
