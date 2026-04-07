@@ -7,12 +7,13 @@ services:
       POSTGRES_USER: arbidex
       POSTGRES_PASSWORD: arbidex_pass
       POSTGRES_DB: arbidex_db
+    command: -p 5433
     ports:
-      - '5432:5432'
+      - '5433:5433'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U arbidex -d arbidex_db']
+      test: ['CMD-SHELL', 'pg_isready -U arbidex -d arbidex_db -p 5433']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -29,7 +30,7 @@ services:
       APP_PORT: 3006
       NODE_ENV: production
       DB_HOST: postgres
-      DB_PORT: 5432
+      DB_PORT: 5433
       DB_USER: arbidex
       DB_PASSWORD: arbidex_pass
       DB_NAME: arbidex_db
