@@ -33,7 +33,7 @@ import { TradingPair } from './catalog/entities/trading-pair.entity';
         password: cfg.get<string>('db.password'),
         database: cfg.get<string>('db.database'),
         entities: [User, Subscription, UserSettings, Source, TradingPair],
-        synchronize: cfg.get<string>('app.nodeEnv') !== 'production',
+        synchronize: true, // TODO: заменить на миграции для production
         logging: cfg.get<string>('app.nodeEnv') === 'development',
       }),
     }),
