@@ -341,7 +341,20 @@ export class LiveChartPageComponent implements OnInit, OnDestroy {
     const prefix = this.keyPrefixMap.get(msg.subscriptionId);
     if (!prefix) return;
 
-    const fieldKey = msg.key.split('|').pop() ?? msg.key;
+    // Извлекаем field из WS-ключа:
+    // pipe-формат: 'source|pair|bidPrice' → split('|').pop() → 'bidPrice'
+    // concat-формат: 'binanceETH/USDTbidPrice' → endsWith-проверка
+    let fieldKey: string;
+    if (msg.key.includes('|')) {
+      fieldKey = msg.key.split('|').pop() ?? msg.key;
+    } else if (msg.key.endsWith('bidPrice')) {
+      fieldKey = 'bidPrice';
+    } else if (msg.key.endsWith('askPrice')) {
+      fieldKey = 'askPrice';
+    } else {
+      fieldKey = msg.key;
+    }
+
     const newFieldKey = `${prefix}_${fieldKey}`;
 
     const last = this.chartData[this.chartData.length - 1];

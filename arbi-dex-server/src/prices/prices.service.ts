@@ -110,9 +110,6 @@ export class PricesService {
     const bidPoints: BotsPricePoint[] = botsData[bidKey]?.points ?? [];
     const askPoints: BotsPricePoint[] = botsData[askKey]?.points ?? [];
 
-    // Определяем тип источника: DEX показываем bid/ask, CEX — только mid
-    const isDex = sub.sourceId.startsWith('dex');
-
     // Merge bid и ask по timestamp с помощью Map
     const timeMap = new Map<number, ChartPricePoint>();
 
@@ -141,32 +138,14 @@ export class PricesService {
       lastAsk = point.askPrice;
     }
 
-    // 5. Конфиг серий
+    // 5. Конфиг серий — единый формат bid/ask для всех источников (DEX и CEX)
     const sourceName = SOURCE_META[sub.sourceId]?.displayName ?? sub.sourceId;
 
-    if (isDex) {
-      // DEX: две серии — bid и ask
-      const series: PriceSeriesConfig[] = [
-        { key: 'bidPrice', name: `${sourceName} Bid`, color: '#0ecb81' },
-        { key: 'askPrice', name: `${sourceName} Ask`, color: '#f6465d' },
-      ];
+    const series: PriceSeriesConfig[] = [
+      { key: 'bidPrice', name: `${sourceName} Bid`, color: '#0ecb81' },
+      { key: 'askPrice', name: `${sourceName} Ask`, color: '#f6465d' },
+    ];
 
-      return { series, data: sorted };
-    } else {
-      // CEX: одна серия — mid (среднее bid и ask)
-      const midData: ChartPricePoint[] = sorted.map((point) => ({
-        time: point.time,
-        midPrice:
-          point.bidPrice > 0 && point.askPrice > 0
-            ? (point.bidPrice + point.askPrice) / 2
-            : point.bidPrice || point.askPrice,
-      }));
-
-      const series: PriceSeriesConfig[] = [
-        { key: 'midPrice', name: `${sourceName} Mid`, color: '#2196f3' },
-      ];
-
-      return { series, data: midData };
-    }
+    return { series, data: sorted };
   }
 }
