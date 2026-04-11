@@ -353,6 +353,19 @@ type PlaybackSubMode = 'realtime' | 'server';
         <!-- Auto-trade toggle + Manual swap -->
         <app-content-card title="Trading" [elevated]="true">
           <div class="trading-header">
+            <mat-button-toggle-group
+              [value]="tradingMode"
+              (change)="tradingMode = $event.value"
+              appearance="standard"
+              class="trading-mode-toggle">
+              <mat-button-toggle value="demo">
+                <mat-icon>science</mat-icon> Demo
+              </mat-button-toggle>
+              <mat-button-toggle value="real">
+                <mat-icon>account_balance_wallet</mat-icon> Real
+              </mat-button-toggle>
+            </mat-button-toggle-group>
+
             <mat-slide-toggle [(ngModel)]="autoTradeEnabled" class="auto-toggle">
               Auto-Trade
             </mat-slide-toggle>
@@ -360,6 +373,18 @@ type PlaybackSubMode = 'realtime' | 'server';
               {{ engine.hasPosition ? '🟢 In Position' : '⏳ Waiting for signal' }}
             </span>
             <span class="auto-reason" *ngIf="lastAutoTradeReason">{{ lastAutoTradeReason }}</span>
+          </div>
+
+          <!-- Real trading warning -->
+          <div class="real-trading-banner" *ngIf="tradingMode === 'real'">
+            <mat-icon>warning_amber</mat-icon>
+            <span>Real trading is not yet implemented. Swaps will be executed on-chain when this feature is ready.</span>
+          </div>
+
+          <!-- Demo mode badge -->
+          <div class="demo-badge" *ngIf="tradingMode === 'demo'">
+            <mat-icon>science</mat-icon>
+            <span>Demo mode — trades are simulated, no real funds involved.</span>
           </div>
 
           <!-- Manual swap form -->
@@ -579,6 +604,37 @@ type PlaybackSubMode = 'realtime' | 'server';
       font-style: italic;
     }
 
+    .trading-mode-toggle {
+      font-size: t.$font-size-sm;
+    }
+
+    .real-trading-banner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      margin-bottom: t.$spacing-md;
+      background: rgba(255, 152, 0, 0.1);
+      border: 1px solid #ff9800;
+      border-radius: t.$radius-sm;
+      color: #ff9800;
+      font-size: t.$font-size-sm;
+      font-weight: 500;
+    }
+
+    .demo-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      margin-bottom: t.$spacing-md;
+      background: rgba(33, 150, 243, 0.08);
+      border: 1px solid rgba(33, 150, 243, 0.3);
+      border-radius: t.$radius-sm;
+      color: #2196f3;
+      font-size: t.$font-size-sm;
+    }
+
     .swap-form {
       display: flex;
       flex-direction: column;
@@ -720,6 +776,7 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   autoTradeEnabled = false;
   engine: AutoTradeEngine | null = null;
   lastAutoTradeReason = '';
+  tradingMode: 'demo' | 'real' = 'demo';
 
   // Server backtest
   backtestResult: BacktestResult | null = null;
