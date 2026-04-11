@@ -26,6 +26,7 @@ import {
   PriceSeriesConfig,
   PricePoint,
   HorizontalLine,
+  TradeMarker,
 } from '../../shared/ui/price-chart/price-chart.component';
 import { PageContainerComponent } from '../../shared/ui/page-container/page-container.component';
 import { PageHeaderComponent } from '../../shared/ui/page-header/page-header.component';
@@ -166,31 +167,28 @@ type PageMode = 'historical' | 'live' | 'playback';
         <span>{{ error }}</span>
       </div>
 
-      <div *ngIf="!loading && !error && series.length > 0" class="chart-section">
-        <div class="chart-toolbar">
-          <div class="chart-toolbar__left">
-            <div class="live-badge" *ngIf="mode === 'live'">
-              <span class="dot"></span> LIVE
-            </div>
-            <div class="live-badge live-badge--playback" *ngIf="mode === 'playback' && playbackState.isPlaying">
-              <span class="dot"></span> PLAYBACK {{ playbackState.speed }}×
-            </div>
+      <app-content-card *ngIf="!loading && !error && series.length > 0" title="Price Chart">
+        <ng-container slot="header-actions">
+          <div class="live-badge" *ngIf="mode === 'live'">
+            <span class="dot"></span> LIVE
           </div>
-          <mat-slide-toggle [(ngModel)]="chartVisible" class="chart-toggle">
-            {{ chartVisible ? 'Chart ON' : 'Chart OFF (performance)' }}
-          </mat-slide-toggle>
-        </div>
+          <div class="live-badge live-badge--playback" *ngIf="mode === 'playback' && playbackState.isPlaying">
+            <span class="dot"></span> PLAYBACK {{ playbackState.speed }}×
+          </div>
+          <button mat-icon-button
+                  (click)="chartVisible = !chartVisible"
+                  [matTooltip]="chartVisible ? 'Hide chart' : 'Show chart'">
+            <mat-icon>{{ chartVisible ? 'expand_less' : 'expand_more' }}</mat-icon>
+          </button>
+        </ng-container>
         <app-price-chart
           *ngIf="chartVisible"
           [series]="series"
           [data]="chartData"
           [horizontalLines]="hLines"
+          [tradeMarkers]="tradeMarkersList"
           [streaming]="false" />
-        <div *ngIf="!chartVisible" class="chart-hidden-placeholder">
-          <mat-icon>visibility_off</mat-icon>
-          <span>Chart hidden for performance. Toggle above to show.</span>
-        </div>
-      </div>
+      </app-content-card>
 
       <!-- ── TRADING SECTION (only in playback / live) ── -->
       <ng-container *ngIf="config && (mode === 'playback' || mode === 'live')">
@@ -287,7 +285,7 @@ type PageMode = 'historical' | 'live' | 'playback';
         </app-content-card>
 
         <!-- Trade History -->
-        <app-content-card title="Trade History" *ngIf="trades.length > 0">
+        <app-content-card [title]="'Trade History (' + trades.length + ')'" *ngIf="trades.length > 0">
           <button slot="header-actions" mat-icon-button
                   (click)="showTradeHistory = !showTradeHistory"
                   [matTooltip]="showTradeHistory ? 'Hide table' : 'Show table'">
@@ -375,37 +373,6 @@ type PageMode = 'historical' | 'live' | 'playback';
       padding: 8px 0;
     }
 
-    .chart-section { margin-top: t.$spacing-md; }
-
-    .chart-toolbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 8px;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .chart-toolbar__left {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .chart-toggle {
-      font-size: t.$font-size-sm;
-      font-weight: 600;
-    }
-    .chart-hidden-placeholder {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      padding: 48px 16px;
-      background: var(--color-surface, #1e222d);
-      border: 1px dashed var(--color-border, #2b3139);
-      border-radius: t.$radius-md;
-      color: var(--color-text-muted, #5e6673);
-      font-size: t.$font-size-sm;
-    }
 
     .live-badge, .live-badge--playback {
       display: inline-flex;
@@ -418,7 +385,6 @@ type PageMode = 'historical' | 'live' | 'playback';
       color: #0ecb81;
       font-size: 12px;
       font-weight: 600;
-      margin-bottom: 8px;
       letter-spacing: 1px;
       .dot {
         width: 8px; height: 8px; border-radius: 50%;
@@ -603,6 +569,7 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   amountIn = 100;
   estimatedOut = 0;
   trades: DemoTrade[] = [];
+  tradeMarkersList: TradeMarker[] = [];
   showTradeHistory = false;
 
   // Auto-trade
@@ -728,6 +695,7 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       this.wethBalance = weth;
       this.initialUsdc = initial;
       this.trades = history;
+      this.updateTradeMarkers();
       this.updatePortfolio();
       this.recalcEstimate();
       this.cdr.markForCheck();
@@ -837,7 +805,11 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     if (!this.canSwap) return;
     const slip = this.config?.slippage ?? 0.01;
     const { step, playbackTime } = this.currentPlaybackInfo();
-    this.demoFacade.swap(this.direction, this.amountIn, slip, this.tradingMid, step, playbackTime);
+    // Покупка по ask, продажа по bid (как на реальном рынке)
+    const execPrice = this.direction === 'USDC_TO_WETH'
+      ? (this.tradingAsk > 0 ? this.tradingAsk : this.tradingMid)
+      : (this.tradingBid > 0 ? this.tradingBid : this.tradingMid);
+    this.demoFacade.swap(this.direction, this.amountIn, slip, execPrice, step, playbackTime);
     this.snackBar.open(
       `Swap: ${this.amountIn.toFixed(2)} ${this.direction === 'USDC_TO_WETH' ? 'USDC → WETH' : 'WETH → USDC'}`,
       'OK', { duration: 3000 },
@@ -1023,7 +995,9 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       const amount = this.usdcBalance * (tradeAmountPct / 100);
       if (amount > 0) {
         const { step, playbackTime } = this.currentPlaybackInfo();
-        this.demoFacade.swap('USDC_TO_WETH', amount, this.config.slippage, this.tradingMid, step, playbackTime);
+        // Покупка по ask (как на реальном рынке)
+        const buyPrice = this.tradingAsk > 0 ? this.tradingAsk : this.tradingMid;
+        this.demoFacade.swap('USDC_TO_WETH', amount, this.config.slippage, buyPrice, step, playbackTime);
         this.engine.onBuy(this.tradingAsk);
         this.lastAutoTradeReason = result.reason ?? 'Auto-buy';
         this.snackBar.open(`🤖 Auto-BUY: ${amount.toFixed(2)} USDC`, 'OK', { duration: 3000 });
@@ -1031,7 +1005,9 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     } else if (result.action === 'sell') {
       if (this.wethBalance > 0) {
         const { step, playbackTime } = this.currentPlaybackInfo();
-        this.demoFacade.swap('WETH_TO_USDC', this.wethBalance, this.config.slippage, this.tradingMid, step, playbackTime);
+        // Продажа по bid (как на реальном рынке)
+        const sellPrice = this.tradingBid > 0 ? this.tradingBid : this.tradingMid;
+        this.demoFacade.swap('WETH_TO_USDC', this.wethBalance, this.config.slippage, sellPrice, step, playbackTime);
         this.engine.onSell();
         this.lastAutoTradeReason = result.reason ?? 'Auto-sell';
         this.snackBar.open(`🤖 Auto-SELL: ${this.wethBalance.toFixed(8)} WETH`, 'OK', { duration: 3000 });
@@ -1078,6 +1054,15 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     return {};
   }
 
+  private updateTradeMarkers(): void {
+    this.tradeMarkersList = this.trades.map((t) => ({
+      time: t.playbackTime ?? t.timestamp,
+      price: t.price,
+      direction: t.direction === 'USDC_TO_WETH' ? 'buy' as const : 'sell' as const,
+      label: t.direction === 'USDC_TO_WETH' ? 'BUY' : 'SELL',
+    }));
+  }
+
   private updatePortfolio(): void {
     if (this.tradingMid > 0) {
       this.portfolioValue = this.usdcBalance + this.wethBalance * this.tradingMid;
@@ -1113,6 +1098,11 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     return `${src} — ${pair}`;
   }
 }
+
+
+
+
+
 
 
 

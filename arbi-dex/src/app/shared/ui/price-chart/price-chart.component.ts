@@ -41,6 +41,18 @@ export interface HorizontalLine {
   dash?: boolean;
 }
 
+/** Маркер сделки (покупка/продажа) на графике */
+export interface TradeMarker {
+  /** Timestamp сделки (ось X) */
+  time: number;
+  /** Цена сделки (ось Y) */
+  price: number;
+  /** Направление: buy или sell */
+  direction: 'buy' | 'sell';
+  /** Опциональная подпись */
+  label?: string;
+}
+
 @Component({
   selector: 'app-price-chart',
   standalone: true,
@@ -80,6 +92,7 @@ export class PriceChartComponent implements OnInit, OnChanges, OnDestroy {
   @Input() hiddenKeys: string[] = [];
   @Input() streaming = false;
   @Input() horizontalLines: HorizontalLine[] = [];
+  @Input() tradeMarkers: TradeMarker[] = [];
 
   options: AgCartesianChartOptions = {};
 
@@ -101,7 +114,7 @@ export class PriceChartComponent implements OnInit, OnChanges, OnDestroy {
     if (structureChanged) {
       this.rebuildBaseOptions();
       this.initChart();
-    } else if (changes['data']) {
+    } else if (changes['data'] || changes['tradeMarkers']) {
       // Быстрый путь — изменились только данные, конфиг не перестраиваем
       if (this.streaming) {
         // В режиме стриминга initChart управляет собственным потоком; перезапускаем
@@ -158,7 +171,7 @@ export class PriceChartComponent implements OnInit, OnChanges, OnDestroy {
    */
   private rebuildBaseOptions(): void {
     const hidden = new Set(this.hiddenKeys);
-    const seriesDefs = this.series
+    const seriesDefs: any[] = this.series
       .filter((s) => !hidden.has(s.key))
       .map((s) => ({
         type: 'line' as const,
@@ -176,6 +189,46 @@ export class PriceChartComponent implements OnInit, OnChanges, OnDestroy {
           }),
         },
       }));
+
+    // Scatter-серии для маркеров покупок/продаж
+    seriesDefs.push({
+      type: 'scatter' as const,
+      xKey: 'time',
+      yKey: '_buyPrice',
+      yName: '🟢 Buy',
+      marker: {
+        shape: 'triangle',
+        size: 14,
+        fill: '#0ecb81',
+        stroke: '#fff',
+        strokeWidth: 1.5,
+      },
+      tooltip: {
+        renderer: (params: any) => ({
+          title: '🟢 Buy',
+          content: `Price: ${Number(params.datum._buyPrice).toFixed(4)}`,
+        }),
+      },
+    });
+    seriesDefs.push({
+      type: 'scatter' as const,
+      xKey: 'time',
+      yKey: '_sellPrice',
+      yName: '🔴 Sell',
+      marker: {
+        shape: 'diamond',
+        size: 14,
+        fill: '#f6465d',
+        stroke: '#fff',
+        strokeWidth: 1.5,
+      },
+      tooltip: {
+        renderer: (params: any) => ({
+          title: '🔴 Sell',
+          content: `Price: ${Number(params.datum._sellPrice).toFixed(4)}`,
+        }),
+      },
+    });
 
     this.baseOptions = {
       background: { fill: '#161a25' },
@@ -243,9 +296,58 @@ export class PriceChartComponent implements OnInit, OnChanges, OnDestroy {
   /**
    * Лёгкое обновление — только подменяет данные в существующем конфиге.
    * Создаёт новую ссылку на options, чтобы ag-charts подхватил изменение.
+   * Если есть tradeMarkers, инжектит их как _buyPrice / _sellPrice в данные.
    */
   private applyData(): void {
-    this.options = { ...this.baseOptions, data: [...this.chartData] };
+    let data = [...this.chartData];
+
+    if (this.tradeMarkers.length > 0) {
+      // Строим Map time → PricePoint для быстрого поиска
+      const timeMap = new Map<number, PricePoint>();
+      for (const pt of data) {
+        timeMap.set(pt.time, pt);
+      }
+
+      for (const m of this.tradeMarkers) {
+        const key = m.direction === 'buy' ? '_buyPrice' : '_sellPrice';
+        const existing = timeMap.get(m.time);
+        if (existing) {
+          // Точка с таким time уже есть — добавляем маркер
+          (existing as any)[key] = m.price;
+        } else {
+          // Нет точки — ищем ближайшую или добавляем новую
+          const closestPt = this.findClosest(data, m.time);
+          if (closestPt && Math.abs(closestPt.time - m.time) < 60_000) {
+            (closestPt as any)[key] = m.price;
+          } else {
+            // Вставляем отдельную точку
+            data.push({ time: m.time, [key]: m.price } as any);
+          }
+        }
+      }
+
+      // Сортируем по time если добавили новые точки
+      data.sort((a, b) => a.time - b.time);
+    }
+
+    this.options = { ...this.baseOptions, data };
+  }
+
+  /** Находит ближайшую точку по time (бинарный поиск) */
+  private findClosest(data: PricePoint[], time: number): PricePoint | null {
+    if (data.length === 0) return null;
+    let lo = 0;
+    let hi = data.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (data[mid].time < time) lo = mid + 1;
+      else hi = mid;
+    }
+    // Проверяем lo и lo-1
+    if (lo > 0 && Math.abs(data[lo - 1].time - time) < Math.abs(data[lo].time - time)) {
+      return data[lo - 1];
+    }
+    return data[lo];
   }
 }
 

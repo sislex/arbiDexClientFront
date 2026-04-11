@@ -27,6 +27,7 @@ import {
   PriceChartComponent,
   PriceSeriesConfig,
   PricePoint,
+  TradeMarker,
 } from '../../shared/ui/price-chart/price-chart.component';
 import { DemoAccountFacade } from '../../features/demo-account/facades/demo-account.facade';
 import { QuotesFacade } from '../../features/quotes/facades/quotes.facade';
@@ -159,9 +160,16 @@ const MAX_HIST_CHART_POINTS = 3000;
 
         <!-- Chart -->
         <app-content-card *ngIf="histChartSeries.length > 0" title="Price Chart" [compact]="true">
+          <button slot="header-actions" mat-icon-button
+                  (click)="chartVisible = !chartVisible"
+                  [matTooltip]="chartVisible ? 'Hide chart' : 'Show chart'">
+            <mat-icon>{{ chartVisible ? 'expand_less' : 'expand_more' }}</mat-icon>
+          </button>
           <app-price-chart
+            *ngIf="chartVisible"
             [series]="histChartSeries"
             [data]="histChartData"
+            [tradeMarkers]="tradeMarkersList"
             [streaming]="false" />
         </app-content-card>
       </ng-container>
@@ -263,7 +271,7 @@ const MAX_HIST_CHART_POINTS = 3000;
       </app-content-card>
 
       <!-- История сделок -->
-      <app-content-card title="Trade History" *ngIf="trades.length > 0">
+      <app-content-card [title]="'Trade History (' + trades.length + ')'" *ngIf="trades.length > 0">
         <button slot="header-actions" mat-icon-button
                 (click)="showTradeHistory = !showTradeHistory"
                 [matTooltip]="showTradeHistory ? 'Hide table' : 'Show table'">
@@ -638,6 +646,10 @@ export class DemoAccountPageComponent implements OnInit, OnDestroy {
   // Historical chart
   histChartSeries: PriceSeriesConfig[] = [];
   histChartData: PricePoint[] = [];
+  chartVisible = true;
+
+  // Trade markers for chart
+  tradeMarkersList: TradeMarker[] = [];
 
   /** ID подписки Arbitrum DEX */
   private arbitrumSubId: string | null = null;
@@ -691,6 +703,7 @@ export class DemoAccountPageComponent implements OnInit, OnDestroy {
       this.initialUsdcInput = initial;
       this.trades = history;
       this.loading = loading;
+      this.updateTradeMarkers();
 
       // После свопа: переключаем направление
       if (history.length > 0 && !loading) {
@@ -818,7 +831,11 @@ export class DemoAccountPageComponent implements OnInit, OnDestroy {
     const slip = (this.slippagePct ?? 0.01) / 100;
     const step = this.mode === 'historical' ? this.playbackService.state.currentIndex : undefined;
     const playbackTime = this.mode === 'historical' ? this.playbackService.state.currentTime : undefined;
-    this.demoFacade.swap(this.direction, this.amountIn, slip, this.midPrice, step, playbackTime);
+    // Покупка по ask, продажа по bid (как на реальном рынке)
+    const execPrice = this.direction === 'USDC_TO_WETH'
+      ? (this.askPrice > 0 ? this.askPrice : this.midPrice)
+      : (this.bidPrice > 0 ? this.bidPrice : this.midPrice);
+    this.demoFacade.swap(this.direction, this.amountIn, slip, execPrice, step, playbackTime);
     this.snackBar.open(
       `Swap executed: ${this.amountIn.toFixed(this.direction === 'USDC_TO_WETH' ? 2 : 6)} ` +
       `${this.direction === 'USDC_TO_WETH' ? 'USDC' : 'WETH'} → ` +
@@ -1101,6 +1118,15 @@ export class DemoAccountPageComponent implements OnInit, OnDestroy {
     this.recalcEstimate();
     this.updatePortfolio();
     this.cdr.markForCheck();
+  }
+
+  private updateTradeMarkers(): void {
+    this.tradeMarkersList = this.trades.map((t) => ({
+      time: t.playbackTime ?? t.timestamp,
+      price: t.price,
+      direction: t.direction === 'USDC_TO_WETH' ? 'buy' as const : 'sell' as const,
+      label: t.direction === 'USDC_TO_WETH' ? 'BUY' : 'SELL',
+    }));
   }
 
   private updatePortfolio(): void {

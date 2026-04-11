@@ -14,7 +14,7 @@ export class DemoAccountEffects {
    * Эффект executeSwap$ — синхронно рассчитывает результат свопа
    * на основе переданной цены и slippage, и диспатчит success.
    *
-   * Цену (mid-price) компонент передаёт в action — мы не ходим в бэкенд.
+   * Цену (ask для покупки, bid для продажи) компонент передаёт в action.
    */
   executeSwap$ = createEffect(() =>
     this.actions$.pipe(
