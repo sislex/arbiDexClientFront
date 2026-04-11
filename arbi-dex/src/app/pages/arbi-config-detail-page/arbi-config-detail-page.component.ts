@@ -119,6 +119,10 @@ type PageMode = 'historical' | 'live' | 'playback';
           <button mat-stroked-button routerLink="/arbi-configs">
             <mat-icon>arrow_back</mat-icon> Back
           </button>
+          <button mat-stroked-button (click)="showTradeHistory = !showTradeHistory"
+                  [matTooltip]="showTradeHistory ? 'Hide Trade History' : 'Show Trade History'">
+            <mat-icon>{{ showTradeHistory ? 'visibility_off' : 'visibility' }}</mat-icon> Trades
+          </button>
         </div>
       </app-page-header>
 
@@ -167,17 +171,29 @@ type PageMode = 'historical' | 'live' | 'playback';
       </div>
 
       <div *ngIf="!loading && !error && series.length > 0" class="chart-section">
-        <div class="live-badge" *ngIf="mode === 'live'">
-          <span class="dot"></span> LIVE
-        </div>
-        <div class="live-badge live-badge--playback" *ngIf="mode === 'playback' && playbackState.isPlaying">
-          <span class="dot"></span> PLAYBACK {{ playbackState.speed }}×
+        <div class="chart-toolbar">
+          <div class="chart-toolbar__left">
+            <div class="live-badge" *ngIf="mode === 'live'">
+              <span class="dot"></span> LIVE
+            </div>
+            <div class="live-badge live-badge--playback" *ngIf="mode === 'playback' && playbackState.isPlaying">
+              <span class="dot"></span> PLAYBACK {{ playbackState.speed }}×
+            </div>
+          </div>
+          <mat-slide-toggle [(ngModel)]="chartVisible" class="chart-toggle">
+            {{ chartVisible ? 'Chart ON' : 'Chart OFF (performance)' }}
+          </mat-slide-toggle>
         </div>
         <app-price-chart
+          *ngIf="chartVisible"
           [series]="series"
           [data]="chartData"
           [horizontalLines]="hLines"
           [streaming]="false" />
+        <div *ngIf="!chartVisible" class="chart-hidden-placeholder">
+          <mat-icon>visibility_off</mat-icon>
+          <span>Chart hidden for performance. Toggle above to show.</span>
+        </div>
       </div>
 
       <!-- ── TRADING SECTION (only in playback / live) ── -->
@@ -275,7 +291,7 @@ type PageMode = 'historical' | 'live' | 'playback';
         </app-content-card>
 
         <!-- Trade History -->
-        <app-content-card title="Trade History" *ngIf="trades.length > 0">
+        <app-content-card title="Trade History" *ngIf="showTradeHistory && trades.length > 0">
           <div class="trade-table-wrap">
             <table class="trade-table">
               <thead>
@@ -357,6 +373,36 @@ type PageMode = 'historical' | 'live' | 'playback';
     }
 
     .chart-section { margin-top: t.$spacing-md; }
+
+    .chart-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .chart-toolbar__left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .chart-toggle {
+      font-size: t.$font-size-sm;
+      font-weight: 600;
+    }
+    .chart-hidden-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 48px 16px;
+      background: var(--color-surface, #1e222d);
+      border: 1px dashed var(--color-border, #2b3139);
+      border-radius: t.$radius-md;
+      color: var(--color-text-muted, #5e6673);
+      font-size: t.$font-size-sm;
+    }
 
     .live-badge, .live-badge--playback {
       display: inline-flex;
@@ -526,6 +572,7 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   hLines: HorizontalLine[] = [];
   loading = true;
   error = '';
+  chartVisible = true;
 
   // Playback
   playbackState: PlaybackState = {
@@ -553,6 +600,7 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   amountIn = 100;
   estimatedOut = 0;
   trades: DemoTrade[] = [];
+  showTradeHistory = false;
 
   // Auto-trade
   autoTradeEnabled = false;
@@ -827,11 +875,14 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   }
 
   private onPlaybackTick(tick: MultiPlaybackTick): void {
-    const state = this.multiPlayback.state;
-    if (state.currentIndex < this.allPlaybackPoints.length) {
-      const targetLen = state.currentIndex + 1;
-      if (this.chartData.length < targetLen) {
-        this.chartData = this.allPlaybackPoints.slice(0, targetLen);
+    // Only update chart data if chart is visible (major performance gain)
+    if (this.chartVisible) {
+      const state = this.multiPlayback.state;
+      if (state.currentIndex < this.allPlaybackPoints.length) {
+        const targetLen = state.currentIndex + 1;
+        if (this.chartData.length < targetLen) {
+          this.chartData = this.allPlaybackPoints.slice(0, targetLen);
+        }
       }
     }
 
@@ -869,21 +920,24 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     if (!prefix) return;
 
     const fieldKey = extractFieldKey(msg.key);
-    const newFieldKey = `${prefix}_${fieldKey}`;
 
-    const last = this.chartData[this.chartData.length - 1];
-    const newPoint: PricePoint = {
-      ...(last ?? {}),
-      time: msg.point.t,
-      [newFieldKey]: msg.point.v,
-    };
-    let updated = [...this.chartData, newPoint];
-    if (updated.length > MAX_CHART_POINTS) {
-      updated = updated.slice(updated.length - MAX_CHART_POINTS);
+    // Only update chart data if chart is visible
+    if (this.chartVisible) {
+      const newFieldKey = `${prefix}_${fieldKey}`;
+      const last = this.chartData[this.chartData.length - 1];
+      const newPoint: PricePoint = {
+        ...(last ?? {}),
+        time: msg.point.t,
+        [newFieldKey]: msg.point.v,
+      };
+      let updated = [...this.chartData, newPoint];
+      if (updated.length > MAX_CHART_POINTS) {
+        updated = updated.slice(updated.length - MAX_CHART_POINTS);
+      }
+      this.chartData = updated;
     }
-    this.chartData = updated;
 
-    // Update live values
+    // Update live values (always, for trading logic)
     const existing = this.liveValues.get(msg.subscriptionId) ?? { bid: 0, ask: 0, mid: 0 };
     const keyLower = fieldKey.toLowerCase();
     if (keyLower.includes('bid')) existing.bid = msg.point.v;

@@ -97,6 +97,10 @@ const MAX_HIST_CHART_POINTS = 3000;
           <button mat-stroked-button (click)="resetAccount()" matTooltip="Reset to initial balance">
             <mat-icon>restart_alt</mat-icon> Reset
           </button>
+          <button mat-stroked-button (click)="showTradeHistory = !showTradeHistory"
+                  [matTooltip]="showTradeHistory ? 'Hide Trade History' : 'Show Trade History'">
+            <mat-icon>{{ showTradeHistory ? 'visibility_off' : 'visibility' }}</mat-icon> Trades
+          </button>
         </div>
       </app-page-header>
 
@@ -263,7 +267,7 @@ const MAX_HIST_CHART_POINTS = 3000;
       </app-content-card>
 
       <!-- История сделок -->
-      <app-content-card title="Trade History" *ngIf="trades.length > 0">
+      <app-content-card title="Trade History" *ngIf="showTradeHistory && trades.length > 0">
         <div class="trade-table-wrap">
           <table class="trade-table">
             <thead>
@@ -620,6 +624,7 @@ export class DemoAccountPageComponent implements OnInit, OnDestroy {
 
   // Trade history
   trades: DemoTrade[] = [];
+  showTradeHistory = false;
 
   // Playback state
   playbackState: PlaybackState = {
