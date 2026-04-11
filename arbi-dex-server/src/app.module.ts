@@ -11,11 +11,14 @@ import { CatalogModule } from './catalog/catalog.module';
 import { PricesModule } from './prices/prices.module';
 import { QuotesModule } from './quotes/quotes.module';
 import { LiveChartModule } from './live-chart/live-chart.module';
+import { ArbiConfigsModule } from './arbi-configs/arbi-configs.module';
 import { User } from './users/entities/user.entity';
 import { Subscription } from './subscriptions/entities/subscription.entity';
 import { UserSettings } from './settings/entities/user-settings.entity';
 import { Source } from './catalog/entities/source.entity';
 import { TradingPair } from './catalog/entities/trading-pair.entity';
+import { ArbiConfig } from './arbi-configs/entities/arbi-config.entity';
+import { ArbiConfigSource } from './arbi-configs/entities/arbi-config-source.entity';
 
 @Module({
   imports: [
@@ -32,7 +35,7 @@ import { TradingPair } from './catalog/entities/trading-pair.entity';
         username: cfg.get<string>('db.username'),
         password: cfg.get<string>('db.password'),
         database: cfg.get<string>('db.database'),
-        entities: [User, Subscription, UserSettings, Source, TradingPair],
+        entities: [User, Subscription, UserSettings, Source, TradingPair, ArbiConfig, ArbiConfigSource],
         synchronize: true, // TODO: заменить на миграции для production
         logging: cfg.get<string>('app.nodeEnv') === 'development',
       }),
@@ -45,6 +48,7 @@ import { TradingPair } from './catalog/entities/trading-pair.entity';
     PricesModule,
     QuotesModule,
     LiveChartModule,
+    ArbiConfigsModule,
   ],
   controllers: [AppController],
 })

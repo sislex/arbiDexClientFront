@@ -67,6 +67,34 @@ export const routes: Routes = [
             (m) => m.DemoAccountPageComponent,
           ),
       },
+      {
+        path: 'arbi-configs',
+        loadComponent: () =>
+          import('./pages/arbi-configs-page/arbi-configs-page.component').then(
+            (m) => m.ArbiConfigsPageComponent,
+          ),
+      },
+      {
+        path: 'arbi-configs/new',
+        loadComponent: () =>
+          import('./pages/arbi-config-form-page/arbi-config-form-page.component').then(
+            (m) => m.ArbiConfigFormPageComponent,
+          ),
+      },
+      {
+        path: 'arbi-configs/:id',
+        loadComponent: () =>
+          import('./pages/arbi-config-detail-page/arbi-config-detail-page.component').then(
+            (m) => m.ArbiConfigDetailPageComponent,
+          ),
+      },
+      {
+        path: 'arbi-configs/:id/edit',
+        loadComponent: () =>
+          import('./pages/arbi-config-form-page/arbi-config-form-page.component').then(
+            (m) => m.ArbiConfigFormPageComponent,
+          ),
+      },
     ],
   },
   { path: '**', redirectTo: 'login' },

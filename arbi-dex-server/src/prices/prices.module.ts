@@ -12,6 +12,7 @@ import { Subscription } from '../subscriptions/entities/subscription.entity';
   ],
   controllers: [PricesController],
   providers: [PricesService],
+  exports: [PricesService],
 })
 export class PricesModule {}
 

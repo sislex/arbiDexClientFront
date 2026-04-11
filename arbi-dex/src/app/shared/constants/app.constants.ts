@@ -6,6 +6,10 @@ export const APP_ROUTES = {
   SUBSCRIPTION_DETAIL: 'subscriptions/:id',
   LIVE_CHART: 'live-chart',
   DEMO_ACCOUNT: 'demo-account',
+  ARBI_CONFIGS: 'arbi-configs',
+  ARBI_CONFIG_NEW: 'arbi-configs/new',
+  ARBI_CONFIG_DETAIL: 'arbi-configs/:id',
+  ARBI_CONFIG_EDIT: 'arbi-configs/:id/edit',
   PROFILE: 'profile',
 } as const;
 
