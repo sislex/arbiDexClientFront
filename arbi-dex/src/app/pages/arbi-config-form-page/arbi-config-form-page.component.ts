@@ -116,6 +116,45 @@ interface SubOption {
         </div>
       </app-content-card>
 
+      <!-- Section 2 — Auto-Trading Parameters -->
+      <app-content-card title="Section 2 — Auto-Trading" [compact]="true">
+        <div class="form-grid">
+          <div class="row-fields">
+            <mat-form-field appearance="outline">
+              <mat-label>Auto-Buy Threshold %</mat-label>
+              <input matInput type="number" [(ngModel)]="autoBuyThresholdPct" min="0" max="100" step="0.1" />
+              <mat-hint>Buy when trading price is X% below avg reference</mat-hint>
+            </mat-form-field>
+
+            <mat-form-field appearance="outline">
+              <mat-label>Auto-Sell Threshold %</mat-label>
+              <input matInput type="number" [(ngModel)]="autoSellThresholdPct" min="0" max="100" step="0.1" />
+              <mat-hint>Sell when trading price is X% above avg reference</mat-hint>
+            </mat-form-field>
+          </div>
+
+          <div class="row-fields">
+            <mat-form-field appearance="outline">
+              <mat-label>Trailing Take-Profit %</mat-label>
+              <input matInput type="number" [(ngModel)]="trailingTakeProfitPct" min="0" max="100" step="0.1" />
+              <mat-hint>Sell on X% pullback from peak price</mat-hint>
+            </mat-form-field>
+
+            <mat-form-field appearance="outline">
+              <mat-label>Stop-Loss %</mat-label>
+              <input matInput type="number" [(ngModel)]="stopLossPct" min="0" max="100" step="0.1" />
+              <mat-hint>Hard stop: sell on X% loss from buy price</mat-hint>
+            </mat-form-field>
+
+            <mat-form-field appearance="outline">
+              <mat-label>Trade Amount %</mat-label>
+              <input matInput type="number" [(ngModel)]="tradeAmountPct" min="0" max="100" step="1" />
+              <mat-hint>% of balance per trade</mat-hint>
+            </mat-form-field>
+          </div>
+        </div>
+      </app-content-card>
+
       <!-- Validation -->
       <div *ngIf="validationError" class="error-msg">
         <mat-icon>error_outline</mat-icon> {{ validationError }}
@@ -196,6 +235,13 @@ export class ArbiConfigFormPageComponent implements OnInit, OnDestroy {
   slippagePct = 1; // in percent
   initialBalance = 100;
 
+  // Auto-trading fields
+  autoBuyThresholdPct: number | null = null;
+  autoSellThresholdPct: number | null = null;
+  trailingTakeProfitPct: number | null = null;
+  stopLossPct: number | null = null;
+  tradeAmountPct = 100;
+
   subOptions: SubOption[] = [];
   validationError = '';
 
@@ -271,6 +317,11 @@ export class ArbiConfigFormPageComponent implements OnInit, OnDestroy {
       profitAsset: this.profitAsset,
       slippage: this.slippagePct / 100,
       initialBalance: this.initialBalance,
+      autoBuyThresholdPct: this.autoBuyThresholdPct,
+      autoSellThresholdPct: this.autoSellThresholdPct,
+      trailingTakeProfitPct: this.trailingTakeProfitPct,
+      stopLossPct: this.stopLossPct,
+      tradeAmountPct: this.tradeAmountPct,
     };
 
     if (this.isEdit) {
@@ -291,6 +342,11 @@ export class ArbiConfigFormPageComponent implements OnInit, OnDestroy {
         this.profitAsset = config.profitAsset;
         this.slippagePct = config.slippage * 100;
         this.initialBalance = config.initialBalance;
+        this.autoBuyThresholdPct = config.autoBuyThresholdPct;
+        this.autoSellThresholdPct = config.autoSellThresholdPct;
+        this.trailingTakeProfitPct = config.trailingTakeProfitPct;
+        this.stopLossPct = config.stopLossPct;
+        this.tradeAmountPct = config.tradeAmountPct;
         this.cdr.markForCheck();
       });
     this.rxSubs.push(sub);

@@ -21,6 +21,11 @@ interface ArbiConfigApiDto {
   profitAsset: string;
   slippage: number;
   initialBalance: number;
+  autoBuyThresholdPct: number | null;
+  autoSellThresholdPct: number | null;
+  trailingTakeProfitPct: number | null;
+  stopLossPct: number | null;
+  tradeAmountPct: number;
   sources: Array<{
     id: string;
     subscriptionId: string;
@@ -46,6 +51,11 @@ function mapConfig(dto: ArbiConfigApiDto): ArbiConfig {
     profitAsset: dto.profitAsset,
     slippage: +dto.slippage,
     initialBalance: +dto.initialBalance,
+    autoBuyThresholdPct: dto.autoBuyThresholdPct != null ? +dto.autoBuyThresholdPct : null,
+    autoSellThresholdPct: dto.autoSellThresholdPct != null ? +dto.autoSellThresholdPct : null,
+    trailingTakeProfitPct: dto.trailingTakeProfitPct != null ? +dto.trailingTakeProfitPct : null,
+    stopLossPct: dto.stopLossPct != null ? +dto.stopLossPct : null,
+    tradeAmountPct: +(dto.tradeAmountPct ?? 100),
     createdAt: new Date(dto.createdAt).getTime(),
   };
 }

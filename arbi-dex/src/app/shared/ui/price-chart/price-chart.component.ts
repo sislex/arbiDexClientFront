@@ -29,6 +29,18 @@ export interface PricePoint {
   [key: string]: number;
 }
 
+/** Горизонтальная линия-аннотация на графике */
+export interface HorizontalLine {
+  /** Значение по оси Y */
+  value: number;
+  /** Цвет линии */
+  color: string;
+  /** Подпись */
+  label: string;
+  /** Пунктирная линия (по умолчанию true) */
+  dash?: boolean;
+}
+
 @Component({
   selector: 'app-price-chart',
   standalone: true,
@@ -67,13 +79,14 @@ export class PriceChartComponent implements OnInit, OnChanges, OnDestroy {
   @Input() series: PriceSeriesConfig[] = [];
   @Input() hiddenKeys: string[] = [];
   @Input() streaming = false;
+  @Input() horizontalLines: HorizontalLine[] = [];
 
   options: AgCartesianChartOptions = {};
 
   private chartData: PricePoint[] = [];
   private streamIndex = 0;
   private intervalId: ReturnType<typeof setInterval> | null = null;
-  /** Полный конфиг без данных — перестраивается только при изменении series/hiddenKeys/streaming */
+  /** Полный конфиг без данных — перестраивается только при изменении series/hiddenKeys/streaming/horizontalLines */
   private baseOptions: AgCartesianChartOptions = {};
 
   ngOnInit(): void {
@@ -83,7 +96,7 @@ export class PriceChartComponent implements OnInit, OnChanges, OnDestroy {
 
   ngOnChanges(changes: SimpleChanges): void {
     const structureChanged =
-      changes['series'] || changes['hiddenKeys'] || changes['streaming'];
+      changes['series'] || changes['hiddenKeys'] || changes['streaming'] || changes['horizontalLines'];
 
     if (structureChanged) {
       this.rebuildBaseOptions();
@@ -194,6 +207,21 @@ export class PriceChartComponent implements OnInit, OnChanges, OnDestroy {
           gridLine: { style: [{ stroke: '#2b3139', lineDash: [4, 4] }] },
           line: { stroke: '#2b3139' },
           crosshair: { enabled: true, stroke: '#848e9c', lineDash: [4, 4] },
+          crossLines: this.horizontalLines
+            .filter((hl) => hl.value > 0)
+            .map((hl) => ({
+              type: 'line' as const,
+              value: hl.value,
+              stroke: hl.color,
+              strokeWidth: 1.5,
+              lineDash: hl.dash !== false ? [6, 4] : undefined,
+              label: {
+                text: `${hl.label}: ${hl.value.toFixed(2)}`,
+                position: 'right' as const,
+                color: hl.color,
+                fontSize: 10,
+              },
+            })),
         },
       },
       legend: {

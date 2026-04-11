@@ -42,6 +42,28 @@ export class ArbiConfig {
   @Column('decimal', { precision: 12, scale: 2, default: 100 })
   initialBalance: number;
 
+  // ── Секция 2: Параметры автоторговли ──
+
+  /** На сколько % цена покупки на торгуемом источнике должна быть ниже средней reference → автопокупка */
+  @Column('decimal', { precision: 7, scale: 4, nullable: true, default: null })
+  autoBuyThresholdPct: number | null;
+
+  /** На сколько % цена продажи на торгуемом источнике должна быть выше средней reference → автопродажа */
+  @Column('decimal', { precision: 7, scale: 4, nullable: true, default: null })
+  autoSellThresholdPct: number | null;
+
+  /** % отката от максимума цены продажи → trailing автопродажа */
+  @Column('decimal', { precision: 7, scale: 4, nullable: true, default: null })
+  trailingTakeProfitPct: number | null;
+
+  /** % убытка от цены покупки → принудительная продажа (стоп-лосс) */
+  @Column('decimal', { precision: 7, scale: 4, nullable: true, default: null })
+  stopLossPct: number | null;
+
+  /** Какой % от баланса использовать при каждой сделке */
+  @Column('decimal', { precision: 7, scale: 4, default: 100 })
+  tradeAmountPct: number;
+
   @OneToMany(() => ArbiConfigSource, (s) => s.config, {
     cascade: true,
     eager: true,

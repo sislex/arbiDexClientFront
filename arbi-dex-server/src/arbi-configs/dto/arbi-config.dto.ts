@@ -50,6 +50,41 @@ export class CreateArbiConfigDto {
   @IsNumber()
   @Min(0)
   initialBalance?: number;
+
+  @ApiPropertyOptional({ description: 'Порог автопокупки: на сколько % цена торгуемого ниже средней reference', example: 0.5 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  autoBuyThresholdPct?: number;
+
+  @ApiPropertyOptional({ description: 'Порог автопродажи: на сколько % цена торгуемого выше средней reference', example: 0.5 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  autoSellThresholdPct?: number;
+
+  @ApiPropertyOptional({ description: 'Trailing take-profit: % отката от максимума цены продажи', example: 1.0 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  trailingTakeProfitPct?: number;
+
+  @ApiPropertyOptional({ description: 'Стоп-лосс: % убытка от цены покупки', example: 5.0 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  stopLossPct?: number;
+
+  @ApiPropertyOptional({ description: '% от баланса для каждой сделки', example: 100, default: 100 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  tradeAmountPct?: number;
 }
 
 export class UpdateArbiConfigDto {
@@ -89,5 +124,40 @@ export class UpdateArbiConfigDto {
   @IsNumber()
   @Min(0)
   initialBalance?: number;
+
+  @ApiPropertyOptional({ description: 'Порог автопокупки (%)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  autoBuyThresholdPct?: number;
+
+  @ApiPropertyOptional({ description: 'Порог автопродажи (%)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  autoSellThresholdPct?: number;
+
+  @ApiPropertyOptional({ description: 'Trailing take-profit (%)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  trailingTakeProfitPct?: number;
+
+  @ApiPropertyOptional({ description: 'Стоп-лосс (%)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  stopLossPct?: number;
+
+  @ApiPropertyOptional({ description: '% от баланса для сделки' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  tradeAmountPct?: number;
 }
 

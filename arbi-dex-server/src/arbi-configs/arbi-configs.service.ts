@@ -62,6 +62,11 @@ export class ArbiConfigsService {
       profitAsset: dto.profitAsset,
       slippage: dto.slippage,
       initialBalance: dto.initialBalance ?? 100,
+      autoBuyThresholdPct: dto.autoBuyThresholdPct ?? null,
+      autoSellThresholdPct: dto.autoSellThresholdPct ?? null,
+      trailingTakeProfitPct: dto.trailingTakeProfitPct ?? null,
+      stopLossPct: dto.stopLossPct ?? null,
+      tradeAmountPct: dto.tradeAmountPct ?? 100,
     });
 
     const saved = await this.configRepo.save(config);
@@ -108,6 +113,11 @@ export class ArbiConfigsService {
     if (dto.profitAsset !== undefined) config.profitAsset = dto.profitAsset;
     if (dto.slippage !== undefined) config.slippage = dto.slippage;
     if (dto.initialBalance !== undefined) config.initialBalance = dto.initialBalance;
+    if (dto.autoBuyThresholdPct !== undefined) config.autoBuyThresholdPct = dto.autoBuyThresholdPct;
+    if (dto.autoSellThresholdPct !== undefined) config.autoSellThresholdPct = dto.autoSellThresholdPct;
+    if (dto.trailingTakeProfitPct !== undefined) config.trailingTakeProfitPct = dto.trailingTakeProfitPct;
+    if (dto.stopLossPct !== undefined) config.stopLossPct = dto.stopLossPct;
+    if (dto.tradeAmountPct !== undefined) config.tradeAmountPct = dto.tradeAmountPct;
 
     await this.configRepo.save(config);
 

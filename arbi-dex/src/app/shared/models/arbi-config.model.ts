@@ -20,6 +20,16 @@ export interface ArbiConfig {
   profitAsset: string;
   slippage: number;
   initialBalance: number;
+  /** Порог автопокупки: на сколько % цена торгуемого ниже средней reference */
+  autoBuyThresholdPct: number | null;
+  /** Порог автопродажи: на сколько % цена торгуемого выше средней reference */
+  autoSellThresholdPct: number | null;
+  /** Trailing take-profit: % отката от максимума цены продажи */
+  trailingTakeProfitPct: number | null;
+  /** Стоп-лосс: % убытка от цены покупки */
+  stopLossPct: number | null;
+  /** % от баланса для каждой сделки */
+  tradeAmountPct: number;
   createdAt: number;
 }
 

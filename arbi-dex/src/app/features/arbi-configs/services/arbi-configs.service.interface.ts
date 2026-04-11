@@ -10,6 +10,11 @@ export interface CreateArbiConfigPayload {
   profitAsset: string;
   slippage: number;
   initialBalance?: number;
+  autoBuyThresholdPct?: number | null;
+  autoSellThresholdPct?: number | null;
+  trailingTakeProfitPct?: number | null;
+  stopLossPct?: number | null;
+  tradeAmountPct?: number;
 }
 
 /** DTO обновления конфига */
@@ -20,6 +25,11 @@ export interface UpdateArbiConfigPayload {
   profitAsset?: string;
   slippage?: number;
   initialBalance?: number;
+  autoBuyThresholdPct?: number | null;
+  autoSellThresholdPct?: number | null;
+  trailingTakeProfitPct?: number | null;
+  stopLossPct?: number | null;
+  tradeAmountPct?: number;
 }
 
 /** Ответ ценовых данных конфига */
