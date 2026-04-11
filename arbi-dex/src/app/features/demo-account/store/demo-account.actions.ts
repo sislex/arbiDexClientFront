@@ -10,7 +10,7 @@ export const setInitialBalance = createAction(
 // Исполнить своп
 export const executeSwap = createAction(
   '[DemoAccount] Execute Swap',
-  props<{ direction: SwapDirection; amountIn: number; slippage: number; price: number }>(),
+  props<{ direction: SwapDirection; amountIn: number; slippage: number; price: number; step?: number; playbackTime?: number }>(),
 );
 
 export const executeSwapSuccess = createAction(

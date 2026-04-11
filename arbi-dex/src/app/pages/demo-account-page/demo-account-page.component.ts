@@ -97,10 +97,6 @@ const MAX_HIST_CHART_POINTS = 3000;
           <button mat-stroked-button (click)="resetAccount()" matTooltip="Reset to initial balance">
             <mat-icon>restart_alt</mat-icon> Reset
           </button>
-          <button mat-stroked-button (click)="showTradeHistory = !showTradeHistory"
-                  [matTooltip]="showTradeHistory ? 'Hide Trade History' : 'Show Trade History'">
-            <mat-icon>{{ showTradeHistory ? 'visibility_off' : 'visibility' }}</mat-icon> Trades
-          </button>
         </div>
       </app-page-header>
 
@@ -267,12 +263,18 @@ const MAX_HIST_CHART_POINTS = 3000;
       </app-content-card>
 
       <!-- История сделок -->
-      <app-content-card title="Trade History" *ngIf="showTradeHistory && trades.length > 0">
-        <div class="trade-table-wrap">
+      <app-content-card title="Trade History" *ngIf="trades.length > 0">
+        <button slot="header-actions" mat-icon-button
+                (click)="showTradeHistory = !showTradeHistory"
+                [matTooltip]="showTradeHistory ? 'Hide table' : 'Show table'">
+          <mat-icon>{{ showTradeHistory ? 'expand_less' : 'expand_more' }}</mat-icon>
+        </button>
+        <div class="trade-table-wrap" *ngIf="showTradeHistory">
           <table class="trade-table">
             <thead>
               <tr>
                 <th>#</th>
+                <th>Step</th>
                 <th>Direction</th>
                 <th>Spent</th>
                 <th>Received</th>
@@ -284,6 +286,7 @@ const MAX_HIST_CHART_POINTS = 3000;
             <tbody>
               <tr *ngFor="let t of trades">
                 <td>{{ t.id }}</td>
+                <td>{{ t.step != null ? t.step : '—' }}</td>
                 <td>
                   <span [class]="t.direction === 'USDC_TO_WETH' ? 'dir-buy' : 'dir-sell'">
                     {{ t.direction === 'USDC_TO_WETH' ? 'BUY' : 'SELL' }}
@@ -293,7 +296,7 @@ const MAX_HIST_CHART_POINTS = 3000;
                 <td>{{ t.amountOut | number:(t.tokenOut === 'USDC' ? '1.2-2' : '1.4-8') }} {{ t.tokenOut }}</td>
                 <td>{{ t.price | number:'1.2-4' }}</td>
                 <td>{{ t.slippage * 100 | number:'1.2-2' }}%</td>
-                <td>{{ t.timestamp | date:'HH:mm:ss' }}</td>
+                <td>{{ (t.playbackTime ?? t.timestamp) | date:'HH:mm:ss' }}</td>
               </tr>
             </tbody>
           </table>
@@ -813,7 +816,9 @@ export class DemoAccountPageComponent implements OnInit, OnDestroy {
   doSwap(): void {
     if (!this.canSwap) return;
     const slip = (this.slippagePct ?? 0.01) / 100;
-    this.demoFacade.swap(this.direction, this.amountIn, slip, this.midPrice);
+    const step = this.mode === 'historical' ? this.playbackService.state.currentIndex : undefined;
+    const playbackTime = this.mode === 'historical' ? this.playbackService.state.currentTime : undefined;
+    this.demoFacade.swap(this.direction, this.amountIn, slip, this.midPrice, step, playbackTime);
     this.snackBar.open(
       `Swap executed: ${this.amountIn.toFixed(this.direction === 'USDC_TO_WETH' ? 2 : 6)} ` +
       `${this.direction === 'USDC_TO_WETH' ? 'USDC' : 'WETH'} → ` +

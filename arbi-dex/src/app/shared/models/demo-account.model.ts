@@ -12,6 +12,10 @@ export interface DemoTrade {
   price: number;
   slippage: number;
   timestamp: number;
+  /** Номер шага исторических данных, на котором произошла сделка */
+  step?: number;
+  /** Время из исторических данных (timestamp точки playback) */
+  playbackTime?: number;
 }
 
 /** Состояние демо-аккаунта */

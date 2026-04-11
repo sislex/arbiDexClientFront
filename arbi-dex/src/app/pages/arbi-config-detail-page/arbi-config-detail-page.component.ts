@@ -119,10 +119,6 @@ type PageMode = 'historical' | 'live' | 'playback';
           <button mat-stroked-button routerLink="/arbi-configs">
             <mat-icon>arrow_back</mat-icon> Back
           </button>
-          <button mat-stroked-button (click)="showTradeHistory = !showTradeHistory"
-                  [matTooltip]="showTradeHistory ? 'Hide Trade History' : 'Show Trade History'">
-            <mat-icon>{{ showTradeHistory ? 'visibility_off' : 'visibility' }}</mat-icon> Trades
-          </button>
         </div>
       </app-page-header>
 
@@ -291,12 +287,18 @@ type PageMode = 'historical' | 'live' | 'playback';
         </app-content-card>
 
         <!-- Trade History -->
-        <app-content-card title="Trade History" *ngIf="showTradeHistory && trades.length > 0">
-          <div class="trade-table-wrap">
+        <app-content-card title="Trade History" *ngIf="trades.length > 0">
+          <button slot="header-actions" mat-icon-button
+                  (click)="showTradeHistory = !showTradeHistory"
+                  [matTooltip]="showTradeHistory ? 'Hide table' : 'Show table'">
+            <mat-icon>{{ showTradeHistory ? 'expand_less' : 'expand_more' }}</mat-icon>
+          </button>
+          <div class="trade-table-wrap" *ngIf="showTradeHistory">
             <table class="trade-table">
               <thead>
                 <tr>
                   <th>#</th>
+                  <th>Step</th>
                   <th>Direction</th>
                   <th>Spent</th>
                   <th>Received</th>
@@ -307,6 +309,7 @@ type PageMode = 'historical' | 'live' | 'playback';
               <tbody>
                 <tr *ngFor="let t of trades">
                   <td>{{ t.id }}</td>
+                  <td>{{ t.step != null ? t.step : '—' }}</td>
                   <td>
                     <span [class]="t.direction === 'USDC_TO_WETH' ? 'dir-buy' : 'dir-sell'">
                       {{ t.direction === 'USDC_TO_WETH' ? 'BUY' : 'SELL' }}
@@ -315,7 +318,7 @@ type PageMode = 'historical' | 'live' | 'playback';
                   <td>{{ t.amountIn | number:(t.tokenIn === 'USDC' ? '1.2-2' : '1.4-8') }} {{ t.tokenIn }}</td>
                   <td>{{ t.amountOut | number:(t.tokenOut === 'USDC' ? '1.2-2' : '1.4-8') }} {{ t.tokenOut }}</td>
                   <td>{{ t.price | number:'1.2-4' }}</td>
-                  <td>{{ t.timestamp | date:'HH:mm:ss' }}</td>
+                  <td>{{ (t.playbackTime ?? t.timestamp) | date:'HH:mm:ss' }}</td>
                 </tr>
               </tbody>
             </table>
@@ -607,6 +610,10 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   engine: AutoTradeEngine | null = null;
   lastAutoTradeReason = '';
 
+  // Актуальный step/time из последнего тика (не из state, т.к. state обновляется после батча)
+  private lastTickIndex = 0;
+  private lastTickTime = 0;
+
   private keyPrefixMap = new Map<string, string>();
   private allSubscriptionIds: string[] = [];
   private tradingSubId = '';
@@ -829,7 +836,8 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   doSwap(): void {
     if (!this.canSwap) return;
     const slip = this.config?.slippage ?? 0.01;
-    this.demoFacade.swap(this.direction, this.amountIn, slip, this.tradingMid);
+    const { step, playbackTime } = this.currentPlaybackInfo();
+    this.demoFacade.swap(this.direction, this.amountIn, slip, this.tradingMid, step, playbackTime);
     this.snackBar.open(
       `Swap: ${this.amountIn.toFixed(2)} ${this.direction === 'USDC_TO_WETH' ? 'USDC → WETH' : 'WETH → USDC'}`,
       'OK', { duration: 3000 },
@@ -875,14 +883,15 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   }
 
   private onPlaybackTick(tick: MultiPlaybackTick): void {
+    // Сохраняем актуальный step/time из тика (state обновляется после батча, а тик — для каждой точки)
+    this.lastTickIndex = tick.index;
+    this.lastTickTime = tick.time;
+
     // Only update chart data if chart is visible (major performance gain)
     if (this.chartVisible) {
-      const state = this.multiPlayback.state;
-      if (state.currentIndex < this.allPlaybackPoints.length) {
-        const targetLen = state.currentIndex + 1;
-        if (this.chartData.length < targetLen) {
-          this.chartData = this.allPlaybackPoints.slice(0, targetLen);
-        }
+      const targetLen = tick.index + 1;
+      if (targetLen <= this.allPlaybackPoints.length && this.chartData.length < targetLen) {
+        this.chartData = this.allPlaybackPoints.slice(0, targetLen);
       }
     }
 
@@ -1013,14 +1022,16 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       const tradeAmountPct = this.config.tradeAmountPct ?? 100;
       const amount = this.usdcBalance * (tradeAmountPct / 100);
       if (amount > 0) {
-        this.demoFacade.swap('USDC_TO_WETH', amount, this.config.slippage, this.tradingMid);
+        const { step, playbackTime } = this.currentPlaybackInfo();
+        this.demoFacade.swap('USDC_TO_WETH', amount, this.config.slippage, this.tradingMid, step, playbackTime);
         this.engine.onBuy(this.tradingAsk);
         this.lastAutoTradeReason = result.reason ?? 'Auto-buy';
         this.snackBar.open(`🤖 Auto-BUY: ${amount.toFixed(2)} USDC`, 'OK', { duration: 3000 });
       }
     } else if (result.action === 'sell') {
       if (this.wethBalance > 0) {
-        this.demoFacade.swap('WETH_TO_USDC', this.wethBalance, this.config.slippage, this.tradingMid);
+        const { step, playbackTime } = this.currentPlaybackInfo();
+        this.demoFacade.swap('WETH_TO_USDC', this.wethBalance, this.config.slippage, this.tradingMid, step, playbackTime);
         this.engine.onSell();
         this.lastAutoTradeReason = result.reason ?? 'Auto-sell';
         this.snackBar.open(`🤖 Auto-SELL: ${this.wethBalance.toFixed(8)} WETH`, 'OK', { duration: 3000 });
@@ -1058,6 +1069,14 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   }
 
   /* ── Helpers ── */
+
+  /** Возвращает текущий номер шага и время playback (если в playback-режиме) */
+  private currentPlaybackInfo(): { step?: number; playbackTime?: number } {
+    if (this.mode === 'playback') {
+      return { step: this.lastTickIndex, playbackTime: this.lastTickTime };
+    }
+    return {};
+  }
 
   private updatePortfolio(): void {
     if (this.tradingMid > 0) {

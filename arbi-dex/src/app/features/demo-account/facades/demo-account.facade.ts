@@ -24,8 +24,8 @@ export class DemoAccountFacade {
   readonly tradeHistory$ = this.store.select(selectDemoTradeHistory);
   readonly loading$ = this.store.select(selectDemoLoading);
 
-  swap(direction: SwapDirection, amountIn: number, slippage: number, price: number): void {
-    this.store.dispatch(executeSwap({ direction, amountIn, slippage, price }));
+  swap(direction: SwapDirection, amountIn: number, slippage: number, price: number, step?: number, playbackTime?: number): void {
+    this.store.dispatch(executeSwap({ direction, amountIn, slippage, price, step, playbackTime }));
   }
 
   setInitialBalance(usdc: number): void {

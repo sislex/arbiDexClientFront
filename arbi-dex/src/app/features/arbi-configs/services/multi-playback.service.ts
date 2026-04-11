@@ -24,6 +24,8 @@ export interface MultiPlaybackMessage {
 /** Агрегированный тик: текущие bid/ask/mid для каждой подписки */
 export interface MultiPlaybackTick {
   time: number;
+  /** Индекс текущей точки в массиве данных */
+  index: number;
   /** subscriptionId → { bid, ask, mid } */
   values: Map<string, { bid: number; ask: number; mid: number }>;
 }
@@ -203,7 +205,7 @@ export class MultiPlaybackService {
     this.currentIdx = idx;
     this.emitStateForIndex(idx);
     // Эмитим tick для текущей точки
-    this.emitTickForPoint(this.mergedPoints[idx]);
+    this.emitTickForPoint(this.mergedPoints[idx], idx);
   }
 
   destroy(): void {
@@ -219,7 +221,7 @@ export class MultiPlaybackService {
 
     while (emitted < pointsPerTick && this.currentIdx < this.mergedPoints.length) {
       const pt = this.mergedPoints[this.currentIdx];
-      this.emitTickForPoint(pt);
+      this.emitTickForPoint(pt, this.currentIdx);
       this.currentIdx++;
       emitted++;
     }
@@ -236,7 +238,7 @@ export class MultiPlaybackService {
    * Из объединённой PricePoint извлекает bid/ask/mid для каждой подписки
    * и эмитит агрегированный MultiPlaybackTick.
    */
-  private emitTickForPoint(pt: PricePoint): void {
+  private emitTickForPoint(pt: PricePoint, idx: number): void {
     const values = new Map<string, { bid: number; ask: number; mid: number }>();
 
     for (const [subId, prefix] of this.keyPrefixMap.entries()) {
@@ -260,7 +262,7 @@ export class MultiPlaybackService {
       values.set(subId, { bid, ask, mid });
     }
 
-    this.tickSubject.next({ time: pt.time, values });
+    this.tickSubject.next({ time: pt.time, index: idx, values });
   }
 
   private emitStateForIndex(idx: number): void {

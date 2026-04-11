@@ -172,6 +172,9 @@ export class HistoricalPlaybackService {
     while (emitted < pointsPerTick && this.currentIdx < this.points.length) {
       const pt = this.points[this.currentIdx];
 
+      // Обновляем state ДО эмита, чтобы компонент мог прочитать актуальный step/time
+      this.emitStateForIndex(this.currentIdx);
+
       // Эмитим каждое поле как отдельное LiveChartMessage
       for (const field of pt.fields) {
         this.priceUpdateSubject.next({
@@ -184,7 +187,6 @@ export class HistoricalPlaybackService {
       emitted++;
     }
 
-    this.emitStateForIndex(this.currentIdx - 1);
 
     // Конец данных
     if (this.currentIdx >= this.points.length) {

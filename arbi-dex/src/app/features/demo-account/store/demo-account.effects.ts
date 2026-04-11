@@ -19,7 +19,7 @@ export class DemoAccountEffects {
   executeSwap$ = createEffect(() =>
     this.actions$.pipe(
       ofType(executeSwap),
-      map(({ direction, amountIn, slippage, price }) => {
+      map(({ direction, amountIn, slippage, price, step, playbackTime }) => {
         let amountOut: number;
         let tokenIn: string;
         let tokenOut: string;
@@ -50,6 +50,8 @@ export class DemoAccountEffects {
           price,
           slippage,
           timestamp: Date.now(),
+          step,
+          playbackTime,
         };
 
         return executeSwapSuccess({ trade });
