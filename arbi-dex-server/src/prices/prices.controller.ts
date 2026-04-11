@@ -1,5 +1,5 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { PricesService } from './prices.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -17,17 +17,19 @@ export class PricesController {
     summary: 'Ценовые данные по подписке',
     description:
       'Возвращает историю цен (bid/ask) для указанной подписки. ' +
-      'Данные запрашиваются из arbiDexServerBots на основе маппинга sourceId+pairId → PriceStore keys.',
+      'Данные кэшируются на 1 час. Для принудительного обновления передайте noCache=true.',
   })
   @ApiParam({ name: 'subscriptionId', description: 'UUID подписки' })
+  @ApiQuery({ name: 'noCache', required: false, type: Boolean, description: 'Игнорировать кэш и обновить данные' })
   @ApiResponse({ status: 200, description: 'Объект с массивом серий и массивом ценовых точек' })
   @ApiResponse({ status: 400, description: 'Маппинг не найден или сервер котировок недоступен' })
   @ApiResponse({ status: 404, description: 'Подписка не найдена' })
   getPricesBySubscription(
     @CurrentUser() user: User,
     @Param('subscriptionId') subscriptionId: string,
+    @Query('noCache') noCache?: string,
   ) {
-    return this.service.getPricesBySubscription(subscriptionId, user.id);
+    return this.service.getPricesBySubscription(subscriptionId, user.id, noCache === 'true');
   }
 }
 

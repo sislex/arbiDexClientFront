@@ -48,6 +48,12 @@ export class PricesService {
   private readonly logger = new Logger(PricesService.name);
   private readonly marketDataUrl: string;
 
+  /** TTL кэша — 1 час (в мс) */
+  private static readonly CACHE_TTL_MS = 60 * 60 * 1000;
+
+  /** In-memory кэш: subscriptionId → { data, cachedAt } */
+  private readonly cache = new Map<string, { data: SubscriptionPriceData; cachedAt: number }>();
+
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
@@ -61,8 +67,22 @@ export class PricesService {
    * Получить ценовые данные по subscriptionId.
    * Маппит sourceId+pairId → ключи PriceStore, запрашивает историю из arbiDexServerBots,
    * трансформирует в формат PriceChartComponent.
+   *
+   * @param noCache — если true, игнорирует кэш и обновляет его свежими данными
    */
-  async getPricesBySubscription(subscriptionId: string, userId: string): Promise<SubscriptionPriceData> {
+  async getPricesBySubscription(
+    subscriptionId: string,
+    userId: string,
+    noCache = false,
+  ): Promise<SubscriptionPriceData> {
+    // ── Проверка кэша ──
+    if (!noCache) {
+      const cached = this.cache.get(subscriptionId);
+      if (cached && Date.now() - cached.cachedAt < PricesService.CACHE_TTL_MS) {
+        this.logger.debug(`Cache hit для подписки ${subscriptionId} (возраст ${Math.round((Date.now() - cached.cachedAt) / 1000)}с)`);
+        return cached.data;
+      }
+    }
     // 1. Найти подписку
     const sub = await this.subsRepo.findOne({ where: { id: subscriptionId, userId } });
     if (!sub) {
@@ -150,7 +170,9 @@ export class PricesService {
         { key: 'bidPrice', name: `${sourceName} Bid`, color: '#0ecb81' },
         { key: 'askPrice', name: `${sourceName} Ask`, color: '#f6465d' },
       ];
-      return { series, data: sorted };
+      const result: SubscriptionPriceData = { series, data: sorted };
+      this.cacheResult(subscriptionId, result);
+      return result;
     } else {
       // CEX: одна серия — mid (среднее bid и ask)
       const midData: ChartPricePoint[] = sorted.map((point) => ({
@@ -165,7 +187,15 @@ export class PricesService {
         { key: 'midPrice', name: `${sourceName} Mid`, color: '#2196f3' },
       ];
 
-      return { series, data: midData };
+      const result: SubscriptionPriceData = { series, data: midData };
+      this.cacheResult(subscriptionId, result);
+      return result;
     }
+  }
+
+  /** Сохраняет результат в кэш */
+  private cacheResult(subscriptionId: string, data: SubscriptionPriceData): void {
+    this.cache.set(subscriptionId, { data, cachedAt: Date.now() });
+    this.logger.debug(`Кэш обновлён для подписки ${subscriptionId} (${data.data.length} точек)`);
   }
 }

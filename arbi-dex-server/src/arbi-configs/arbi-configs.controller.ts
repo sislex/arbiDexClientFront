@@ -6,6 +6,7 @@ import {
   Delete,
   Param,
   Body,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -14,6 +15,7 @@ import {
   ApiBearerAuth,
   ApiOperation,
   ApiParam,
+  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -106,21 +108,29 @@ export class ArbiConfigsController {
     summary: 'Ценовые данные всех подписок конфига',
     description:
       'Загружает исторические bid/ask данные для каждой подписки конфига ' +
-      '(все референсные + торговая). Используется для графика на странице конфига.',
+      '(все референсные + торговая). Данные кэшируются на 1 час. ' +
+      'Для принудительного обновления передайте noCache=true.',
   })
   @ApiParam({ name: 'id', description: 'UUID конфига' })
+  @ApiQuery({ name: 'noCache', required: false, type: Boolean, description: 'Игнорировать кэш и обновить данные' })
   @ApiResponse({ status: 200, description: 'Объект с ценовыми данными по каждой подписке' })
   @ApiResponse({ status: 404, description: 'Конфиг не найден' })
-  async getPrices(@CurrentUser() user: User, @Param('id') id: string) {
+  async getPrices(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Query('noCache') noCache?: string,
+  ) {
     const { tradingSubscriptionId, referenceSubscriptionIds, allSubscriptionIds } =
       await this.service.getSubscriptionIds(user.id, id);
 
+    const forceFresh = noCache === 'true';
     const priceResults: Record<string, any> = {};
     for (const subId of allSubscriptionIds) {
       try {
         priceResults[subId] = await this.pricesService.getPricesBySubscription(
           subId,
           user.id,
+          forceFresh,
         );
       } catch {
         priceResults[subId] = { series: [], data: [] };

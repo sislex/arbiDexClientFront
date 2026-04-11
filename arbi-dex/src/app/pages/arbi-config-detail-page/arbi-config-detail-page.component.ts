@@ -543,6 +543,10 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   error = '';
   chartVisible = true;
 
+  // Оригинальные исторические данные (для восстановления при переключении обратно)
+  private historicalSeries: PriceSeriesConfig[] = [];
+  private historicalChartData: PricePoint[] = [];
+
   // Playback
   playbackState: PlaybackState = {
     isPlaying: false, speed: 1, currentTime: 0, startTime: 0, endTime: 0,
@@ -668,6 +672,11 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       this.chartData = result.data;
       this.keyPrefixMap = result.keyPrefixMap;
       this.allSubscriptionIds = this.chartSubs.map((s) => s.id);
+
+      // Сохраняем оригинальные исторические данные для переключения обратно на historical
+      this.historicalSeries = [...result.series];
+      this.historicalChartData = [...result.data];
+
       this.loading = false;
       this.cdr.markForCheck();
     });
@@ -722,7 +731,10 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     const m = newMode as PageMode;
     if (m === this.mode) return;
 
-    if (this.mode === 'live') this.liveChartSocket.disconnectAll();
+    if (this.mode === 'live') {
+      this.liveChartSocket.disconnectAll();
+      this.liveValues.clear();
+    }
     if (this.mode === 'playback') this.multiPlayback.stop();
 
     this.mode = m;
@@ -731,6 +743,11 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       this.connectSockets();
     } else if (m === 'playback') {
       this.startPlaybackMode();
+    } else if (m === 'historical') {
+      // Восстанавливаем оригинальные исторические данные
+      this.series = [...this.historicalSeries];
+      this.chartData = [...this.historicalChartData];
+      this.hLines = [];
     }
     this.cdr.markForCheck();
   }
