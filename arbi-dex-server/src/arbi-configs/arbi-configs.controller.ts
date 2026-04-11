@@ -143,5 +143,20 @@ export class ArbiConfigsController {
       prices: priceResults,
     };
   }
+
+  @Post(':id/backtest')
+  @ApiOperation({
+    summary: 'Запустить бэктест автоторговли',
+    description:
+      'Прогоняет все исторические ценовые данные конфига через движок автоторговли. ' +
+      'Возвращает итоговые балансы, P&L и список всех совершённых сделок.',
+  })
+  @ApiParam({ name: 'id', description: 'UUID конфига' })
+  @ApiResponse({ status: 201, description: 'Результат бэктеста с итогами и списком сделок' })
+  @ApiResponse({ status: 400, description: 'Нет исторических данных для бэктеста' })
+  @ApiResponse({ status: 404, description: 'Конфиг не найден' })
+  runBacktest(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.service.runBacktest(user.id, id);
+  }
 }
 

@@ -4,6 +4,7 @@ import {
   CreateArbiConfigPayload,
   UpdateArbiConfigPayload,
   ArbiConfigPricesResponse,
+  BacktestResult,
 } from '../services/arbi-configs.service.interface';
 
 // ── Load all ──
@@ -87,3 +88,19 @@ export const loadArbiConfigPricesFailure = createAction(
   props<{ error: string }>(),
 );
 
+// ── Backtest ──
+export const runBacktest = createAction(
+  '[ArbiConfigs] Run Backtest',
+  props<{ id: string }>(),
+);
+export const runBacktestSuccess = createAction(
+  '[ArbiConfigs] Run Backtest Success',
+  props<{ result: BacktestResult }>(),
+);
+export const runBacktestFailure = createAction(
+  '[ArbiConfigs] Run Backtest Failure',
+  props<{ error: string }>(),
+);
+export const clearBacktestResult = createAction(
+  '[ArbiConfigs] Clear Backtest Result',
+);

@@ -39,6 +39,36 @@ export interface ArbiConfigPricesResponse {
   prices: Record<string, SubscriptionPriceData>;
 }
 
+/** Запись о сделке из бэктеста */
+export interface BacktestTrade {
+  id: number;
+  step: number;
+  time: number;
+  direction: 'USDC_TO_WETH' | 'WETH_TO_USDC';
+  amountIn: number;
+  tokenIn: string;
+  amountOut: number;
+  tokenOut: string;
+  price: number;
+  slippage: number;
+  reason: string;
+}
+
+/** Результат серверного бэктеста */
+export interface BacktestResult {
+  finalUsdcBalance: number;
+  finalWethBalance: number;
+  portfolioValue: number;
+  initialBalance: number;
+  pnl: number;
+  pnlPct: number;
+  totalTrades: number;
+  buyCount: number;
+  sellCount: number;
+  totalPoints: number;
+  trades: BacktestTrade[];
+}
+
 export abstract class IArbiConfigsService {
   abstract getAll(): Observable<ArbiConfig[]>;
   abstract getOne(id: string): Observable<ArbiConfig>;
@@ -46,5 +76,6 @@ export abstract class IArbiConfigsService {
   abstract update(id: string, payload: UpdateArbiConfigPayload): Observable<ArbiConfig>;
   abstract remove(id: string): Observable<void>;
   abstract getPrices(id: string): Observable<ArbiConfigPricesResponse>;
+  abstract runBacktest(id: string): Observable<BacktestResult>;
 }
 

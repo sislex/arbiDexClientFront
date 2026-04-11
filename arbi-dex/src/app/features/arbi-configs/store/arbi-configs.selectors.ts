@@ -54,3 +54,12 @@ export const selectArbiConfigPricesLoading = createSelector(
   (s) => s.pricesLoading,
 );
 
+export const selectBacktestResult = createSelector(
+  selectArbiConfigsState,
+  (s) => s.backtestResult,
+);
+
+export const selectBacktestLoading = createSelector(
+  selectArbiConfigsState,
+  (s) => s.backtestLoading,
+);

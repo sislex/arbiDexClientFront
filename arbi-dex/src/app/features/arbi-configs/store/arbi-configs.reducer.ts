@@ -1,7 +1,7 @@
 import { createEntityAdapter, EntityAdapter, EntityState } from '@ngrx/entity';
 import { createReducer, on } from '@ngrx/store';
 import { ArbiConfig } from '../../../shared/models';
-import { ArbiConfigPricesResponse } from '../services/arbi-configs.service.interface';
+import { ArbiConfigPricesResponse, BacktestResult } from '../services/arbi-configs.service.interface';
 import {
   loadArbiConfigs,
   loadArbiConfigsSuccess,
@@ -17,6 +17,10 @@ import {
   loadArbiConfigPrices,
   loadArbiConfigPricesSuccess,
   loadArbiConfigPricesFailure,
+  runBacktest,
+  runBacktestSuccess,
+  runBacktestFailure,
+  clearBacktestResult,
 } from './arbi-configs.actions';
 
 export const ARBI_CONFIGS_FEATURE_KEY = 'arbiConfigs';
@@ -32,6 +36,9 @@ export interface ArbiConfigsState {
   /** Ценовые данные для текущего открытого конфига */
   currentPrices: ArbiConfigPricesResponse | null;
   pricesLoading: boolean;
+  /** Результат серверного бэктеста */
+  backtestResult: BacktestResult | null;
+  backtestLoading: boolean;
 }
 
 export const initialArbiConfigsState: ArbiConfigsState = {
@@ -41,6 +48,8 @@ export const initialArbiConfigsState: ArbiConfigsState = {
   error: null,
   currentPrices: null,
   pricesLoading: false,
+  backtestResult: null,
+  backtestLoading: false,
 };
 
 export const arbiConfigsReducer = createReducer(
@@ -112,6 +121,29 @@ export const arbiConfigsReducer = createReducer(
     ...state,
     pricesLoading: false,
     error,
+  })),
+
+  // Backtest
+  on(runBacktest, (state) => ({
+    ...state,
+    backtestLoading: true,
+    backtestResult: null,
+    error: null,
+  })),
+  on(runBacktestSuccess, (state, { result }) => ({
+    ...state,
+    backtestResult: result,
+    backtestLoading: false,
+  })),
+  on(runBacktestFailure, (state, { error }) => ({
+    ...state,
+    backtestLoading: false,
+    error,
+  })),
+  on(clearBacktestResult, (state) => ({
+    ...state,
+    backtestResult: null,
+    backtestLoading: false,
   })),
 );
 

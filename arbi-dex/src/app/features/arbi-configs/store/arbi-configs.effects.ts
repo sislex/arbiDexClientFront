@@ -23,6 +23,9 @@ import {
   loadArbiConfigPrices,
   loadArbiConfigPricesSuccess,
   loadArbiConfigPricesFailure,
+  runBacktest,
+  runBacktestSuccess,
+  runBacktestFailure,
 } from './arbi-configs.actions';
 
 @Injectable()
@@ -136,5 +139,18 @@ export class ArbiConfigsEffects {
       ),
     ),
   );
-}
 
+  runBacktest$ = createEffect(() =>
+    this.actions$.pipe(
+      ofType(runBacktest),
+      switchMap(({ id }) =>
+        this.service.runBacktest(id).pipe(
+          map((result) => runBacktestSuccess({ result })),
+          catchError((err) =>
+            of(runBacktestFailure({ error: String(err?.error?.message ?? err) })),
+          ),
+        ),
+      ),
+    ),
+  );
+}

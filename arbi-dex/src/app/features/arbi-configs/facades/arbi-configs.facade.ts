@@ -11,6 +11,8 @@ import {
   updateArbiConfig,
   deleteArbiConfig,
   loadArbiConfigPrices,
+  runBacktest,
+  clearBacktestResult,
 } from '../store/arbi-configs.actions';
 import {
   selectAllArbiConfigs,
@@ -21,6 +23,8 @@ import {
   selectArbiConfigsError,
   selectArbiConfigCurrentPrices,
   selectArbiConfigPricesLoading,
+  selectBacktestResult,
+  selectBacktestLoading,
 } from '../store/arbi-configs.selectors';
 
 @Injectable({ providedIn: 'root' })
@@ -34,6 +38,8 @@ export class ArbiConfigsFacade {
   readonly error$ = this.store.select(selectArbiConfigsError);
   readonly currentPrices$ = this.store.select(selectArbiConfigCurrentPrices);
   readonly pricesLoading$ = this.store.select(selectArbiConfigPricesLoading);
+  readonly backtestResult$ = this.store.select(selectBacktestResult);
+  readonly backtestLoading$ = this.store.select(selectBacktestLoading);
 
   selectById(id: string) {
     return this.store.select(selectArbiConfigById(id));
@@ -62,5 +68,12 @@ export class ArbiConfigsFacade {
   loadPrices(id: string): void {
     this.store.dispatch(loadArbiConfigPrices({ id }));
   }
-}
 
+  runBacktest(id: string): void {
+    this.store.dispatch(runBacktest({ id }));
+  }
+
+  clearBacktestResult(): void {
+    this.store.dispatch(clearBacktestResult());
+  }
+}

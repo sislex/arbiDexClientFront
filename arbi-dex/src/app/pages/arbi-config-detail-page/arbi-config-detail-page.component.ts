@@ -21,6 +21,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import {
   PriceChartComponent,
   PriceSeriesConfig,
@@ -59,10 +60,12 @@ import {
   PlaybackState,
   PlaybackSpeed,
 } from '../../shared/models';
+import { BacktestResult, BacktestTrade } from '../../features/arbi-configs/services/arbi-configs.service.interface';
 
 const MAX_CHART_POINTS = 2000;
 
 type PageMode = 'historical' | 'live' | 'playback';
+type PlaybackSubMode = 'realtime' | 'server';
 
 @Component({
   selector: 'app-arbi-config-detail-page',
@@ -81,6 +84,7 @@ type PageMode = 'historical' | 'live' | 'playback';
     MatTooltipModule,
     MatSnackBarModule,
     MatSlideToggleModule,
+    MatProgressBarModule,
     PriceChartComponent,
     PageContainerComponent,
     PageHeaderComponent,
@@ -138,24 +142,52 @@ type PageMode = 'historical' | 'live' | 'playback';
         </div>
       </app-content-card>
 
-      <!-- ── PLAYBACK MODE: Player Controls ── -->
+      <!-- ── PLAYBACK MODE: Sub-mode toggle + Player Controls ── -->
       <ng-container *ngIf="mode === 'playback'">
         <app-content-card title="Playback Controls" [compact]="true">
-          <div *ngIf="playbackState.loading" class="playback-loading">
-            <mat-icon>hourglass_top</mat-icon> Loading historical data…
+          <!-- Sub-mode toggle: Realtime / Server Backtest -->
+          <div class="playback-submode-row">
+            <mat-button-toggle-group
+              [value]="playbackSubMode"
+              (change)="onPlaybackSubModeChange($event.value)"
+              appearance="standard"
+              class="submode-toggle">
+              <mat-button-toggle value="realtime">
+                <mat-icon>play_arrow</mat-icon> Realtime
+              </mat-button-toggle>
+              <mat-button-toggle value="server">
+                <mat-icon>cloud_done</mat-icon> Server Backtest
+              </mat-button-toggle>
+            </mat-button-toggle-group>
           </div>
-          <div *ngIf="playbackState.error" class="error-msg">
-            <mat-icon>error_outline</mat-icon>
-            <span>{{ playbackState.error }}</span>
-          </div>
-          <app-playback-player
-            *ngIf="!playbackState.loading && !playbackState.error && playbackState.totalPoints > 0"
-            [state]="playbackState"
-            (play)="onPlaybackPlay()"
-            (pause)="onPlaybackPause()"
-            (stop)="onPlaybackStop()"
-            (speedChange)="onPlaybackSpeedChange($event)"
-            (seek)="onPlaybackSeek($event)" />
+
+          <!-- Realtime sub-mode: standard playback controls -->
+          <ng-container *ngIf="playbackSubMode === 'realtime'">
+            <div *ngIf="playbackState.loading" class="playback-loading">
+              <mat-icon>hourglass_top</mat-icon> Loading historical data…
+            </div>
+            <div *ngIf="playbackState.error" class="error-msg">
+              <mat-icon>error_outline</mat-icon>
+              <span>{{ playbackState.error }}</span>
+            </div>
+            <app-playback-player
+              *ngIf="!playbackState.loading && !playbackState.error && playbackState.totalPoints > 0"
+              [state]="playbackState"
+              (play)="onPlaybackPlay()"
+              (pause)="onPlaybackPause()"
+              (stop)="onPlaybackStop()"
+              (speedChange)="onPlaybackSpeedChange($event)"
+              (seek)="onPlaybackSeek($event)" />
+          </ng-container>
+
+          <!-- Server backtest sub-mode: loading bar -->
+          <ng-container *ngIf="playbackSubMode === 'server'">
+            <mat-progress-bar *ngIf="backtestLoading" mode="indeterminate" class="backtest-progress" />
+            <div *ngIf="backtestError" class="error-msg">
+              <mat-icon>error_outline</mat-icon>
+              <span>{{ backtestError }}</span>
+            </div>
+          </ng-container>
         </app-content-card>
       </ng-container>
 
@@ -172,8 +204,11 @@ type PageMode = 'historical' | 'live' | 'playback';
           <div class="live-badge" *ngIf="mode === 'live'">
             <span class="dot"></span> LIVE
           </div>
-          <div class="live-badge live-badge--playback" *ngIf="mode === 'playback' && playbackState.isPlaying">
+          <div class="live-badge live-badge--playback" *ngIf="mode === 'playback' && playbackSubMode === 'realtime' && playbackState.isPlaying">
             <span class="dot"></span> PLAYBACK {{ playbackState.speed }}×
+          </div>
+          <div class="live-badge live-badge--server" *ngIf="mode === 'playback' && playbackSubMode === 'server' && backtestResult">
+            <mat-icon style="font-size:14px;width:14px;height:14px;">cloud_done</mat-icon> SERVER BACKTEST
           </div>
           <button mat-icon-button
                   (click)="chartVisible = !chartVisible"
@@ -190,8 +225,83 @@ type PageMode = 'historical' | 'live' | 'playback';
           [streaming]="false" />
       </app-content-card>
 
-      <!-- ── TRADING SECTION (only in playback / live) ── -->
-      <ng-container *ngIf="config && (mode === 'playback' || mode === 'live')">
+      <!-- ── SERVER BACKTEST RESULTS ── -->
+      <ng-container *ngIf="mode === 'playback' && playbackSubMode === 'server' && backtestResult">
+        <!-- Stat cards -->
+        <div class="info-row" style="margin-top: 16px;">
+          <app-stat-card label="Initial Balance"
+            [value]="(backtestResult.initialBalance | number:'1.2-2') + ' USDC'"
+            icon="account_balance" color="blue" />
+          <app-stat-card label="Final Portfolio"
+            [value]="(backtestResult.portfolioValue | number:'1.2-2') + ' USDC'"
+            icon="account_balance_wallet"
+            [color]="backtestResult.pnl >= 0 ? 'green' : 'orange'" />
+          <app-stat-card label="P&L"
+            [value]="(backtestResult.pnl >= 0 ? '+' : '') + (backtestResult.pnl | number:'1.2-2') + ' USDC (' + (backtestResult.pnlPct | number:'1.2-2') + '%)'"
+            icon="trending_up"
+            [color]="backtestResult.pnl >= 0 ? 'green' : 'orange'" />
+          <app-stat-card label="Trades"
+            [value]="backtestResult.totalTrades + ' (🟢' + backtestResult.buyCount + ' / 🔴' + backtestResult.sellCount + ')'"
+            icon="swap_horiz" color="purple" />
+        </div>
+
+        <!-- Backtest USDC / WETH balances -->
+        <div class="info-row">
+          <app-stat-card label="USDC Balance"
+            [value]="(backtestResult.finalUsdcBalance | number:'1.2-2') ?? '0.00'"
+            icon="attach_money" color="green" />
+          <app-stat-card label="WETH Balance"
+            [value]="(backtestResult.finalWethBalance | number:'1.4-8') ?? '0.00000000'"
+            icon="currency_exchange" color="purple" />
+          <app-stat-card label="Data Points"
+            [value]="'' + backtestResult.totalPoints"
+            icon="timeline" color="blue" />
+        </div>
+
+        <!-- Backtest trade history -->
+        <app-content-card [title]="'Backtest Trades (' + backtestResult.trades.length + ')'" *ngIf="backtestResult.trades.length > 0">
+          <button slot="header-actions" mat-icon-button
+                  (click)="showBacktestHistory = !showBacktestHistory"
+                  [matTooltip]="showBacktestHistory ? 'Hide table' : 'Show table'">
+            <mat-icon>{{ showBacktestHistory ? 'expand_less' : 'expand_more' }}</mat-icon>
+          </button>
+          <div class="trade-table-wrap" *ngIf="showBacktestHistory">
+            <table class="trade-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Step</th>
+                  <th>Direction</th>
+                  <th>Spent</th>
+                  <th>Received</th>
+                  <th>Price</th>
+                  <th>Reason</th>
+                  <th>Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let t of backtestResult.trades">
+                  <td>{{ t.id }}</td>
+                  <td>{{ t.step }}</td>
+                  <td>
+                    <span [class]="t.direction === 'USDC_TO_WETH' ? 'dir-buy' : 'dir-sell'">
+                      {{ t.direction === 'USDC_TO_WETH' ? 'BUY' : 'SELL' }}
+                    </span>
+                  </td>
+                  <td>{{ t.amountIn | number:(t.tokenIn === 'USDC' ? '1.2-2' : '1.4-8') }} {{ t.tokenIn }}</td>
+                  <td>{{ t.amountOut | number:(t.tokenOut === 'USDC' ? '1.2-2' : '1.4-8') }} {{ t.tokenOut }}</td>
+                  <td>{{ t.price | number:'1.2-4' }}</td>
+                  <td class="reason-cell">{{ t.reason }}</td>
+                  <td>{{ t.time | date:'HH:mm:ss' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </app-content-card>
+      </ng-container>
+
+      <!-- ── TRADING SECTION (only in playback-realtime / live) ── -->
+      <ng-container *ngIf="config && (mode === 'live' || (mode === 'playback' && playbackSubMode === 'realtime'))">
 
         <!-- Balance cards -->
         <div class="info-row" style="margin-top: 16px;">
@@ -373,8 +483,21 @@ type PageMode = 'historical' | 'live' | 'playback';
       padding: 8px 0;
     }
 
+    .playback-submode-row {
+      display: flex;
+      align-items: center;
+      gap: t.$spacing-md;
+      margin-bottom: t.$spacing-md;
+    }
+    .submode-toggle {
+      font-size: t.$font-size-sm;
+    }
 
-    .live-badge, .live-badge--playback {
+    .backtest-progress {
+      margin: t.$spacing-sm 0;
+    }
+
+    .live-badge, .live-badge--playback, .live-badge--server {
       display: inline-flex;
       align-items: center;
       gap: 6px;
@@ -396,6 +519,11 @@ type PageMode = 'historical' | 'live' | 'playback';
       background: rgba(33, 150, 243, 0.15);
       border-color: #2196f3;
       color: #2196f3;
+    }
+    .live-badge--server {
+      background: rgba(156, 39, 176, 0.15);
+      border-color: #9c27b0;
+      color: #9c27b0;
     }
 
     @keyframes pulse {
@@ -514,6 +642,14 @@ type PageMode = 'historical' | 'live' | 'playback';
     }
     .dir-buy { color: #0ecb81; font-weight: 600; }
     .dir-sell { color: #f6465d; font-weight: 600; }
+
+    .reason-cell {
+      max-width: 280px;
+      white-space: normal !important;
+      word-break: break-word;
+      font-size: 11px;
+      color: var(--color-text-muted);
+    }
   `],
 })
 export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
@@ -531,6 +667,7 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   configId = '';
   config: ArbiConfig | null = null;
   mode: PageMode = 'historical';
+  playbackSubMode: PlaybackSubMode = 'realtime';
 
   tradingLabel = '';
   referenceLabels: string[] = [];
@@ -580,6 +717,12 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   autoTradeEnabled = false;
   engine: AutoTradeEngine | null = null;
   lastAutoTradeReason = '';
+
+  // Server backtest
+  backtestResult: BacktestResult | null = null;
+  backtestLoading = false;
+  backtestError = '';
+  showBacktestHistory = false;
 
   // Актуальный step/time из последнего тика (не из state, т.к. state обновляется после батча)
   private lastTickIndex = 0;
@@ -717,12 +860,40 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       this.cdr.markForCheck();
     });
     this.rxSubs.push(pbStateSub);
+
+    // Subscribe to backtest result & loading
+    const btResultSub = this.configsFacade.backtestResult$.subscribe((result) => {
+      this.backtestResult = result;
+      if (result) {
+        this.applyBacktestToChart(result);
+      }
+      this.cdr.markForCheck();
+    });
+    this.rxSubs.push(btResultSub);
+
+    const btLoadingSub = this.configsFacade.backtestLoading$.subscribe((loading) => {
+      this.backtestLoading = loading;
+      if (loading) {
+        this.backtestError = '';
+      }
+      this.cdr.markForCheck();
+    });
+    this.rxSubs.push(btLoadingSub);
+
+    // Catch backtest errors
+    const btErrSub = this.configsFacade.error$.subscribe((err) => {
+      if (this.backtestLoading || this.playbackSubMode === 'server') {
+        this.backtestError = err ?? '';
+      }
+    });
+    this.rxSubs.push(btErrSub);
   }
 
   ngOnDestroy(): void {
     this.rxSubs.forEach((s) => s.unsubscribe());
     this.liveChartSocket.disconnectAll();
     this.multiPlayback.stop();
+    this.configsFacade.clearBacktestResult();
   }
 
   /* ── Mode switching ── */
@@ -735,7 +906,12 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       this.liveChartSocket.disconnectAll();
       this.liveValues.clear();
     }
-    if (this.mode === 'playback') this.multiPlayback.stop();
+    if (this.mode === 'playback') {
+      this.multiPlayback.stop();
+      this.configsFacade.clearBacktestResult();
+      this.playbackSubMode = 'realtime';
+      this.backtestError = '';
+    }
 
     this.mode = m;
 
@@ -748,6 +924,36 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       this.series = [...this.historicalSeries];
       this.chartData = [...this.historicalChartData];
       this.hLines = [];
+      this.tradeMarkersList = [];
+    }
+    this.cdr.markForCheck();
+  }
+
+  onPlaybackSubModeChange(subMode: string): void {
+    const sm = subMode as PlaybackSubMode;
+    if (sm === this.playbackSubMode) return;
+
+    if (this.playbackSubMode === 'realtime') {
+      // Остановить realtime playback
+      this.multiPlayback.stop();
+    }
+    if (this.playbackSubMode === 'server') {
+      // Очистить результаты бэктеста
+      this.configsFacade.clearBacktestResult();
+      this.backtestError = '';
+      this.tradeMarkersList = [];
+    }
+
+    this.playbackSubMode = sm;
+
+    if (sm === 'realtime') {
+      this.startPlaybackMode();
+    } else if (sm === 'server') {
+      // Восстановить исторические данные на график и запустить бэктест
+      this.series = [...this.historicalSeries];
+      this.chartData = [...this.historicalChartData];
+      this.hLines = [];
+      this.configsFacade.runBacktest(this.configId);
     }
     this.cdr.markForCheck();
   }
@@ -1061,6 +1267,20 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     this.hLines = lines;
   }
 
+  /* ── Server Backtest → Chart ── */
+
+  private applyBacktestToChart(result: BacktestResult): void {
+    // Маркеры сделок из бэктеста
+    this.tradeMarkersList = result.trades.map((t) => ({
+      time: t.time,
+      price: t.price,
+      direction: t.direction === 'USDC_TO_WETH' ? 'buy' as const : 'sell' as const,
+      label: t.direction === 'USDC_TO_WETH' ? 'BUY' : 'SELL',
+    }));
+    this.hLines = [];
+    this.showBacktestHistory = true;
+  }
+
   /* ── Helpers ── */
 
   /** Возвращает текущий номер шага и время playback (если в playback-режиме) */
@@ -1072,6 +1292,8 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   }
 
   private updateTradeMarkers(): void {
+    // Не перезаписывать маркеры бэктеста
+    if (this.playbackSubMode === 'server' && this.backtestResult) return;
     this.tradeMarkersList = this.trades.map((t) => ({
       time: t.playbackTime ?? t.timestamp,
       price: t.price,
@@ -1115,11 +1337,5 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     return `${src} — ${pair}`;
   }
 }
-
-
-
-
-
-
 
 
