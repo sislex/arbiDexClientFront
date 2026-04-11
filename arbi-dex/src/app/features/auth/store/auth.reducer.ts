@@ -6,6 +6,7 @@ import {
   connectWalletFailure,
   restoreSession,
   logout,
+  refreshTokenSuccess,
 } from './auth.actions';
 
 export const AUTH_FEATURE_KEY = 'auth';
@@ -64,5 +65,11 @@ export const authReducer = createReducer(
   })),
 
   on(logout, () => ({ ...initialAuthState })),
+
+  on(refreshTokenSuccess, (state, { accessToken, refreshToken }) => ({
+    ...state,
+    accessToken,
+    refreshToken,
+  })),
 );
 

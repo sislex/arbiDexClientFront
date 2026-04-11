@@ -24,3 +24,9 @@ export const restoreSession = createAction(
 
 export const logout = createAction('[Auth] Logout');
 
+/** Обновление токенов после успешного refresh */
+export const refreshTokenSuccess = createAction(
+  '[Auth] Refresh Token Success',
+  props<{ accessToken: string; refreshToken: string }>(),
+);
+

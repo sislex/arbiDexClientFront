@@ -11,6 +11,7 @@ import {
   connectWalletFailure,
   restoreSession,
   logout,
+  refreshTokenSuccess,
 } from './auth.actions';
 import { APP_ROUTES } from '../../../shared/constants';
 
@@ -116,6 +117,26 @@ export class AuthEffects {
         tap(() => {
           localStorage.removeItem(STORAGE_KEY);
           this.router.navigate([APP_ROUTES.LOGIN]);
+        }),
+      ),
+    { dispatch: false },
+  );
+
+  /** Сохранение обновлённых токенов в localStorage после refresh */
+  persistRefresh$ = createEffect(
+    () =>
+      this.actions$.pipe(
+        ofType(refreshTokenSuccess),
+        tap(({ accessToken, refreshToken }) => {
+          try {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (stored) {
+              const authResult = JSON.parse(stored);
+              authResult.accessToken = accessToken;
+              authResult.refreshToken = refreshToken;
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(authResult));
+            }
+          } catch { /* ignore */ }
         }),
       ),
     { dispatch: false },
