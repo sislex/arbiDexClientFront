@@ -69,6 +69,11 @@ export class ArbiConfigsFacade {
     this.store.dispatch(loadArbiConfigPrices({ id }));
   }
 
+  /** Перезагрузка цен с принудительным обходом кэша бэкенда */
+  refreshPrices(id: string): void {
+    this.store.dispatch(loadArbiConfigPrices({ id, noCache: true }));
+  }
+
   runBacktest(id: string): void {
     this.store.dispatch(runBacktest({ id }));
   }

@@ -118,6 +118,9 @@ type PlaybackSubMode = 'realtime' | 'server';
           <button mat-stroked-button [routerLink]="['/arbi-configs', configId, 'edit']">
             <mat-icon>edit</mat-icon> Edit
           </button>
+          <button mat-icon-button (click)="onRefresh()" matTooltip="Refresh data (bypass cache)">
+            <mat-icon>refresh</mat-icon>
+          </button>
           <button mat-stroked-button color="warn" (click)="onDelete()">
             <mat-icon>delete</mat-icon> Delete
           </button>
@@ -781,7 +784,7 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     });
     this.rxSubs.push(configSub);
 
-    // Wait for prices (historical mode chart data)
+    // Wait for prices (historical mode chart data) — reacts to initial load AND refresh
     const pricesSub = combineLatest([
       this.configsFacade.currentPrices$,
       this.configsFacade.selectById(this.configId),
@@ -789,7 +792,6 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       this.catalogFacade.pairs$,
     ]).pipe(
       filter(([prices, config, sources]) => !!prices && !!config && sources.length > 0),
-      take(1),
     ).subscribe(([pricesResp, config, sources, pairs]) => {
       if (!pricesResp || !config) return;
 
@@ -821,6 +823,17 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       this.historicalChartData = [...result.data];
 
       this.loading = false;
+
+      // После (пере)загрузки цен — восстанавливаем активный режим
+      if (this.mode === 'playback' && this.playbackSubMode === 'realtime') {
+        this.startPlaybackMode();
+      } else if (this.mode === 'playback' && this.playbackSubMode === 'server') {
+        // Запрашиваем бэктест с новыми данными
+        this.configsFacade.runBacktest(this.configId);
+      } else if (this.mode === 'live') {
+        this.connectSockets();
+      }
+
       this.cdr.markForCheck();
     });
     this.rxSubs.push(pricesSub);
@@ -938,9 +951,7 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       this.multiPlayback.stop();
     }
     if (this.playbackSubMode === 'server') {
-      // Очистить результаты бэктеста
-      this.configsFacade.clearBacktestResult();
-      this.backtestError = '';
+      // Не очищаем backtest из store — кэшируем для повторного использования
       this.tradeMarkersList = [];
     }
 
@@ -949,11 +960,17 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     if (sm === 'realtime') {
       this.startPlaybackMode();
     } else if (sm === 'server') {
-      // Восстановить исторические данные на график и запустить бэктест
+      // Восстановить исторические данные на график
       this.series = [...this.historicalSeries];
       this.chartData = [...this.historicalChartData];
       this.hLines = [];
-      this.configsFacade.runBacktest(this.configId);
+
+      // Если бэктест уже загружен — показать сразу, иначе — запросить
+      if (this.backtestResult) {
+        this.applyBacktestToChart(this.backtestResult);
+      } else {
+        this.configsFacade.runBacktest(this.configId);
+      }
     }
     this.cdr.markForCheck();
   }
@@ -962,6 +979,34 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     if (confirm('Are you sure you want to delete this config?')) {
       this.configsFacade.delete(this.configId);
     }
+  }
+
+  /** Полная перезагрузка данных страницы (обход кэша бэкенда) */
+  onRefresh(): void {
+    // Останавливаем активные режимы
+    if (this.mode === 'live') {
+      this.liveChartSocket.disconnectAll();
+      this.liveValues.clear();
+    }
+    if (this.mode === 'playback') {
+      this.multiPlayback.stop();
+    }
+
+    // Сбрасываем состояние
+    this.loading = true;
+    this.error = '';
+    this.configsFacade.clearBacktestResult();
+    this.backtestError = '';
+    this.backtestResult = null;
+    this.tradeMarkersList = [];
+    this.hLines = [];
+
+    // Перезагружаем данные с noCache
+    this.configsFacade.loadOne(this.configId);
+    this.configsFacade.refreshPrices(this.configId);
+
+    this.snackBar.open('🔄 Refreshing data…', '', { duration: 2000 });
+    this.cdr.markForCheck();
   }
 
   /* ── Playback controls ── */
