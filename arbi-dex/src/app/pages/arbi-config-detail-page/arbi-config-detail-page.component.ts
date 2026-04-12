@@ -1227,6 +1227,17 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
 
     const fieldKey = extractFieldKey(msg.key);
 
+    // Update live values FIRST (always, for trading logic + midPrice calc)
+    const existing = this.liveValues.get(msg.subscriptionId) ?? { bid: 0, ask: 0, mid: 0 };
+    const keyLower = fieldKey.toLowerCase();
+    if (keyLower.includes('bid')) existing.bid = msg.point.v;
+    else if (keyLower.includes('ask')) existing.ask = msg.point.v;
+    else if (keyLower.includes('mid')) existing.mid = msg.point.v;
+    if (existing.bid > 0 && existing.ask > 0) {
+      existing.mid = (existing.bid + existing.ask) / 2;
+    }
+    this.liveValues.set(msg.subscriptionId, existing);
+
     // Only update chart data if chart is visible
     if (this.chartVisible) {
       const newFieldKey = `${prefix}_${fieldKey}`;
@@ -1236,6 +1247,14 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
         time: msg.point.t,
         [newFieldKey]: msg.point.v,
       };
+
+      // For CEX sources that use midPrice series — compute mid from bid+ask
+      const midKey = `${prefix}_midPrice`;
+      const hasMidSeries = this.series.some((s) => s.key === midKey);
+      if (hasMidSeries && existing.bid > 0 && existing.ask > 0) {
+        newPoint[midKey] = (existing.bid + existing.ask) / 2;
+      }
+
       let updated = [...this.chartData, newPoint];
       if (updated.length > MAX_CHART_POINTS) {
         updated = updated.slice(updated.length - MAX_CHART_POINTS);
@@ -1243,16 +1262,6 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       this.chartData = updated;
     }
 
-    // Update live values (always, for trading logic)
-    const existing = this.liveValues.get(msg.subscriptionId) ?? { bid: 0, ask: 0, mid: 0 };
-    const keyLower = fieldKey.toLowerCase();
-    if (keyLower.includes('bid')) existing.bid = msg.point.v;
-    else if (keyLower.includes('ask')) existing.ask = msg.point.v;
-    else if (keyLower.includes('mid')) existing.mid = msg.point.v;
-    if (existing.bid > 0 && existing.ask > 0 && existing.mid === 0) {
-      existing.mid = (existing.bid + existing.ask) / 2;
-    }
-    this.liveValues.set(msg.subscriptionId, existing);
 
     this.derivePricesFromLive();
     this.runAutoTrade();
