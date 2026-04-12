@@ -214,6 +214,11 @@ type PlaybackSubMode = 'realtime' | 'server';
             <mat-icon style="font-size:14px;width:14px;height:14px;">cloud_done</mat-icon> SERVER BACKTEST
           </div>
           <button mat-icon-button
+                  (click)="toggleAvgMode()"
+                  [matTooltip]="showAvgMode ? 'Show all quotes' : 'Show average'">
+            <mat-icon>{{ showAvgMode ? 'stacked_line_chart' : 'show_chart' }}</mat-icon>
+          </button>
+          <button mat-icon-button
                   (click)="chartVisible = !chartVisible"
                   [matTooltip]="chartVisible ? 'Hide chart' : 'Show chart'">
             <mat-icon>{{ chartVisible ? 'expand_less' : 'expand_more' }}</mat-icon>
@@ -221,8 +226,8 @@ type PlaybackSubMode = 'realtime' | 'server';
         </ng-container>
         <app-price-chart
           *ngIf="chartVisible"
-          [series]="series"
-          [data]="chartData"
+          [series]="displaySeries"
+          [data]="displayChartData"
           [horizontalLines]="hLines"
           [tradeMarkers]="tradeMarkersList"
           [streaming]="false" />
@@ -731,9 +736,27 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   tradingLabel = '';
   referenceLabels: string[] = [];
 
-  // Chart
-  series: PriceSeriesConfig[] = [];
-  chartData: PricePoint[] = [];
+  // Chart — raw data (getter/setter auto-sync displaySeries/displayChartData)
+  private _series: PriceSeriesConfig[] = [];
+  get series(): PriceSeriesConfig[] { return this._series; }
+  set series(val: PriceSeriesConfig[]) {
+    this._series = val;
+    this.syncDisplaySeries();
+    this.syncDisplayData();
+  }
+
+  private _chartData: PricePoint[] = [];
+  get chartData(): PricePoint[] { return this._chartData; }
+  set chartData(val: PricePoint[]) {
+    this._chartData = val;
+    this.syncDisplayData();
+  }
+
+  /** Показывать среднюю котировку вместо всех отдельных графиков */
+  showAvgMode = false;
+  displaySeries: PriceSeriesConfig[] = [];
+  displayChartData: PricePoint[] = [];
+
   hLines: HorizontalLine[] = [];
   loading = true;
   error = '';
@@ -1446,6 +1469,64 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     const src = sourceMap?.get(sourceId)?.displayName ?? sourceId;
     const pair = pairMap?.get(pairId)?.displayName ?? pairId;
     return `${src} — ${pair}`;
+  }
+
+  /* ── Avg / All quotes display mode ── */
+
+  toggleAvgMode(): void {
+    this.showAvgMode = !this.showAvgMode;
+    this.syncDisplaySeries();
+    this.syncDisplayData();
+    this.cdr.markForCheck();
+  }
+
+  private syncDisplaySeries(): void {
+    if (!this.showAvgMode) {
+      this.displaySeries = this._series;
+      return;
+    }
+    const tradingPrefix = this.keyPrefixMap.get(this.tradingSubId);
+    const tradingSeries = tradingPrefix
+      ? this._series.filter((s) => s.key.startsWith(tradingPrefix))
+      : [];
+    this.displaySeries = [
+      ...tradingSeries,
+      { key: 'avg_ref_mid', name: 'Avg Reference Mid', color: '#ff9800' },
+    ];
+  }
+
+  private syncDisplayData(): void {
+    if (!this.showAvgMode) {
+      this.displayChartData = this._chartData;
+      return;
+    }
+    const refKeys = this.getRefSeriesKeys();
+    if (refKeys.length === 0) {
+      this.displayChartData = this._chartData;
+      return;
+    }
+    this.displayChartData = this._chartData.map((pt) => {
+      let sum = 0;
+      let count = 0;
+      for (const key of refKeys) {
+        const v = pt[key];
+        if (v !== undefined && v > 0) { sum += v; count++; }
+      }
+      return { ...pt, avg_ref_mid: count > 0 ? sum / count : 0 };
+    });
+  }
+
+  private getRefSeriesKeys(): string[] {
+    const keys: string[] = [];
+    for (const refId of this.referenceSubIds) {
+      const prefix = this.keyPrefixMap.get(refId);
+      if (prefix) {
+        for (const s of this._series) {
+          if (s.key.startsWith(prefix)) keys.push(s.key);
+        }
+      }
+    }
+    return keys;
   }
 }
 
