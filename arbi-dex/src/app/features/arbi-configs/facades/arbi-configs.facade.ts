@@ -69,6 +69,10 @@ export class ArbiConfigsFacade {
     this.store.dispatch(loadArbiConfigPrices({ id }));
   }
 
+  refreshPrices(id: string): void {
+    this.store.dispatch(loadArbiConfigPrices({ id, noCache: true }));
+  }
+
   runBacktest(id: string): void {
     this.store.dispatch(runBacktest({ id }));
   }
