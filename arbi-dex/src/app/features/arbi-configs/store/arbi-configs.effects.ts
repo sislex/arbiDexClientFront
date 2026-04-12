@@ -127,8 +127,8 @@ export class ArbiConfigsEffects {
   loadPrices$ = createEffect(() =>
     this.actions$.pipe(
       ofType(loadArbiConfigPrices),
-      switchMap(({ id, noCache }) =>
-        this.service.getPrices(id, noCache).pipe(
+      switchMap(({ id }) =>
+        this.service.getPrices(id).pipe(
           map((pricesResponse) =>
             loadArbiConfigPricesSuccess({ id, pricesResponse }),
           ),

@@ -94,12 +94,9 @@ export class ArbiConfigsHttpService extends IArbiConfigsService {
     return this.http.delete<void>(`${this.apiUrl}/arbi-configs/${id}`);
   }
 
-  getPrices(id: string, noCache?: boolean): Observable<ArbiConfigPricesResponse> {
-    const params: Record<string, string> = {};
-    if (noCache) params['noCache'] = 'true';
+  getPrices(id: string): Observable<ArbiConfigPricesResponse> {
     return this.http.get<ArbiConfigPricesResponse>(
       `${this.apiUrl}/arbi-configs/${id}/prices`,
-      { params },
     );
   }
 

@@ -75,7 +75,7 @@ export abstract class IArbiConfigsService {
   abstract create(payload: CreateArbiConfigPayload): Observable<ArbiConfig>;
   abstract update(id: string, payload: UpdateArbiConfigPayload): Observable<ArbiConfig>;
   abstract remove(id: string): Observable<void>;
-  abstract getPrices(id: string, noCache?: boolean): Observable<ArbiConfigPricesResponse>;
+  abstract getPrices(id: string): Observable<ArbiConfigPricesResponse>;
   abstract runBacktest(id: string): Observable<BacktestResult>;
 }
 

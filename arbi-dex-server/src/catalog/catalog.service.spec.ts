@@ -3,6 +3,8 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { CatalogService } from './catalog.service';
 import { Source } from './entities/source.entity';
 import { TradingPair } from './entities/trading-pair.entity';
+import { HttpService } from '@nestjs/axios';
+import { ConfigService } from '@nestjs/config';
 
 const mockSources: Source[] = [
   { id: 'cex_binance', name: 'cex_binance', displayName: 'Binance', type: 'cex', icon: null, isActive: true },
@@ -17,6 +19,8 @@ const mockPairs: TradingPair[] = [
 
 const mockSourcesRepo = { find: jest.fn() };
 const mockPairsRepo = { find: jest.fn() };
+const mockHttpService = { get: jest.fn() };
+const mockConfigService = { get: jest.fn().mockReturnValue('http://localhost:3002') };
 
 describe('CatalogService', () => {
   let service: CatalogService;
@@ -27,6 +31,8 @@ describe('CatalogService', () => {
         CatalogService,
         { provide: getRepositoryToken(Source), useValue: mockSourcesRepo },
         { provide: getRepositoryToken(TradingPair), useValue: mockPairsRepo },
+        { provide: HttpService, useValue: mockHttpService },
+        { provide: ConfigService, useValue: mockConfigService },
       ],
     }).compile();
 

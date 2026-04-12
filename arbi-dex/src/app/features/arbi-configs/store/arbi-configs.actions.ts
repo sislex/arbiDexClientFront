@@ -77,7 +77,7 @@ export const deleteArbiConfigFailure = createAction(
 // ── Prices ──
 export const loadArbiConfigPrices = createAction(
   '[ArbiConfigs] Load Prices',
-  props<{ id: string; noCache?: boolean }>(),
+  props<{ id: string }>(),
 );
 export const loadArbiConfigPricesSuccess = createAction(
   '[ArbiConfigs] Load Prices Success',

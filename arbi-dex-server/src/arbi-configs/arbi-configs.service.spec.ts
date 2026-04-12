@@ -5,6 +5,7 @@ import { ArbiConfigsService } from './arbi-configs.service';
 import { ArbiConfig } from './entities/arbi-config.entity';
 import { ArbiConfigSource } from './entities/arbi-config-source.entity';
 import { Subscription } from '../subscriptions/entities/subscription.entity';
+import { PricesService } from '../prices/prices.service';
 
 const USER_ID = 'user-uuid-1';
 
@@ -53,6 +54,10 @@ describe('ArbiConfigsService', () => {
     find: jest.fn(),
   };
 
+  const mockPricesService = {
+    getPricesBySubscription: jest.fn().mockResolvedValue({ series: [], data: [] }),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -60,6 +65,7 @@ describe('ArbiConfigsService', () => {
         { provide: getRepositoryToken(ArbiConfig), useValue: mockConfigRepo },
         { provide: getRepositoryToken(ArbiConfigSource), useValue: mockSourceRepo },
         { provide: getRepositoryToken(Subscription), useValue: mockSubsRepo },
+        { provide: PricesService, useValue: mockPricesService },
       ],
     }).compile();
 

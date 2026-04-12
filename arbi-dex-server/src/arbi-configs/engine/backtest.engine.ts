@@ -119,7 +119,7 @@ export class BacktestEngine {
       buyCount: this.trades.filter((t) => t.direction === 'USDC_TO_WETH').length,
       sellCount: this.trades.filter((t) => t.direction === 'WETH_TO_USDC').length,
       totalPoints: ticks.length,
-      trades: [...this.trades].reverse(),
+      trades: this.trades,
     };
   }
 
