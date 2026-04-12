@@ -270,29 +270,26 @@ export class PriceChartComponent implements OnInit, OnChanges, OnDestroy {
     if (this.tradeMarkers.length > 0) {
       const buyData = this.tradeMarkers
         .filter((m) => m.direction === 'buy')
-        .map((m) => ({ time: m.time, price: m.price }));
+        .map((m) => ({ time: m.time, buyPrice: m.price }));
       const sellData = this.tradeMarkers
         .filter((m) => m.direction === 'sell')
-        .map((m) => ({ time: m.time, price: m.price }));
+        .map((m) => ({ time: m.time, sellPrice: m.price }));
 
       if (buyData.length > 0) {
         seriesDefs.push({
           type: 'scatter' as const,
           xKey: 'time',
-          yKey: 'price',
+          yKey: 'buyPrice',
           yName: '🟢 Buy',
           data: buyData,
-          marker: {
-            shape: 'triangle',
-            size: 14,
-            fill: '#0ecb81',
-            stroke: '#fff',
-            strokeWidth: 1.5,
-          },
+          shape: 'circle',
+          size: 12,
+          fill: '#0ecb81',
+          strokeWidth: 0,
           tooltip: {
             renderer: (params: any) => ({
               title: '🟢 Buy',
-              content: `Price: ${Number(params.datum.price).toFixed(4)}`,
+              content: `Price: ${Number(params.datum.buyPrice).toFixed(4)}`,
             }),
           },
         });
@@ -302,20 +299,17 @@ export class PriceChartComponent implements OnInit, OnChanges, OnDestroy {
         seriesDefs.push({
           type: 'scatter' as const,
           xKey: 'time',
-          yKey: 'price',
+          yKey: 'sellPrice',
           yName: '🔴 Sell',
           data: sellData,
-          marker: {
-            shape: 'diamond',
-            size: 14,
-            fill: '#f6465d',
-            stroke: '#fff',
-            strokeWidth: 1.5,
-          },
+          shape: 'circle',
+          size: 12,
+          fill: '#f6465d',
+          strokeWidth: 0,
           tooltip: {
             renderer: (params: any) => ({
               title: '🔴 Sell',
-              content: `Price: ${Number(params.datum.price).toFixed(4)}`,
+              content: `Price: ${Number(params.datum.sellPrice).toFixed(4)}`,
             }),
           },
         });
