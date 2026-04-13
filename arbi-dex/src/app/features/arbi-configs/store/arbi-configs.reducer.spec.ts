@@ -24,6 +24,11 @@ const mockConfig: ArbiConfig = {
   profitAsset: 'USDC',
   slippage: 0.01,
   initialBalance: 100,
+  autoBuyThresholdPct: null,
+  autoSellThresholdPct: null,
+  trailingTakeProfitPct: null,
+  stopLossPct: null,
+  tradeAmountPct: 100,
   createdAt: Date.now(),
 };
 

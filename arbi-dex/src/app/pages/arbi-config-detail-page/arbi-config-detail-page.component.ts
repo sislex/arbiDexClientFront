@@ -359,8 +359,9 @@ type PlaybackSubMode = 'realtime' | 'server';
         <app-content-card title="Trading" [elevated]="true">
           <div class="trading-header">
             <mat-button-toggle-group
+              *ngIf="mode === 'live'"
               [value]="tradingMode"
-              (change)="tradingMode = $event.value"
+              (change)="onTradingModeChange($event.value)"
               appearance="standard"
               class="trading-mode-toggle">
               <mat-button-toggle value="demo">
@@ -370,6 +371,10 @@ type PlaybackSubMode = 'realtime' | 'server';
                 <mat-icon>account_balance_wallet</mat-icon> Real
               </mat-button-toggle>
             </mat-button-toggle-group>
+
+            <span class="demo-mode-label" *ngIf="mode === 'playback'">
+              <mat-icon>science</mat-icon> Demo Mode
+            </span>
 
             <mat-slide-toggle [(ngModel)]="autoTradeEnabled" class="auto-toggle">
               Auto-Trade
@@ -638,6 +643,15 @@ type PlaybackSubMode = 'realtime' | 'server';
       border-radius: t.$radius-sm;
       color: #2196f3;
       font-size: t.$font-size-sm;
+    }
+
+    .demo-mode-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: t.$font-size-sm;
+      font-weight: 600;
+      color: #2196f3;
     }
 
     .swap-form {
@@ -940,6 +954,20 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       this.wethBalance = weth;
       this.initialUsdc = initial;
       this.trades = history;
+
+      // Cap amountIn to current balance (fixes sell disabled after buy)
+      if (this.direction === 'USDC_TO_WETH' && this.amountIn > usdc && usdc > 0) {
+        this.amountIn = usdc;
+      } else if (this.direction === 'WETH_TO_USDC' && this.amountIn > weth && weth > 0) {
+        this.amountIn = weth;
+      }
+      // After a swap the balance for the new direction appears — set amountIn
+      if (this.direction === 'WETH_TO_USDC' && this.amountIn <= 0 && weth > 0) {
+        this.amountIn = weth;
+      } else if (this.direction === 'USDC_TO_WETH' && this.amountIn <= 0 && usdc > 0) {
+        this.amountIn = usdc;
+      }
+
       this.updateTradeMarkers();
       this.updatePortfolio();
       this.recalcEstimate();
@@ -1011,6 +1039,8 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     if (m === 'live') {
       this.connectSockets();
     } else if (m === 'playback') {
+      // В playback только демо-торговля
+      this.tradingMode = 'demo';
       this.startPlaybackMode();
     } else if (m === 'historical') {
       // Восстанавливаем оригинальные исторические данные
@@ -1171,6 +1201,28 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       }
     }
     this.updateHorizontalLines();
+
+    // Авто-переключение направления после свопа
+    this.autoFlipDirection();
+  }
+
+  /** Авто-переключение направления и установка amountIn после свопа */
+  private autoFlipDirection(): void {
+    const received = this.estimatedOut;
+    if (this.direction === 'USDC_TO_WETH') {
+      this.direction = 'WETH_TO_USDC';
+      this.amountIn = received > 0 ? received : this.wethBalance;
+    } else {
+      this.direction = 'USDC_TO_WETH';
+      this.amountIn = received > 0 ? received : this.usdcBalance;
+    }
+    this.recalcEstimate();
+  }
+
+  /** Переключение Demo / Real */
+  onTradingModeChange(mode: string): void {
+    this.tradingMode = mode as 'demo' | 'real';
+    this.cdr.markForCheck();
   }
 
   /* ── Playback Mode ── */
