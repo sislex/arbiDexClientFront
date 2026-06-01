@@ -52,11 +52,9 @@ services:
     ports:
       - '8231:80'
     environment:
-      API_BASE_URL: http://45.135.182.251:3006/api
+      API_BASE_URL: ${API_BASE_URL:-http://45.135.182.251:3006/api}
     depends_on:
       - server
 
 volumes:
   postgres_data:
-
-
