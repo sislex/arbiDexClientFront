@@ -145,6 +145,39 @@ export function detectKeyFormat(keys: string[]): 'pipe' | 'concat' {
 }
 
 /**
+ * Генерирует ключ arbiDexMarketData для пула (bidPool/askPool) по sourceId + pairId.
+ *
+ * Формат (pipe): `<sourceId>|<baseAddr>/<quoteAddr>|<bidPool|askPool>`
+ * Пример: `dex:arbitrum|0x82af…/0xaf88…|askPool`
+ *
+ * @param sourceId напр. 'dex:arbitrum'
+ * @param pairId   напр. 'WETH_USDC'
+ * @param side     'bid' → bidPool; 'ask' → askPool
+ */
+export function buildPoolKey(
+  sourceId: string,
+  pairId: string,
+  side: 'bid' | 'ask',
+): string | null {
+  const parts = pairId.split('_');
+  if (parts.length !== 2) return null;
+
+  const [baseDisplay, quoteDisplay] = parts;
+
+  // Обратный маппинг: символ → адрес (для DEX)
+  const reverseTokens: Record<string, string> = {};
+  for (const [addr, name] of Object.entries(TOKEN_NAMES)) {
+    reverseTokens[name] = addr;
+  }
+
+  const base = sourceId.startsWith('dex:') ? (reverseTokens[baseDisplay] ?? baseDisplay) : baseDisplay;
+  const quote = sourceId.startsWith('dex:') ? (reverseTokens[quoteDisplay] ?? quoteDisplay) : quoteDisplay;
+
+  const field = side === 'bid' ? 'bidPool' : 'askPool';
+  return `${sourceId}|${base}/${quote}|${field}`;
+}
+
+/**
  * Генерирует ключи arbiDexMarketData (bid + ask) для данного sourceId + pairId.
  *
  * @param sourceId  напр. 'mexc', 'dex:arbitrum'

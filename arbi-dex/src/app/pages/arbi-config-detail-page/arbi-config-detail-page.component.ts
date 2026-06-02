@@ -20,6 +20,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import {
@@ -61,6 +62,10 @@ import {
   PlaybackSpeed,
 } from '../../shared/models';
 import { BacktestResult, BacktestTrade } from '../../features/arbi-configs/services/arbi-configs.service.interface';
+import { MarketDataService } from '../../features/swap-execution/services/market-data.service';
+import { SwapExecutionService } from '../../features/swap-execution/services/swap-execution.service';
+import { buildExecuteSwapPayload } from '../../features/swap-execution/utils/execute-swap-payload';
+import { SwapPayloadDialogComponent } from '../../features/swap-execution/ui/swap-payload-dialog.component';
 
 const MAX_CHART_POINTS = 2000;
 
@@ -83,6 +88,7 @@ type PlaybackSubMode = 'realtime' | 'server';
     MatInputModule,
     MatTooltipModule,
     MatSnackBarModule,
+    MatDialogModule,
     MatSlideToggleModule,
     MatProgressBarModule,
     PriceChartComponent,
@@ -740,6 +746,9 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   private readonly liveChartSocket = inject(LiveChartSocketService);
   private readonly multiPlayback = inject(MultiPlaybackService);
   private readonly snackBar = inject(MatSnackBar);
+  private readonly dialog = inject(MatDialog);
+  private readonly marketData = inject(MarketDataService);
+  private readonly swapExecution = inject(SwapExecutionService);
   private readonly cdr = inject(ChangeDetectorRef);
 
   configId = '';
@@ -1200,6 +1209,14 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
 
   doSwap(): void {
     if (!this.canSwap) return;
+
+    // В режиме Real — не выполняем демо-своп, а готовим payload для execute-API
+    // и показываем его в попапе.
+    if (this.tradingMode === 'real') {
+      this.prepareRealSwap();
+      return;
+    }
+
     const slip = this.config?.slippage ?? 0.01;
     const { step, playbackTime } = this.currentPlaybackInfo();
     // Покупка по ask, продажа по bid (как на реальном рынке)
@@ -1223,6 +1240,81 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
 
     // Авто-переключение направления после свопа
     this.autoFlipDirection();
+  }
+
+  /**
+   * Выполняет реальный on-chain своп: подтягивает метаданные пула из
+   * arbiDexMarketData, собирает тело запроса execute-API, вызывает
+   * POST /api/swap-execution/execute и показывает попап с запросом и ответом.
+   */
+  private prepareRealSwap(): void {
+    const config = this.config;
+    if (!config?.tradingSourceId || !config?.tradingPairId) {
+      this.snackBar.open('Не заданы торговый источник или пара', 'OK', { duration: 4000 });
+      return;
+    }
+
+    const direction = this.direction;
+    const amountIn = this.amountIn;
+    // Обновляем оценку выхода по текущей котировке (с учётом slippage) для amountOutMin.
+    this.recalcEstimate();
+    const expectedOut = this.estimatedOut;
+    // Покупка base (USDC_TO_WETH) — ask pool; продажа base (WETH_TO_USDC) — bid pool.
+    const side = direction === 'USDC_TO_WETH' ? 'ask' : 'bid';
+
+    this.marketData.getPool(config.tradingSourceId, config.tradingPairId, side).subscribe({
+      next: (pool) => {
+        let payload: ReturnType<typeof buildExecuteSwapPayload>;
+        try {
+          payload = buildExecuteSwapPayload({
+            direction,
+            amountIn,
+            expectedOut,
+            sourceId: config.tradingSourceId!,
+            pairId: config.tradingPairId!,
+            profitAsset: config.profitAsset,
+            slippage: config.slippage,
+            pool,
+            execute: true,
+          });
+        } catch (e) {
+          this.snackBar.open(
+            `Не удалось собрать payload: ${(e as Error).message}`, 'OK', { duration: 5000 },
+          );
+          return;
+        }
+
+        const title = direction === 'USDC_TO_WETH' ? 'Buy — своп отправлен' : 'Sell — своп отправлен';
+        const snackRef = this.snackBar.open('Отправка свопа…', undefined, { duration: 0 });
+
+        this.swapExecution.execute(payload).subscribe({
+          next: (response) => {
+            snackRef.dismiss();
+            this.dialog.open(SwapPayloadDialogComponent, {
+              data: { title, payload, response },
+              autoFocus: false,
+            });
+          },
+          error: (err) => {
+            snackRef.dismiss();
+            const errorData = err?.error ?? err?.message ?? err;
+            this.dialog.open(SwapPayloadDialogComponent, {
+              data: {
+                title: direction === 'USDC_TO_WETH' ? 'Buy — ошибка свопа' : 'Sell — ошибка свопа',
+                payload,
+                error: errorData,
+              },
+              autoFocus: false,
+            });
+          },
+        });
+      },
+      error: (err) => {
+        this.snackBar.open(
+          `Не удалось получить данные пула: ${err?.message ?? err}`, 'OK', { duration: 5000 },
+        );
+      },
+    });
   }
 
   /** Авто-переключение направления и установка amountIn после свопа */

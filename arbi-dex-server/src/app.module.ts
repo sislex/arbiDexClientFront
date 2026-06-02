@@ -26,6 +26,7 @@ import { TradingPair } from './catalog/entities/trading-pair.entity';
 import { ArbiConfig } from './arbi-configs/entities/arbi-config.entity';
 import { ArbiConfigSource } from './arbi-configs/entities/arbi-config-source.entity';
 import { SwapExecutionModule } from './swap-execution/swap-execution.module';
+import { MarketDataModule } from './market-data/market-data.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { SwapExecutionModule } from './swap-execution/swap-execution.module';
     LiveChartModule,
     ArbiConfigsModule,
     SwapExecutionModule,
+    MarketDataModule,
   ],
   controllers: [AppController],
 })
