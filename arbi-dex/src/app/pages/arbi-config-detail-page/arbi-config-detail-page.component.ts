@@ -1227,13 +1227,12 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
 
   /** Авто-переключение направления и установка amountIn после свопа */
   private autoFlipDirection(): void {
-    const received = this.estimatedOut;
     if (this.direction === 'USDC_TO_WETH') {
       this.direction = 'WETH_TO_USDC';
-      this.amountIn = received > 0 ? received : this.wethBalance;
+      this.amountIn = this.wethBalance;
     } else {
       this.direction = 'USDC_TO_WETH';
-      this.amountIn = received > 0 ? received : this.usdcBalance;
+      this.amountIn = this.usdcBalance;
     }
     this.recalcEstimate();
   }
