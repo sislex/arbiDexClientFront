@@ -841,6 +841,12 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.configId = this.route.snapshot.paramMap.get('id') ?? '';
+    const routeModeSub = this.route.url.subscribe((segments) => {
+      const lastSegment = segments[segments.length - 1]?.path;
+      this.applyMode(this.resolveModeFromRoute(lastSegment));
+    });
+    this.rxSubs.push(routeModeSub);
+
     this.catalogFacade.loadAll();
     this.configsFacade.loadOne(this.configId);
     this.configsFacade.loadPrices(this.configId);
@@ -1021,6 +1027,12 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
 
   onModeChange(newMode: string): void {
     const m = newMode as PageMode;
+    if (m === this.mode || !this.configId) return;
+
+    this.router.navigate(['/arbi-configs', this.configId, m]);
+  }
+
+  private applyMode(m: PageMode): void {
     if (m === this.mode) return;
 
     if (this.mode === 'live') {
@@ -1050,6 +1062,13 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       this.tradeMarkersList = [];
     }
     this.cdr.markForCheck();
+  }
+
+  private resolveModeFromRoute(value?: string): PageMode {
+    if (value === 'historical' || value === 'playback' || value === 'live') {
+      return value;
+    }
+    return 'historical';
   }
 
   onPlaybackSubModeChange(subMode: string): void {

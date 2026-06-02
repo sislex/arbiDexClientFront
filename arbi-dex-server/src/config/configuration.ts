@@ -1,5 +1,22 @@
 import { registerAs } from '@nestjs/config';
 
+const SUPPORTED_NETWORK_PREFIXES = ['ARBITRUM', 'OPTIMISM', 'BASE'] as const;
+
+type SupportedNetworkPrefix = (typeof SUPPORTED_NETWORK_PREFIXES)[number];
+
+function buildNetworkConfig(prefix: SupportedNetworkPrefix) {
+  return {
+    rpcUrl: process.env[`${prefix}_RPC`] ?? '',
+    executorAddress: process.env[`${prefix}_EXECUTOR_ADDRESS`] ?? '',
+    txUrl: process.env[`${prefix}_TX_URL`] ?? '',
+    routers: {
+      uniswapV2: process.env[`${prefix}_UNISWAP_V2_ROUTER`] ?? '',
+      sushiV2: process.env[`${prefix}_SUSHI_V2_ROUTER`] ?? '',
+      camelotV2: process.env[`${prefix}_CAMELOT_V2_ROUTER`] ?? '',
+    },
+  };
+}
+
 export const appConfig = registerAs('app', () => ({
   port: parseInt(process.env.APP_PORT ?? '3006', 10),
   nodeEnv: process.env.NODE_ENV ?? 'development',
@@ -23,5 +40,14 @@ export const jwtConfig = registerAs('jwt', () => ({
 
 export const marketDataConfig = registerAs('marketData', () => ({
   url: process.env.MARKET_DATA_URL ?? 'http://45.135.182.251:3002',
+}));
+
+export const swapNetworksConfig = registerAs('swapNetworks', () => ({
+  privateKey: process.env.PRIVATE_KEY ?? '',
+  networks: {
+    ARBITRUM: buildNetworkConfig('ARBITRUM'),
+    OPTIMISM: buildNetworkConfig('OPTIMISM'),
+    BASE: buildNetworkConfig('BASE'),
+  },
 }));
 

@@ -2,7 +2,13 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { appConfig, dbConfig, jwtConfig, marketDataConfig } from './config/configuration';
+import {
+  appConfig,
+  dbConfig,
+  jwtConfig,
+  marketDataConfig,
+  swapNetworksConfig,
+} from './config/configuration';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
@@ -19,12 +25,13 @@ import { Source } from './catalog/entities/source.entity';
 import { TradingPair } from './catalog/entities/trading-pair.entity';
 import { ArbiConfig } from './arbi-configs/entities/arbi-config.entity';
 import { ArbiConfigSource } from './arbi-configs/entities/arbi-config-source.entity';
+import { SwapExecutionModule } from './swap-execution/swap-execution.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, dbConfig, jwtConfig, marketDataConfig],
+      load: [appConfig, dbConfig, jwtConfig, marketDataConfig, swapNetworksConfig],
     }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
@@ -49,6 +56,7 @@ import { ArbiConfigSource } from './arbi-configs/entities/arbi-config-source.ent
     QuotesModule,
     LiveChartModule,
     ArbiConfigsModule,
+    SwapExecutionModule,
   ],
   controllers: [AppController],
 })

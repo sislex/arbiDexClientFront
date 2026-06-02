@@ -83,6 +83,25 @@ export const routes: Routes = [
       },
       {
         path: 'arbi-configs/:id',
+        redirectTo: 'arbi-configs/:id/historical',
+        pathMatch: 'full',
+      },
+      {
+        path: 'arbi-configs/:id/historical',
+        loadComponent: () =>
+          import('./pages/arbi-config-detail-page/arbi-config-detail-page.component').then(
+            (m) => m.ArbiConfigDetailPageComponent,
+          ),
+      },
+      {
+        path: 'arbi-configs/:id/playback',
+        loadComponent: () =>
+          import('./pages/arbi-config-detail-page/arbi-config-detail-page.component').then(
+            (m) => m.ArbiConfigDetailPageComponent,
+          ),
+      },
+      {
+        path: 'arbi-configs/:id/live',
         loadComponent: () =>
           import('./pages/arbi-config-detail-page/arbi-config-detail-page.component').then(
             (m) => m.ArbiConfigDetailPageComponent,
