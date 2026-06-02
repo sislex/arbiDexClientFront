@@ -1335,25 +1335,16 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     // Only update chart data if chart is visible
     if (this.chartVisible) {
       const newFieldKey = `${prefix}_${fieldKey}`;
-      const last = this.chartData[this.chartData.length - 1];
-      const newPoint: PricePoint = {
-        ...(last ?? {}),
-        time: msg.point.t,
-        [newFieldKey]: msg.point.v,
-      };
+      const patch: PricePoint = { [newFieldKey]: msg.point.v, time: msg.point.t };
 
       // For CEX sources that use midPrice series — compute mid from bid+ask
       const midKey = `${prefix}_midPrice`;
       const hasMidSeries = this.series.some((s) => s.key === midKey);
       if (hasMidSeries && existing.bid > 0 && existing.ask > 0) {
-        newPoint[midKey] = (existing.bid + existing.ask) / 2;
+        patch[midKey] = (existing.bid + existing.ask) / 2;
       }
 
-      let updated = [...this.chartData, newPoint];
-      if (updated.length > MAX_CHART_POINTS) {
-        updated = updated.slice(updated.length - MAX_CHART_POINTS);
-      }
-      this.chartData = updated;
+      this.chartData = this.upsertLivePoint(msg.point.t, patch);
     }
 
 
@@ -1362,6 +1353,66 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     this.updatePortfolio();
     this.updateHorizontalLines();
     this.cdr.markForCheck();
+  }
+
+  /**
+   * Upsert live-точки по timestamp, чтобы график всегда оставался монотонным по времени.
+   * Это предотвращает "ломаные" линии при out-of-order websocket сообщениях.
+   */
+  private upsertLivePoint(timestamp: number, patch: PricePoint): PricePoint[] {
+    const data = this.chartData;
+    const last = data[data.length - 1];
+
+    // Частый путь: новая точка по времени
+    if (!last || timestamp > last.time) {
+      const next: PricePoint = {
+        ...(last ?? {}),
+        ...patch,
+        time: timestamp,
+      };
+      const appended = [...data, next];
+      return appended.length > MAX_CHART_POINTS
+        ? appended.slice(appended.length - MAX_CHART_POINTS)
+        : appended;
+    }
+
+    // Частый путь: дубликат timestamp — дописываем поля в последнюю точку
+    if (timestamp === last.time) {
+      return [...data.slice(0, -1), { ...last, ...patch, time: timestamp }];
+    }
+
+    // Редкий путь: out-of-order сообщение. Вставляем/обновляем точку в середине массива.
+    const idx = this.findFirstIndexByTime(data, timestamp);
+
+    if (idx < data.length && data[idx].time === timestamp) {
+      const merged = { ...data[idx], ...patch, time: timestamp };
+      return [...data.slice(0, idx), merged, ...data.slice(idx + 1)];
+    }
+
+    const base = idx > 0 ? data[idx - 1] : { time: timestamp };
+    const inserted = { ...base, ...patch, time: timestamp };
+    const result = [...data.slice(0, idx), inserted, ...data.slice(idx)];
+
+    return result.length > MAX_CHART_POINTS
+      ? result.slice(result.length - MAX_CHART_POINTS)
+      : result;
+  }
+
+  /** Бинарный поиск позиции вставки по времени (lower_bound). */
+  private findFirstIndexByTime(data: PricePoint[], targetTime: number): number {
+    let left = 0;
+    let right = data.length;
+
+    while (left < right) {
+      const mid = Math.floor((left + right) / 2);
+      if (data[mid].time < targetTime) {
+        left = mid + 1;
+      } else {
+        right = mid;
+      }
+    }
+
+    return left;
   }
 
   /* ── Price extraction ── */
