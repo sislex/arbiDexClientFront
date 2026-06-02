@@ -813,7 +813,7 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   autoTradeEnabled = false;
   engine: AutoTradeEngine | null = null;
   lastAutoTradeReason = '';
-  tradingMode: 'demo' | 'real' = 'demo';
+  tradingMode: 'demo' | 'real' = 'real';
 
   // Server backtest
   backtestResult: BacktestResult | null = null;
@@ -1381,38 +1381,9 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       return [...data.slice(0, -1), { ...last, ...patch, time: timestamp }];
     }
 
-    // Редкий путь: out-of-order сообщение. Вставляем/обновляем точку в середине массива.
-    const idx = this.findFirstIndexByTime(data, timestamp);
-
-    if (idx < data.length && data[idx].time === timestamp) {
-      const merged = { ...data[idx], ...patch, time: timestamp };
-      return [...data.slice(0, idx), merged, ...data.slice(idx + 1)];
-    }
-
-    const base = idx > 0 ? data[idx - 1] : { time: timestamp };
-    const inserted = { ...base, ...patch, time: timestamp };
-    const result = [...data.slice(0, idx), inserted, ...data.slice(idx)];
-
-    return result.length > MAX_CHART_POINTS
-      ? result.slice(result.length - MAX_CHART_POINTS)
-      : result;
-  }
-
-  /** Бинарный поиск позиции вставки по времени (lower_bound). */
-  private findFirstIndexByTime(data: PricePoint[], targetTime: number): number {
-    let left = 0;
-    let right = data.length;
-
-    while (left < right) {
-      const mid = Math.floor((left + right) / 2);
-      if (data[mid].time < targetTime) {
-        left = mid + 1;
-      } else {
-        right = mid;
-      }
-    }
-
-    return left;
+    // Out-of-order сообщение: точка пришла позже, чем последующие.
+    // Такие пакеты игнорируем, чтобы не вставлять точку в середину графика.
+    return data;
   }
 
   /* ── Price extraction ── */

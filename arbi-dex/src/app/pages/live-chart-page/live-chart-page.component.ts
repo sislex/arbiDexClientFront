@@ -357,14 +357,40 @@ export class LiveChartPageComponent implements OnInit, OnDestroy {
 
     const newFieldKey = `${prefix}_${fieldKey}`;
 
+    const newTime = msg.point.t;
     const last = this.chartData[this.chartData.length - 1];
-    const newPoint: PricePoint = {
-      ...(last ?? {}),
-      time: msg.point.t,
-      [newFieldKey]: msg.point.v,
-    };
 
-    let updated = [...this.chartData, newPoint];
+    let updated: PricePoint[];
+
+    if (last && last.time === newTime) {
+      // Та же временна́я метка — обновляем последнюю точку (например, bid и ask пришли раздельно)
+      updated = [
+        ...this.chartData.slice(0, -1),
+        { ...last, [newFieldKey]: msg.point.v },
+      ];
+    } else if (last && newTime < last.time) {
+      // Сообщение пришло не по порядку — ищем точку с таким временем и обновляем
+      const idx = [...this.chartData].reverse().findIndex((p: PricePoint) => p.time === newTime);
+      const resolvedIdx = idx >= 0 ? this.chartData.length - 1 - idx : -1;
+      if (resolvedIdx >= 0) {
+        const updatedPoint: PricePoint = { ...this.chartData[resolvedIdx], [newFieldKey]: msg.point.v };
+        updated = [
+          ...this.chartData.slice(0, resolvedIdx),
+          updatedPoint,
+          ...this.chartData.slice(resolvedIdx + 1),
+        ];
+      } else {
+        // Точка с таким временем не найдена — пропускаем внеочередное сообщение
+        return;
+      }
+    } else {
+      // Новое время — добавляем точку, перенося значения предыдущей (forward-fill)
+      updated = [
+        ...this.chartData,
+        { ...(last ?? {}), time: newTime, [newFieldKey]: msg.point.v },
+      ];
+    }
+
     if (updated.length > MAX_CHART_POINTS) {
       updated = updated.slice(updated.length - MAX_CHART_POINTS);
     }
