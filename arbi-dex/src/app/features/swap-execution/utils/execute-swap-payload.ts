@@ -57,22 +57,26 @@ function networkPrefixFromSource(sourceId: string): string {
 }
 
 /**
- * Определяет `kind` (enum SwapKind контракта ArbExecutor) по dex/version пула.
- * v2=0, uniV3=1, camelotV2=2, algebra/camelotV3=3, v4=4.
+ * Определяет `kind` по enum SwapKind контракта ArbExecutor:
+ *   V2_EXACT_IN=0, V3_POOL_EXACT_IN=1, CAMELOT_V2_EXACT_IN=2,
+ *   ALGEBRA_POOL_EXACT_IN=3, V4_POOL_EXACT_IN=4.
  *
- * Особенность маркет-дата системы: для v2-пулов в `poolAddress` хранится
- * **адрес роутера**, а не самого пула. Для camelot `poolAddress` всегда содержит
- * Camelot V2 Router → всегда используем kind=2 (роутер-based своп).
+ * Внимание: camelot бывает двух версий — V2 (router-based, kind=2) и
+ * V3/Algebra (pool-direct, kind=3). Различаем по version, НЕ по одному dex,
+ * иначе camelot v3 ошибочно уходит как kind=2 и валидатор бэкенда требует
+ * Camelot V2 Router там, где лежит адрес Algebra-пула.
+ *
+ * Router-based (kind 0/2): в `poolAddress` лежит адрес роутера.
+ * Pool-direct (kind 1/3/4): в `poolAddress` лежит адрес самого пула.
  */
 export function poolKind(pool: PoolInfo): number {
   const dex = (pool.dex ?? '').toLowerCase();
   const version = (pool.version ?? '').toLowerCase();
+  const isCamelot = dex.includes('camelot');
 
-  if (dex.includes('camelot')) return 2;
-
+  if (version === 'v2') return isCamelot ? 2 : 0;
+  if (version === 'v3') return isCamelot ? 3 : 1; // camelot v3 = Algebra → 3
   if (version === 'v4') return 4;
-  if (version === 'v3') return 1;
-  if (version === 'v2') return 0;
   return 1;
 }
 
@@ -88,25 +92,27 @@ export function toRawAmount(amount: number, decimals: number): string {
  * Готовит payload для execute-API на основе параметров сделки и метаданных пула.
  * Ничего не отправляет — только формирует объект.
  *
- * Направление трактуется относительно base токена пары:
- *   USDC_TO_WETH — покупка base (quote→base), сторона ask.
- *   WETH_TO_USDC — продажа base (base→quote), сторона bid.
+ * Направление задаёт токены напрямую (`USDC_TO_WETH` → in=USDC, out=WETH).
+ * НЕ опираемся на порядок base/quote в pairId: он может быть как `WETH_USDC`,
+ * так и `USDC_WETH`, и привязка in/out к base инвертирует своп.
  */
 export function buildExecuteSwapPayload(input: BuildPayloadInput): ExecuteSwapPayload {
-  const { direction, amountIn, expectedOut, sourceId, pairId, profitAsset, slippage, pool } = input;
+  const { direction, amountIn, sourceId, slippage, pool } = input;
 
-  const [baseSym, quoteSym] = pairId.split('_');
-  const baseMeta = getTokenMeta(baseSym);
-  const quoteMeta = getTokenMeta(quoteSym);
-  if (!baseMeta || !quoteMeta) {
-    throw new Error(`Неизвестные токены пары: ${pairId}`);
+  const [tokenInSym, tokenOutSym] = direction.split('_TO_');
+  const tokenInMeta = getTokenMeta(tokenInSym);
+  const tokenOutMeta = getTokenMeta(tokenOutSym);
+  if (!tokenInMeta || !tokenOutMeta) {
+    throw new Error(`Неизвестные токены направления: ${direction}`);
   }
 
-  const buyingBase = direction === 'USDC_TO_WETH';
-  const tokenInMeta = buyingBase ? quoteMeta : baseMeta;
-  const tokenOutMeta = buyingBase ? baseMeta : quoteMeta;
-
-  const profitMeta = getTokenMeta(profitAsset) ?? quoteMeta;
+  // profitToken ОБЯЗАН быть выходным токеном свопа (tokenOut).
+  // ArbExecutor меряет убыток по балансу profitToken: при одношаговом свопе
+  // A→B баланс A падает, поэтому если profitToken=A (потраченный токен),
+  // контракт видит «убыток» и реверзит LOSS_EXCEEDS_LIMIT. Меряя по tokenOut,
+  // получаем прирост баланса → profit>0 → проверка убытка не срабатывает.
+  // (Подтверждено fork-тестом ArbExecutor.quoterVsExecutor: profitToken=tokenOut.)
+  const profitMeta = tokenOutMeta;
 
   const kind = poolKind(pool);
   // v2-style (router-based): poolAddress содержит адрес роутера, путь — [tokenIn, tokenOut].
@@ -121,6 +127,11 @@ export function buildExecuteSwapPayload(input: BuildPayloadInput): ExecuteSwapPa
     tokenIn: tokenInMeta.address,
     tokenOut: tokenOutMeta.address,
     amountIn: toRawAmount(amountIn, tokenInMeta.decimals),
+    // amountOutMin всегда 0 — минимум считает бэкенд из реального preview-выхода
+    // пула и slippageBps. Клиентская оценка (expectedOut) основана на котировке
+    // reference-источника и НЕ совпадает с ценой пула исполнения (Camelot/UniV3),
+    // поэтому как on-chain минимум она давала CamelotRouter: INSUFFICIENT_OUTPUT_AMOUNT.
+    // Защита от проскальзывания сохраняется через slippageBps (от реальной цены пула).
     amountOutMin: '0',
     sqrtPriceLimitX96: '0',
     deadline: '0',
@@ -130,7 +141,7 @@ export function buildExecuteSwapPayload(input: BuildPayloadInput): ExecuteSwapPa
     networkPrefix: networkPrefixFromSource(sourceId),
     steps: [step],
     profitToken: profitMeta.address,
-    slippageBps: 1,
+    slippageBps: Math.max(1, Math.round(slippage * 10000)),
     execute: input.execute ?? false,
     revertIfLoss: false,
     emitEvents: true,

@@ -16,6 +16,10 @@ export interface DemoTrade {
   step?: number;
   /** Время из исторических данных (timestamp точки playback) */
   playbackTime?: number;
+  /** Хэш транзакции (только для реального режима) */
+  txHash?: string;
+  /** Ссылка на транзакцию в эксплорере (только для реального режима) */
+  txUrl?: string;
 }
 
 /** Состояние демо-аккаунта */

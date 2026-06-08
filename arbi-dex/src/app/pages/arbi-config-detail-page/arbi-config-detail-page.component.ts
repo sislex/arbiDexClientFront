@@ -10,8 +10,8 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { Store } from '@ngrx/store';
-import { Subscription as RxSubscription, combineLatest } from 'rxjs';
-import { take, filter } from 'rxjs/operators';
+import { Subscription as RxSubscription, combineLatest, Observable, EMPTY, forkJoin, of, throwError } from 'rxjs';
+import { take, filter, switchMap, map, catchError } from 'rxjs/operators';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatIconModule } from '@angular/material/icon';
@@ -62,10 +62,14 @@ import {
   PlaybackSpeed,
 } from '../../shared/models';
 import { BacktestResult, BacktestTrade } from '../../features/arbi-configs/services/arbi-configs.service.interface';
-import { MarketDataService } from '../../features/swap-execution/services/market-data.service';
+import { MarketDataService, PoolInfo } from '../../features/swap-execution/services/market-data.service';
 import { SwapExecutionService } from '../../features/swap-execution/services/swap-execution.service';
 import { buildExecuteSwapPayload } from '../../features/swap-execution/utils/execute-swap-payload';
 import { SwapPayloadDialogComponent } from '../../features/swap-execution/ui/swap-payload-dialog.component';
+import {
+  PoolSimulationDialogComponent,
+  PoolSimResult,
+} from '../../features/swap-execution/ui/pool-simulation-dialog.component';
 
 const MAX_CHART_POINTS = 2000;
 
@@ -392,9 +396,9 @@ type PlaybackSubMode = 'realtime' | 'server';
           </div>
 
           <!-- Real trading warning -->
-          <div class="real-trading-banner" *ngIf="tradingMode === 'real'">
-            <mat-icon>warning_amber</mat-icon>
-            <span>Real trading is not yet implemented. Swaps will be executed on-chain when this feature is ready.</span>
+          <div class="real-trading-banner" *ngIf="tradingMode === 'real' && isRealSwapInProgress">
+            <mat-icon>hourglass_top</mat-icon>
+            <span>Выполняется реальный своп на блокчейне…</span>
           </div>
 
           <!-- Demo mode badge -->
@@ -428,6 +432,13 @@ type PlaybackSubMode = 'realtime' | 'server';
 
             <div class="action-row">
               <button mat-stroked-button (click)="setMax()">MAX</button>
+              <button mat-stroked-button
+                      *ngIf="tradingMode === 'real'"
+                      [disabled]="amountIn <= 0 || isRealSwapInProgress"
+                      (click)="simulateBothPools()"
+                      matTooltip="Симулировать своп через askPool и bidPool и сравнить цену">
+                <mat-icon>science</mat-icon> Симулировать оба пула
+              </button>
               <button mat-flat-button color="primary" class="swap-btn"
                       [disabled]="!canSwap"
                       (click)="doSwap()">
@@ -438,8 +449,8 @@ type PlaybackSubMode = 'realtime' | 'server';
           </div>
         </app-content-card>
 
-        <!-- Trade History -->
-        <app-content-card [title]="'Trade History (' + trades.length + ')'" *ngIf="trades.length > 0">
+        <!-- Trade History (demo mode) -->
+        <app-content-card [title]="'Trade History (' + trades.length + ')'" *ngIf="tradingMode === 'demo' && trades.length > 0">
           <button slot="header-actions" mat-icon-button
                   (click)="showTradeHistory = !showTradeHistory"
                   [matTooltip]="showTradeHistory ? 'Hide table' : 'Show table'">
@@ -471,6 +482,51 @@ type PlaybackSubMode = 'realtime' | 'server';
                   <td>{{ t.amountOut | number:(t.tokenOut === 'USDC' ? '1.2-2' : '1.4-8') }} {{ t.tokenOut }}</td>
                   <td>{{ t.price | number:'1.2-4' }}</td>
                   <td>{{ (t.playbackTime ?? t.timestamp) | date:'HH:mm:ss' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </app-content-card>
+
+        <!-- Trade History (real mode) -->
+        <app-content-card [title]="'Real Trade History (' + realTrades.length + ')'" *ngIf="tradingMode === 'real' && realTrades.length > 0">
+          <button slot="header-actions" mat-icon-button
+                  (click)="showTradeHistory = !showTradeHistory"
+                  [matTooltip]="showTradeHistory ? 'Hide table' : 'Show table'">
+            <mat-icon>{{ showTradeHistory ? 'expand_less' : 'expand_more' }}</mat-icon>
+          </button>
+          <div class="trade-table-wrap" *ngIf="showTradeHistory">
+            <table class="trade-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Direction</th>
+                  <th>Spent</th>
+                  <th>Received</th>
+                  <th>Price</th>
+                  <th>Time</th>
+                  <th>Tx</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let t of realTrades">
+                  <td>{{ t.id }}</td>
+                  <td>
+                    <span [class]="t.direction === 'USDC_TO_WETH' ? 'dir-buy' : 'dir-sell'">
+                      {{ t.direction === 'USDC_TO_WETH' ? 'BUY' : 'SELL' }}
+                    </span>
+                  </td>
+                  <td>{{ t.amountIn | number:(t.tokenIn === 'USDC' ? '1.2-2' : '1.4-8') }} {{ t.tokenIn }}</td>
+                  <td>{{ t.amountOut | number:(t.tokenOut === 'USDC' ? '1.2-2' : '1.4-8') }} {{ t.tokenOut }}</td>
+                  <td>{{ t.price | number:'1.2-4' }}</td>
+                  <td>{{ t.timestamp | date:'HH:mm:ss' }}</td>
+                  <td>
+                    <a *ngIf="t.txUrl" [href]="t.txUrl" target="_blank" rel="noopener"
+                       class="tx-link" [matTooltip]="t.txHash ?? ''">
+                      {{ t.txHash ? (t.txHash.slice(0, 8) + '…') : 'View' }}
+                    </a>
+                    <span *ngIf="!t.txUrl">—</span>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -726,6 +782,13 @@ type PlaybackSubMode = 'realtime' | 'server';
     }
     .dir-buy { color: #0ecb81; font-weight: 600; }
     .dir-sell { color: #f6465d; font-weight: 600; }
+    .tx-link {
+      color: var(--color-primary, #2196f3);
+      font-size: 12px;
+      text-decoration: none;
+      font-family: monospace;
+      &:hover { text-decoration: underline; }
+    }
 
     .reason-cell {
       max-width: 280px;
@@ -811,6 +874,8 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   pnlDisplay = '+0.00 USDC';
 
   // Swap form
+  /** Единый допуск проскальзывания (доля): 0.01 = 1%. Используется во всех свопах. */
+  private readonly SWAP_SLIPPAGE = 0.01;
   direction: SwapDirection = 'USDC_TO_WETH';
   amountIn = 100;
   estimatedOut = 0;
@@ -823,6 +888,11 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   engine: AutoTradeEngine | null = null;
   lastAutoTradeReason = '';
   tradingMode: 'demo' | 'real' = 'real';
+
+  // Real-mode trade tracking
+  realTrades: DemoTrade[] = [];
+  private realTradeId = 0;
+  isRealSwapInProgress = false;
 
   // Server backtest
   backtestResult: BacktestResult | null = null;
@@ -844,6 +914,9 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
 
   get canSwap(): boolean {
     if (this.amountIn <= 0 || this.tradingMid <= 0) return false;
+    if (this.tradingMode === 'real') {
+      return !this.isRealSwapInProgress;
+    }
     if (this.direction === 'USDC_TO_WETH') return this.amountIn <= this.usdcBalance;
     return this.amountIn <= this.wethBalance;
   }
@@ -1197,7 +1270,7 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       this.estimatedOut = 0;
       return;
     }
-    const slip = this.config?.slippage ?? 0.01;
+    const slip = this.SWAP_SLIPPAGE;
     if (this.direction === 'USDC_TO_WETH') {
       const price = this.tradingAsk > 0 ? this.tradingAsk : this.tradingMid;
       this.estimatedOut = this.amountIn / (price * (1 + slip));
@@ -1217,29 +1290,184 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const slip = this.config?.slippage ?? 0.01;
-    const { step, playbackTime } = this.currentPlaybackInfo();
-    // Покупка по ask, продажа по bid (как на реальном рынке)
-    const execPrice = this.direction === 'USDC_TO_WETH'
-      ? (this.tradingAsk > 0 ? this.tradingAsk : this.tradingMid)
-      : (this.tradingBid > 0 ? this.tradingBid : this.tradingMid);
-    this.demoFacade.swap(this.direction, this.amountIn, slip, execPrice, step, playbackTime);
-    this.snackBar.open(
-      `Swap: ${this.amountIn.toFixed(2)} ${this.direction === 'USDC_TO_WETH' ? 'USDC → WETH' : 'WETH → USDC'}`,
-      'OK', { duration: 3000 },
-    );
-
-    if (this.engine) {
-      if (this.direction === 'USDC_TO_WETH') {
-        this.engine.onBuy(this.tradingAsk > 0 ? this.tradingAsk : this.tradingMid);
-      } else {
-        this.engine.onSell();
-      }
-    }
-    this.updateHorizontalLines();
+    // const slip = this.config?.slippage ?? 0.01;
+    // const { step, playbackTime } = this.currentPlaybackInfo();
+    // // Покупка по ask, продажа по bid (как на реальном рынке)
+    // const execPrice = this.direction === 'USDC_TO_WETH'
+    //   ? (this.tradingAsk > 0 ? this.tradingAsk : this.tradingMid)
+    //   : (this.tradingBid > 0 ? this.tradingBid : this.tradingMid);
+    // this.demoFacade.swap(this.direction, this.amountIn, slip, execPrice, step, playbackTime);
+    // this.snackBar.open(
+    //   `Swap: ${this.amountIn.toFixed(2)} ${this.direction === 'USDC_TO_WETH' ? 'USDC → WETH' : 'WETH → USDC'}`,
+    //   'OK', { duration: 3000 },
+    // );
+    //
+    // if (this.engine) {
+    //   if (this.direction === 'USDC_TO_WETH') {
+    //     this.engine.onBuy(this.tradingAsk > 0 ? this.tradingAsk : this.tradingMid);
+    //   } else {
+    //     this.engine.onSell();
+    //   }
+    // }
+    // this.updateHorizontalLines();
 
     // Авто-переключение направления после свопа
     this.autoFlipDirection();
+  }
+
+  /**
+   * Выбирает ЛУЧШИЙ пул для свопа: запрашивает пулы обеих сторон (ask/bid),
+   * прогоняет preview (execute:false) по каждому и возвращает тот, что даёт
+   * максимальный выход (amountOut). Так выбор не зависит ни от bid/ask-конвенции
+   * market-data, ни от устаревших котировок — всегда берётся реально лучшая цена.
+   * Возвращает null, если ни один пул не дал валидного выхода.
+   */
+  private selectBestPool(
+    direction: SwapDirection,
+    amountIn: number,
+  ): Observable<{ pool: PoolInfo; side: 'bid' | 'ask'; amountOut: number } | null> {
+    const config = this.config!;
+    const sides: ('bid' | 'ask')[] = ['ask', 'bid'];
+
+    const probes$ = sides.map((side) =>
+      this.marketData.getPool(config.tradingSourceId!, config.tradingPairId!, side).pipe(
+        switchMap((pool) => {
+          const payload = buildExecuteSwapPayload({
+            direction,
+            amountIn,
+            expectedOut: 0,
+            sourceId: config.tradingSourceId!,
+            pairId: config.tradingPairId!,
+            profitAsset: config.profitAsset,
+            slippage: this.SWAP_SLIPPAGE,
+            pool,
+            execute: false, // preview-only для оценки выхода
+          });
+          return this.swapExecution.execute(payload).pipe(
+            map((response) => {
+              const out = parseFloat(
+                (response as { stepLogsNormalized?: Array<{ amountOutDecimal?: string }> })
+                  ?.stepLogsNormalized?.[0]?.amountOutDecimal ?? '0',
+              );
+              return { pool, side, amountOut: Number.isFinite(out) ? out : 0 };
+            }),
+            catchError(() => of(null)),
+          );
+        }),
+        catchError(() => of(null)),
+      ),
+    );
+
+    return forkJoin(probes$).pipe(
+      map((results) => {
+        const valid = results.filter(
+          (r): r is { pool: PoolInfo; side: 'bid' | 'ask'; amountOut: number } =>
+            !!r && r.amountOut > 0,
+        );
+        if (valid.length === 0) return null;
+        return valid.reduce((best, cur) => (cur.amountOut > best.amountOut ? cur : best));
+      }),
+    );
+  }
+
+  /**
+   * Основной метод выполнения реального свопа. Возвращает Observable с ответом API.
+   * Выбирает лучший по выходу пул через selectBestPool и исполняет на нём.
+   * Без UI-эффектов — используется как ручным свопом, так и автотрейдом.
+   */
+  private executeRealSwapCore(
+    direction: SwapDirection,
+    amountIn: number,
+  ): Observable<unknown> {
+    const config = this.config!;
+    return this.selectBestPool(direction, amountIn).pipe(
+      switchMap((best) => {
+        if (!best) {
+          return throwError(() => new Error('Нет доступного пула для свопа'));
+        }
+        const payload = buildExecuteSwapPayload({
+          direction,
+          amountIn,
+          expectedOut: 0,
+          sourceId: config.tradingSourceId!,
+          pairId: config.tradingPairId!,
+          profitAsset: config.profitAsset,
+          slippage: this.SWAP_SLIPPAGE,
+          pool: best.pool,
+          execute: true,
+        });
+        return this.swapExecution.execute(payload);
+      }),
+    );
+  }
+
+  /**
+   * Записывает реальную сделку в `realTrades` на основе ответа API.
+   */
+  private recordRealTrade(direction: SwapDirection, response: unknown): void {
+    const resp = response as {
+      transaction?: { hash?: string; url?: string; minedAt?: string };
+      stepLogsNormalized?: Array<{
+        amountInDecimal?: string;
+        amountOutDecimal?: string;
+        tokenIn?: string;
+        tokenOut?: string;
+      }>;
+    };
+    const step0 = resp?.stepLogsNormalized?.[0];
+    const tx = resp?.transaction;
+    if (!step0) return;
+
+    const amountIn = parseFloat(step0.amountInDecimal ?? '0');
+    const amountOut = parseFloat(step0.amountOutDecimal ?? '0');
+    const price = direction === 'USDC_TO_WETH'
+      ? (amountOut > 0 ? amountIn / amountOut : 0)
+      : (amountIn > 0 ? amountOut / amountIn : 0);
+    const tokenIn = direction === 'USDC_TO_WETH' ? 'USDC' : 'WETH';
+    const tokenOut = direction === 'USDC_TO_WETH' ? 'WETH' : 'USDC';
+    const timestamp = tx?.minedAt ? Date.parse(tx.minedAt) : Date.now();
+
+    this.realTrades = [
+      ...this.realTrades,
+      {
+        id: ++this.realTradeId,
+        direction,
+        amountIn,
+        tokenIn,
+        amountOut,
+        tokenOut,
+        price,
+        slippage: this.SWAP_SLIPPAGE,
+        timestamp,
+        txHash: tx?.hash,
+        txUrl: tx?.url,
+      },
+    ];
+    this.updateTradeMarkers();
+    this.cdr.markForCheck();
+  }
+
+  /**
+   * После успешного real-свопа подставляет в Spend полученный объём
+   * и переключает направление на обратное.
+   */
+  private syncSpendFromRealSwap(direction: SwapDirection, response: unknown): void {
+    const resp = response as {
+      stepLogsNormalized?: Array<{ amountOutDecimal?: string }>;
+    };
+    const step0 = resp?.stepLogsNormalized?.[0];
+    const receivedAmount = parseFloat(step0?.amountOutDecimal ?? '0');
+    if (!Number.isFinite(receivedAmount) || receivedAmount <= 0) {
+      return;
+    }
+
+    if (direction === 'USDC_TO_WETH') {
+      this.direction = 'WETH_TO_USDC';
+    } else {
+      this.direction = 'USDC_TO_WETH';
+    }
+    this.amountIn = receivedAmount;
+    this.recalcEstimate();
   }
 
   /**
@@ -1256,64 +1484,127 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
 
     const direction = this.direction;
     const amountIn = this.amountIn;
-    // Обновляем оценку выхода по текущей котировке (с учётом slippage) для amountOutMin.
-    this.recalcEstimate();
-    const expectedOut = this.estimatedOut;
-    // Покупка base (USDC_TO_WETH) — ask pool; продажа base (WETH_TO_USDC) — bid pool.
-    const side = direction === 'USDC_TO_WETH' ? 'ask' : 'bid';
+    this.recalcEstimate(); // только для отображения "You receive ≈"
+    const title = direction === 'USDC_TO_WETH' ? 'Buy — своп отправлен' : 'Sell — своп отправлен';
+    const snackRef = this.snackBar.open('Подбор лучшего пула и отправка свопа…', undefined, { duration: 0 });
+    let lastPayload: ReturnType<typeof buildExecuteSwapPayload> | null = null;
 
-    this.marketData.getPool(config.tradingSourceId, config.tradingPairId, side).subscribe({
-      next: (pool) => {
-        let payload: ReturnType<typeof buildExecuteSwapPayload>;
+    // Выбираем пул с лучшим реальным выходом (preview по ask+bid), затем исполняем на нём.
+    this.selectBestPool(direction, amountIn).pipe(
+      switchMap((best) => {
+        if (!best) {
+          snackRef.dismiss();
+          this.snackBar.open('Не удалось получить пул ни по одной стороне', 'OK', { duration: 5000 });
+          return EMPTY;
+        }
         try {
-          payload = buildExecuteSwapPayload({
+          lastPayload = buildExecuteSwapPayload({
             direction,
             amountIn,
-            expectedOut,
+            expectedOut: 0,
             sourceId: config.tradingSourceId!,
             pairId: config.tradingPairId!,
             profitAsset: config.profitAsset,
-            slippage: config.slippage,
-            pool,
+            slippage: this.SWAP_SLIPPAGE,
+            pool: best.pool,
             execute: true,
           });
         } catch (e) {
-          this.snackBar.open(
-            `Не удалось собрать payload: ${(e as Error).message}`, 'OK', { duration: 5000 },
-          );
-          return;
+          snackRef.dismiss();
+          this.snackBar.open(`Не удалось собрать payload: ${(e as Error).message}`, 'OK', { duration: 5000 });
+          return EMPTY;
         }
-
-        const title = direction === 'USDC_TO_WETH' ? 'Buy — своп отправлен' : 'Sell — своп отправлен';
-        const snackRef = this.snackBar.open('Отправка свопа…', undefined, { duration: 0 });
-
-        this.swapExecution.execute(payload).subscribe({
-          next: (response) => {
-            snackRef.dismiss();
-            this.dialog.open(SwapPayloadDialogComponent, {
-              data: { title, payload, response },
-              autoFocus: false,
-            });
-          },
-          error: (err) => {
-            snackRef.dismiss();
-            const errorData = err?.error ?? err?.message ?? err;
-            this.dialog.open(SwapPayloadDialogComponent, {
-              data: {
-                title: direction === 'USDC_TO_WETH' ? 'Buy — ошибка свопа' : 'Sell — ошибка свопа',
-                payload,
-                error: errorData,
-              },
-              autoFocus: false,
-            });
-          },
+        return this.swapExecution.execute(lastPayload).pipe(
+          map((response) => ({ payload: lastPayload!, response })),
+        );
+      }),
+    ).subscribe({
+      next: ({ payload, response }) => {
+        snackRef.dismiss();
+        this.recordRealTrade(direction, response);
+        this.syncSpendFromRealSwap(direction, response);
+        if (this.engine) {
+          if (direction === 'USDC_TO_WETH') this.engine.onBuy(this.tradingAsk || this.tradingMid);
+          else this.engine.onSell();
+        }
+        this.dialog.open(SwapPayloadDialogComponent, {
+          data: { title, payload, response },
+          autoFocus: false,
         });
       },
       error: (err) => {
-        this.snackBar.open(
-          `Не удалось получить данные пула: ${err?.message ?? err}`, 'OK', { duration: 5000 },
-        );
+        snackRef.dismiss();
+        const errorData = err?.error ?? err?.message ?? err;
+        this.dialog.open(SwapPayloadDialogComponent, {
+          data: {
+            title: direction === 'USDC_TO_WETH' ? 'Buy — ошибка свопа' : 'Sell — ошибка свопа',
+            payload: lastPayload,
+            error: errorData,
+          },
+          autoFocus: false,
+        });
       },
+    });
+  }
+
+  /**
+   * Диагностика: гоняет один и тот же своп через ОБА пула (askPool и bidPool)
+   * в режиме симуляции (execute=false) и показывает оба ответа с пометкой
+   * стороны/ключа и реальной ценой. Позволяет понять, какой ключ (bid/ask)
+   * даёт выгодную цену для текущего направления.
+   */
+  simulateBothPools(): void {
+    const config = this.config;
+    if (!config?.tradingSourceId || !config?.tradingPairId) {
+      this.snackBar.open('Не заданы торговый источник или пара', 'OK', { duration: 4000 });
+      return;
+    }
+    if (this.amountIn <= 0) {
+      this.snackBar.open('Укажите сумму свопа', 'OK', { duration: 3000 });
+      return;
+    }
+
+    const direction = this.direction;
+    const amountIn = this.amountIn;
+    const sourceId = config.tradingSourceId;
+    const pairId = config.tradingPairId;
+    const sides: ('bid' | 'ask')[] = ['ask', 'bid'];
+    const snackRef = this.snackBar.open('Симуляция обоих пулов…', undefined, { duration: 0 });
+
+    const sims$ = sides.map((side) =>
+      this.marketData.getPool(sourceId, pairId, side).pipe(
+        switchMap((pool) => {
+          const payload = buildExecuteSwapPayload({
+            direction,
+            amountIn,
+            expectedOut: 0,
+            sourceId,
+            pairId,
+            profitAsset: config.profitAsset,
+            slippage: this.SWAP_SLIPPAGE,
+            pool,
+            execute: false, // ← только preview, без реальной транзакции
+          });
+          return this.swapExecution.execute(payload).pipe(
+            map((response): PoolSimResult => ({ side, pool, payload, response })),
+            catchError((error) => of<PoolSimResult>({ side, pool, payload, error })),
+          );
+        }),
+        catchError((error) => of<PoolSimResult>({ side, error })),
+      ),
+    );
+
+    forkJoin(sims$).subscribe((results) => {
+      snackRef.dismiss();
+      this.dialog.open(PoolSimulationDialogComponent, {
+        data: {
+          title: 'Симуляция: askPool vs bidPool',
+          pairId,
+          direction,
+          results,
+        },
+        autoFocus: false,
+      });
     });
   }
 
@@ -1380,6 +1671,7 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     this.extractPricesFromTick(tick);
     this.runAutoTrade();
     this.updatePortfolio();
+    this.recalcEstimate();
     this.updateHorizontalLines();
     this.cdr.markForCheck();
   }
@@ -1442,6 +1734,7 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     this.derivePricesFromLive();
     this.runAutoTrade();
     this.updatePortfolio();
+    this.recalcEstimate();
     this.updateHorizontalLines();
     this.cdr.markForCheck();
   }
@@ -1531,27 +1824,77 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
 
     const result = this.engine.tick(this.tradingBid, this.tradingAsk, this.avgRefMid);
 
-    if (result.action === 'buy') {
-      const tradeAmountPct = this.config.tradeAmountPct ?? 100;
-      const amount = this.usdcBalance * (tradeAmountPct / 100);
-      if (amount > 0) {
-        const { step, playbackTime } = this.currentPlaybackInfo();
-        // Покупка по ask (как на реальном рынке)
-        const buyPrice = this.tradingAsk > 0 ? this.tradingAsk : this.tradingMid;
-        this.demoFacade.swap('USDC_TO_WETH', amount, this.config.slippage, buyPrice, step, playbackTime);
-        this.engine.onBuy(this.tradingAsk);
+    if (this.tradingMode === 'real') {
+      // ── Реальный режим ──────────────────────────────────────────────────────
+      if (this.isRealSwapInProgress) return;
+      if (!this.config.tradingSourceId || !this.config.tradingPairId) return;
+
+      if (result.action === 'buy') {
+        const tradeAmountPct = this.config.tradeAmountPct ?? 100;
+        const amount = this.usdcBalance * (tradeAmountPct / 100);
+        if (amount <= 0) return;
+        this.isRealSwapInProgress = true;
         this.lastAutoTradeReason = result.reason ?? 'Auto-buy';
-        this.snackBar.open(`🤖 Auto-BUY: ${amount.toFixed(2)} USDC`, 'OK', { duration: 3000 });
-      }
-    } else if (result.action === 'sell') {
-      if (this.wethBalance > 0) {
-        const { step, playbackTime } = this.currentPlaybackInfo();
-        // Продажа по bid (как на реальном рынке)
-        const sellPrice = this.tradingBid > 0 ? this.tradingBid : this.tradingMid;
-        this.demoFacade.swap('WETH_TO_USDC', this.wethBalance, this.config.slippage, sellPrice, step, playbackTime);
-        this.engine.onSell();
+        this.executeRealSwapCore('USDC_TO_WETH', amount).subscribe({
+          next: (response) => {
+            this.isRealSwapInProgress = false;
+            this.recordRealTrade('USDC_TO_WETH', response);
+            this.engine?.onBuy(this.tradingAsk || this.tradingMid);
+            const tx = (response as { transaction?: { hash?: string } })?.transaction;
+            const txInfo = tx?.hash ? ` (${tx.hash.slice(0, 10)}…)` : '';
+            this.snackBar.open(`🤖 Auto-BUY: ${amount.toFixed(2)} USDC${txInfo}`, 'OK', { duration: 5000 });
+            this.cdr.markForCheck();
+          },
+          error: (err) => {
+            this.isRealSwapInProgress = false;
+            this.snackBar.open(`🤖 Auto-BUY failed: ${err?.message ?? err}`, 'OK', { duration: 5000 });
+            this.cdr.markForCheck();
+          },
+        });
+      } else if (result.action === 'sell') {
+        const amount = this.wethBalance;
+        if (amount <= 0) return;
+        this.isRealSwapInProgress = true;
         this.lastAutoTradeReason = result.reason ?? 'Auto-sell';
-        this.snackBar.open(`🤖 Auto-SELL: ${this.wethBalance.toFixed(8)} WETH`, 'OK', { duration: 3000 });
+        this.executeRealSwapCore('WETH_TO_USDC', amount).subscribe({
+          next: (response) => {
+            this.isRealSwapInProgress = false;
+            this.recordRealTrade('WETH_TO_USDC', response);
+            this.engine?.onSell();
+            const tx = (response as { transaction?: { hash?: string } })?.transaction;
+            const txInfo = tx?.hash ? ` (${tx.hash.slice(0, 10)}…)` : '';
+            this.snackBar.open(`🤖 Auto-SELL: ${amount.toFixed(8)} WETH${txInfo}`, 'OK', { duration: 5000 });
+            this.cdr.markForCheck();
+          },
+          error: (err) => {
+            this.isRealSwapInProgress = false;
+            this.snackBar.open(`🤖 Auto-SELL failed: ${err?.message ?? err}`, 'OK', { duration: 5000 });
+            this.cdr.markForCheck();
+          },
+        });
+      }
+    } else {
+      // ── Demo режим ──────────────────────────────────────────────────────────
+      if (result.action === 'buy') {
+        const tradeAmountPct = this.config.tradeAmountPct ?? 100;
+        const amount = this.usdcBalance * (tradeAmountPct / 100);
+        if (amount > 0) {
+          const { step, playbackTime } = this.currentPlaybackInfo();
+          const buyPrice = this.tradingAsk > 0 ? this.tradingAsk : this.tradingMid;
+          this.demoFacade.swap('USDC_TO_WETH', amount, this.config.slippage, buyPrice, step, playbackTime);
+          this.engine.onBuy(this.tradingAsk);
+          this.lastAutoTradeReason = result.reason ?? 'Auto-buy';
+          this.snackBar.open(`🤖 Auto-BUY: ${amount.toFixed(2)} USDC`, 'OK', { duration: 3000 });
+        }
+      } else if (result.action === 'sell') {
+        if (this.wethBalance > 0) {
+          const { step, playbackTime } = this.currentPlaybackInfo();
+          const sellPrice = this.tradingBid > 0 ? this.tradingBid : this.tradingMid;
+          this.demoFacade.swap('WETH_TO_USDC', this.wethBalance, this.config.slippage, sellPrice, step, playbackTime);
+          this.engine.onSell();
+          this.lastAutoTradeReason = result.reason ?? 'Auto-sell';
+          this.snackBar.open(`🤖 Auto-SELL: ${this.wethBalance.toFixed(8)} WETH`, 'OK', { duration: 3000 });
+        }
       }
     }
   }
@@ -1612,7 +1955,8 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   private updateTradeMarkers(): void {
     // Не перезаписывать маркеры бэктеста
     if (this.playbackSubMode === 'server' && this.backtestResult) return;
-    this.tradeMarkersList = this.trades.map((t) => ({
+    const list = this.tradingMode === 'real' ? this.realTrades : this.trades;
+    this.tradeMarkersList = list.map((t) => ({
       time: t.playbackTime ?? t.timestamp,
       price: t.price,
       direction: t.direction === 'USDC_TO_WETH' ? 'buy' as const : 'sell' as const,
@@ -1641,6 +1985,9 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     this.avgRefMid = 0;
     this.hLines = [];
     this.direction = 'USDC_TO_WETH';
+    this.realTrades = [];
+    this.realTradeId = 0;
+    this.isRealSwapInProgress = false;
   }
 
   private makeLabel(
@@ -1713,5 +2060,3 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     return keys;
   }
 }
-
-
