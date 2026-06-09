@@ -22,6 +22,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import {
   PriceChartComponent,
@@ -94,6 +95,7 @@ type PlaybackSubMode = 'realtime' | 'server';
     MatSnackBarModule,
     MatDialogModule,
     MatSlideToggleModule,
+    MatCheckboxModule,
     MatProgressBarModule,
     PriceChartComponent,
     PageContainerComponent,
@@ -368,27 +370,22 @@ type PlaybackSubMode = 'realtime' | 'server';
         <!-- Auto-trade toggle + Manual swap -->
         <app-content-card title="Trading" [elevated]="true">
           <div class="trading-header">
-            <mat-button-toggle-group
+            <mat-slide-toggle [(ngModel)]="autoTradeEnabled" class="auto-toggle">
+              Auto-Trade
+            </mat-slide-toggle>
+
+            <mat-checkbox
               *ngIf="mode === 'live'"
-              [value]="tradingMode"
-              (change)="onTradingModeChange($event.value)"
-              appearance="standard"
-              class="trading-mode-toggle">
-              <mat-button-toggle value="demo">
-                <mat-icon>science</mat-icon> Demo
-              </mat-button-toggle>
-              <mat-button-toggle value="real">
-                <mat-icon>account_balance_wallet</mat-icon> Real
-              </mat-button-toggle>
-            </mat-button-toggle-group>
+              [ngModel]="tradingMode === 'real'"
+              (ngModelChange)="onRealModeToggle($event)"
+              class="real-mode-checkbox">
+              <mat-icon>{{ tradingMode === 'real' ? 'account_balance_wallet' : 'science' }}</mat-icon>
+              {{ tradingMode === 'real' ? 'Реальная торговля (on-chain)' : 'Симуляция (без реальных средств)' }}
+            </mat-checkbox>
 
             <span class="demo-mode-label" *ngIf="mode === 'playback'">
               <mat-icon>science</mat-icon> Demo Mode
             </span>
-
-            <mat-slide-toggle [(ngModel)]="autoTradeEnabled" class="auto-toggle">
-              Auto-Trade
-            </mat-slide-toggle>
             <span class="auto-status" *ngIf="autoTradeEnabled && engine">
               {{ engine.hasPosition ? '🟢 In Position' : '⏳ Waiting for signal' }}
             </span>
@@ -501,6 +498,7 @@ type PlaybackSubMode = 'realtime' | 'server';
                 <tr>
                   <th>#</th>
                   <th>Direction</th>
+                  <th>Status</th>
                   <th>Spent</th>
                   <th>Received</th>
                   <th>Price</th>
@@ -509,12 +507,18 @@ type PlaybackSubMode = 'realtime' | 'server';
                 </tr>
               </thead>
               <tbody>
-                <tr *ngFor="let t of realTrades">
+                <tr *ngFor="let t of realTrades" [class.row-failed]="t.status === 'failed'">
                   <td>{{ t.id }}</td>
                   <td>
                     <span [class]="t.direction === 'USDC_TO_WETH' ? 'dir-buy' : 'dir-sell'">
                       {{ t.direction === 'USDC_TO_WETH' ? 'BUY' : 'SELL' }}
                     </span>
+                  </td>
+                  <td>
+                    <span *ngIf="t.status === 'failed'" class="status-failed" [matTooltip]="t.error ?? ''">
+                      ✖ Ошибка
+                    </span>
+                    <span *ngIf="t.status !== 'failed'" class="status-ok">✓ OK</span>
                   </td>
                   <td>{{ t.amountIn | number:(t.tokenIn === 'USDC' ? '1.2-2' : '1.4-8') }} {{ t.tokenIn }}</td>
                   <td>{{ t.amountOut | number:(t.tokenOut === 'USDC' ? '1.2-2' : '1.4-8') }} {{ t.tokenOut }}</td>
@@ -680,6 +684,14 @@ type PlaybackSubMode = 'realtime' | 'server';
       font-size: t.$font-size-sm;
     }
 
+    .real-mode-checkbox mat-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+      vertical-align: text-bottom;
+      margin-right: 2px;
+    }
+
     .real-trading-banner {
       display: flex;
       align-items: center;
@@ -782,6 +794,9 @@ type PlaybackSubMode = 'realtime' | 'server';
     }
     .dir-buy { color: #0ecb81; font-weight: 600; }
     .dir-sell { color: #f6465d; font-weight: 600; }
+    .status-ok { color: #0ecb81; font-weight: 600; }
+    .status-failed { color: #f6465d; font-weight: 600; cursor: help; }
+    .row-failed { background: rgba(246, 70, 93, 0.08); }
     .tx-link {
       color: var(--color-primary, #2196f3);
       font-size: 12px;
@@ -884,15 +899,23 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   showTradeHistory = false;
 
   // Auto-trade
-  autoTradeEnabled = false;
+  autoTradeEnabled = true;
   engine: AutoTradeEngine | null = null;
   lastAutoTradeReason = '';
-  tradingMode: 'demo' | 'real' = 'real';
+  tradingMode: 'demo' | 'real' = 'demo';
 
   // Real-mode trade tracking
   realTrades: DemoTrade[] = [];
   private realTradeId = 0;
   isRealSwapInProgress = false;
+  /** Реальный объём WETH в позиции (получен на последней реальной покупке). */
+  private realWethHeld = 0;
+  /**
+   * Реальный USDC-баланс для торговли (компаундинг): стартует с Trade Amount,
+   * после каждой продажи становится равным полученным USDC — следующая покупка
+   * идёт уже на эту сумму, а не на исходную.
+   */
+  private realUsdcHeld = 0;
 
   // Server backtest
   backtestResult: BacktestResult | null = null;
@@ -957,7 +980,10 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
 
       // Init demo balance from config
       this.demoFacade.setInitialBalance(config.initialBalance);
-      this.amountIn = config.initialBalance;
+      // Стартовая сумма сделки = абсолютная сумма из настройки Trade Amount (USDC).
+      this.amountIn = config.tradeAmountPct ?? config.initialBalance;
+      // Стартовый реальный USDC-баланс для компаундинга авто-трейда.
+      this.realUsdcHeld = config.tradeAmountPct ?? config.initialBalance;
 
       // Init auto-trade engine
       this.engine = new AutoTradeEngine(config);
@@ -1427,6 +1453,17 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     const tokenOut = direction === 'USDC_TO_WETH' ? 'WETH' : 'USDC';
     const timestamp = tx?.minedAt ? Date.parse(tx.minedAt) : Date.now();
 
+    // Обновляем реальные позиции (компаундинг):
+    //  — купили USDC→WETH: всё ушло в WETH, USDC-баланс = 0;
+    //  — продали WETH→USDC: WETH = 0, USDC-баланс = полученные USDC (на них торгуем дальше).
+    if (direction === 'USDC_TO_WETH') {
+      this.realWethHeld = amountOut;
+      this.realUsdcHeld = 0;
+    } else {
+      this.realWethHeld = 0;
+      this.realUsdcHeld = amountOut;
+    }
+
     this.realTrades = [
       ...this.realTrades,
       {
@@ -1441,9 +1478,39 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
         timestamp,
         txHash: tx?.hash,
         txUrl: tx?.url,
+        status: 'success',
       },
     ];
     this.updateTradeMarkers();
+    this.cdr.markForCheck();
+  }
+
+  /**
+   * Записывает НЕУСПЕШНУЮ попытку реальной сделки в таблицу (revert/ошибка API).
+   * Позиция движка при этом не меняется — продажа/покупка повторится на следующем тике.
+   */
+  private recordRealTradeFailure(direction: SwapDirection, amountIn: number, error: unknown): void {
+    const e = error as { error?: { message?: string }; message?: string };
+    const msg = e?.error?.message ?? e?.message ?? String(error);
+    const tokenIn = direction === 'USDC_TO_WETH' ? 'USDC' : 'WETH';
+    const tokenOut = direction === 'USDC_TO_WETH' ? 'WETH' : 'USDC';
+
+    this.realTrades = [
+      ...this.realTrades,
+      {
+        id: ++this.realTradeId,
+        direction,
+        amountIn,
+        tokenIn,
+        amountOut: 0,
+        tokenOut,
+        price: 0,
+        slippage: this.SWAP_SLIPPAGE,
+        timestamp: Date.now(),
+        status: 'failed',
+        error: msg,
+      },
+    ];
     this.cdr.markForCheck();
   }
 
@@ -1623,6 +1690,15 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   /** Переключение Demo / Real */
   onTradingModeChange(mode: string): void {
     this.tradingMode = mode as 'demo' | 'real';
+    this.cdr.markForCheck();
+  }
+
+  /**
+   * Чекбокс «Реальная торговля»: включён → real (on-chain), выключен → demo
+   * (симуляция, без реальных средств). По умолчанию выключен (симуляция).
+   */
+  onRealModeToggle(real: boolean): void {
+    this.tradingMode = real ? 'real' : 'demo';
     this.cdr.markForCheck();
   }
 
@@ -1830,8 +1906,9 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       if (!this.config.tradingSourceId || !this.config.tradingPairId) return;
 
       if (result.action === 'buy') {
-        const tradeAmountPct = this.config.tradeAmountPct ?? 100;
-        const amount = this.usdcBalance * (tradeAmountPct / 100);
+        // Сумма покупки = текущий реальный USDC-баланс (компаундинг):
+        // старт с Trade Amount, далее — вся выручка с предыдущей продажи.
+        const amount = this.realUsdcHeld;
         if (amount <= 0) return;
         this.isRealSwapInProgress = true;
         this.lastAutoTradeReason = result.reason ?? 'Auto-buy';
@@ -1847,12 +1924,15 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
           },
           error: (err) => {
             this.isRealSwapInProgress = false;
+            // Записываем неуспешную попытку; движок без позиции — покупка повторится на след. тике.
+            this.recordRealTradeFailure('USDC_TO_WETH', amount, err);
             this.snackBar.open(`🤖 Auto-BUY failed: ${err?.message ?? err}`, 'OK', { duration: 5000 });
             this.cdr.markForCheck();
           },
         });
       } else if (result.action === 'sell') {
-        const amount = this.wethBalance;
+        // Объём продажи берём из реальной WETH-позиции (а НЕ из демо-баланса).
+        const amount = this.realWethHeld;
         if (amount <= 0) return;
         this.isRealSwapInProgress = true;
         this.lastAutoTradeReason = result.reason ?? 'Auto-sell';
@@ -1868,6 +1948,9 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
           },
           error: (err) => {
             this.isRealSwapInProgress = false;
+            // Записываем неуспешную попытку и НЕ закрываем позицию движка —
+            // пока цена ≤ trailing TP, продажа автоматически повторится на следующем тике.
+            this.recordRealTradeFailure('WETH_TO_USDC', amount, err);
             this.snackBar.open(`🤖 Auto-SELL failed: ${err?.message ?? err}`, 'OK', { duration: 5000 });
             this.cdr.markForCheck();
           },
@@ -1876,8 +1959,8 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     } else {
       // ── Demo режим ──────────────────────────────────────────────────────────
       if (result.action === 'buy') {
-        const tradeAmountPct = this.config.tradeAmountPct ?? 100;
-        const amount = this.usdcBalance * (tradeAmountPct / 100);
+        // Абсолютная сумма сделки (USDC), но не больше демо-баланса.
+        const amount = Math.min(this.config.tradeAmountPct ?? 0, this.usdcBalance);
         if (amount > 0) {
           const { step, playbackTime } = this.currentPlaybackInfo();
           const buyPrice = this.tradingAsk > 0 ? this.tradingAsk : this.tradingMid;
@@ -1956,7 +2039,8 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     // Не перезаписывать маркеры бэктеста
     if (this.playbackSubMode === 'server' && this.backtestResult) return;
     const list = this.tradingMode === 'real' ? this.realTrades : this.trades;
-    this.tradeMarkersList = list.map((t) => ({
+    // На графике показываем только успешные сделки — неуспешные попытки пропускаем.
+    this.tradeMarkersList = list.filter((t) => t.status !== 'failed').map((t) => ({
       time: t.playbackTime ?? t.timestamp,
       price: t.price,
       direction: t.direction === 'USDC_TO_WETH' ? 'buy' as const : 'sell' as const,
@@ -1988,6 +2072,8 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     this.realTrades = [];
     this.realTradeId = 0;
     this.isRealSwapInProgress = false;
+    this.realWethHeld = 0;
+    this.realUsdcHeld = this.config?.tradeAmountPct ?? this.config?.initialBalance ?? 0;
   }
 
   private makeLabel(

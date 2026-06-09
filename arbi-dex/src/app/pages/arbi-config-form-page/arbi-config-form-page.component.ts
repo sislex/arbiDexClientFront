@@ -147,9 +147,9 @@ interface SubOption {
             </mat-form-field>
 
             <mat-form-field appearance="outline">
-              <mat-label>Trade Amount %</mat-label>
-              <input matInput type="number" [(ngModel)]="tradeAmountPct" min="0" max="100" step="1" />
-              <mat-hint>% of balance per trade</mat-hint>
+              <mat-label>Trade Amount (USDC)</mat-label>
+              <input matInput type="number" [(ngModel)]="tradeAmountPct" min="0" step="1" />
+              <mat-hint>абсолютная сумма на сделку, USDC</mat-hint>
             </mat-form-field>
           </div>
         </div>
