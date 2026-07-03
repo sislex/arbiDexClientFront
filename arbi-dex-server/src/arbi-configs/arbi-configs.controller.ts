@@ -158,5 +158,19 @@ export class ArbiConfigsController {
   runBacktest(@CurrentUser() user: User, @Param('id') id: string) {
     return this.service.runBacktest(user.id, id);
   }
+
+  @Post(':id/backtest-new')
+  @ApiOperation({
+    summary: 'Запустить бэктест автоторговли (новая реализация)',
+    description:
+      'Заглушка под будущую реализацию runBacktest. ' +
+      'Возвращает результат в том же формате, что и /backtest, но без пересчёта — пустые stub-данные.',
+  })
+  @ApiParam({ name: 'id', description: 'UUID конфига' })
+  @ApiResponse({ status: 201, description: 'Stub-результат бэктеста (пустые данные)' })
+  @ApiResponse({ status: 404, description: 'Конфиг не найден' })
+  runBacktestNew(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.service.runBacktestNew(user.id, id);
+  }
 }
 

@@ -93,6 +93,11 @@ export const runBacktest = createAction(
   '[ArbiConfigs] Run Backtest',
   props<{ id: string }>(),
 );
+// Новая реализация бэктеста (использует те же success/failure)
+export const runBacktestNew = createAction(
+  '[ArbiConfigs] Run Backtest New',
+  props<{ id: string }>(),
+);
 export const runBacktestSuccess = createAction(
   '[ArbiConfigs] Run Backtest Success',
   props<{ result: BacktestResult }>(),

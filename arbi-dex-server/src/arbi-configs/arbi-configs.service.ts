@@ -12,6 +12,41 @@ import { Subscription } from '../subscriptions/entities/subscription.entity';
 import { CreateArbiConfigDto, UpdateArbiConfigDto } from './dto/arbi-config.dto';
 import { PricesService, SubscriptionPriceData, ChartPricePoint } from '../prices/prices.service';
 import { BacktestEngine, BacktestTick, BacktestResult } from './engine/backtest.engine';
+import {
+  evaluateConditions,
+  decideAction,
+  StepQuotes,
+  StepAnalytics,
+  ConditionStat,
+  BacktestAnalyticsSummary,
+  AnalyticsConditionsConfig,
+} from './analytics/trade-analytics.helper';
+import conditionsConfigJson from './analytics/conditions.config.json';
+
+/**
+ * Результат новой реализации бэктеста: обычный BacktestResult + сводная аналитика.
+ *
+ * ВАЖНО: полный массив пошаговой аналитики НЕ отдаётся (точек могут быть сотни тысяч —
+ * это вешает браузер). Возвращаем компактную сводку (`summary`) по всем шагам плюс
+ * ограниченную выборку «значимых» шагов (`steps`) — где был сигнал или сделка.
+ */
+export interface BacktestNewResult extends BacktestResult {
+  /** Конфиг условий, по которому считалась аналитика */
+  conditions: AnalyticsConditionsConfig['conditions'];
+  /** Сводная аналитика по всем шагам (компактная) */
+  summary: BacktestAnalyticsSummary;
+  /** Выборка «значимых» шагов (сигнал/сделка), ограниченная лимитом */
+  steps: StepAnalytics[];
+  /** Сколько «значимых» шагов было всего (до обрезки лимитом) */
+  significantSteps: number;
+  /** Была ли выборка steps обрезана лимитом */
+  stepsTruncated: boolean;
+}
+
+const conditionsConfig = conditionsConfigJson as AnalyticsConditionsConfig;
+
+/** Максимум «значимых» шагов, отдаваемых в ответе (защита от гигантского payload) */
+const STEP_SAMPLE_LIMIT = 2000;
 
 @Injectable()
 export class ArbiConfigsService {
@@ -223,6 +258,203 @@ export class ArbiConfigsService {
     const elapsed = Date.now() - startMs;
     this.logger.log(
       `Бэктест ${configId}: ${ticks.length} точек, ${result.totalTrades} сделок, PnL: ${result.pnl} USDC (${result.pnlPct}%), время: ${elapsed}мс`,
+    );
+
+    return result;
+  }
+
+  /**
+   * Новая реализация бэктеста.
+   *
+   * Из конфига берём только initialBalance и массив котировок (строится из
+   * подписок конфига). По котировкам формируем шаги, на каждом шаге — 3 координаты:
+   *   1) наблюдаемая средняя цена по reference-рынкам (observedPrice),
+   *   2) цена покупки на торговом рынке (buyPrice = ask),
+   *   3) цена продажи на торговом рынке (sellPrice = bid).
+   *
+   * Каждый шаг прогоняется через переиспользуемый helper аналитики
+   * (`evaluateConditions`) с конфигом условий из conditions.config.json.
+   * Helper возвращает, какие условия прошли / не прошли. По результатам условий
+   * и текущей позиции выбирается действие (buy/sell/none) и симулируются сделки.
+   *
+   * Возвращает BacktestResult (итоги/PnL/сделки) + пошаговую аналитику.
+   */
+  async runBacktestNew(userId: string, configId: string): Promise<BacktestNewResult> {
+    const startMs = Date.now();
+    const config = await this.findOne(userId, configId);
+
+    const initialBalance = Number(config.initialBalance ?? 0);
+    const referenceSubIds = config.sources.map((s) => s.subscriptionId);
+    const tradingSubId = config.tradingSubscriptionId;
+    const allSubIds = [tradingSubId, ...referenceSubIds];
+
+    // Загружаем котировки (используя кэш)
+    const pricesMap: Record<string, SubscriptionPriceData> = {};
+    for (const subId of allSubIds) {
+      try {
+        pricesMap[subId] = await this.pricesService.getPricesBySubscription(subId, userId);
+      } catch {
+        pricesMap[subId] = { series: [], data: [] };
+      }
+    }
+
+    // Строим массив котировок (тиков): time + buyPrice(ask) / sellPrice(bid) / observed
+    const ticks = this.buildBacktestTicks(pricesMap, tradingSubId, referenceSubIds);
+
+    // Симуляция + аналитика
+    let usdcBalance = initialBalance;
+    let wethBalance = 0;
+    let hasPosition = false;
+    let lastMid = 0;
+
+    const trades: BacktestResult['trades'] = [];
+    // Выборка «значимых» шагов (сигнал/сделка), ограниченная лимитом — чтобы не
+    // отдавать сотни тысяч точек и не вешать браузер.
+    const steps: StepAnalytics[] = [];
+    let significantSteps = 0;
+    let tradeCounter = 0;
+
+    // Аккумуляторы сводной аналитики по всем шагам
+    let buySignals = 0;
+    let sellSignals = 0;
+    let txAllowedCount = 0;
+    const statByCondId = new Map<string, ConditionStat>();
+
+    for (const tick of ticks) {
+      const quotes: StepQuotes = {
+        observedPrice: tick.avgRefMid,
+        buyPrice: tick.tradingAsk,
+        sellPrice: tick.tradingBid,
+      };
+
+      // Аналитика: какие условия прошли / не прошли
+      const conditions = evaluateConditions(quotes, conditionsConfig);
+      const decided = decideAction(conditions, hasPosition);
+
+      // Копим статистику по условиям
+      let buySignalPassed = false;
+      let sellSignalPassed = false;
+      for (const c of conditions) {
+        let stat = statByCondId.get(c.id);
+        if (!stat) {
+          stat = { id: c.id, type: c.type, thresholdPct: c.thresholdPct, passedCount: 0, failedCount: 0 };
+          statByCondId.set(c.id, stat);
+        }
+        if (c.passed) stat.passedCount++;
+        else stat.failedCount++;
+
+        if (c.passed && c.type === 'OBSERVED_ABOVE_BUY') buySignalPassed = true;
+        if (c.passed && c.type === 'OBSERVED_BELOW_SELL') sellSignalPassed = true;
+        if (c.passed && c.type === 'SPREAD_WITHIN') txAllowedCount++;
+      }
+      if (buySignalPassed) buySignals++;
+      if (sellSignalPassed) sellSignals++;
+
+      // Текущая mid-цена торгового рынка (для оценки портфеля)
+      if (tick.tradingBid > 0 && tick.tradingAsk > 0) {
+        lastMid = (tick.tradingBid + tick.tradingAsk) / 2;
+      } else if (tick.tradingBid > 0) {
+        lastMid = tick.tradingBid;
+      } else if (tick.tradingAsk > 0) {
+        lastMid = tick.tradingAsk;
+      }
+
+      // Исполнение сделок
+      let executedAction: StepAnalytics['action'] = 'none';
+      if (decided === 'buy' && usdcBalance > 0 && tick.tradingAsk > 0) {
+        const amountIn = usdcBalance;
+        const amountOut = amountIn / tick.tradingAsk;
+        usdcBalance = 0;
+        wethBalance += amountOut;
+        hasPosition = true;
+        executedAction = 'buy';
+        trades.push({
+          id: ++tradeCounter,
+          step: tick.index,
+          time: tick.time,
+          direction: 'USDC_TO_WETH',
+          amountIn: parseFloat(amountIn.toFixed(8)),
+          tokenIn: 'USDC',
+          amountOut: parseFloat(amountOut.toFixed(8)),
+          tokenOut: 'WETH',
+          price: tick.tradingAsk,
+          slippage: 0,
+          reason: conditions.filter((c) => c.passed).map((c) => c.id).join(', '),
+        });
+      } else if (decided === 'sell' && wethBalance > 0 && tick.tradingBid > 0) {
+        const amountIn = wethBalance;
+        const amountOut = amountIn * tick.tradingBid;
+        wethBalance = 0;
+        usdcBalance += amountOut;
+        hasPosition = false;
+        executedAction = 'sell';
+        trades.push({
+          id: ++tradeCounter,
+          step: tick.index,
+          time: tick.time,
+          direction: 'WETH_TO_USDC',
+          amountIn: parseFloat(amountIn.toFixed(8)),
+          tokenIn: 'WETH',
+          amountOut: parseFloat(amountOut.toFixed(8)),
+          tokenOut: 'USDC',
+          price: tick.tradingBid,
+          slippage: 0,
+          reason: conditions.filter((c) => c.passed).map((c) => c.id).join(', '),
+        });
+      }
+
+      // «Значимый» шаг — где был сигнал или совершена сделка. Только их кладём в выборку.
+      const isSignificant = executedAction !== 'none' || buySignalPassed || sellSignalPassed;
+      if (isSignificant) {
+        significantSteps++;
+        if (steps.length < STEP_SAMPLE_LIMIT) {
+          steps.push({
+            time: tick.time,
+            index: tick.index,
+            quotes,
+            conditions,
+            action: executedAction,
+          });
+        }
+      }
+    }
+
+    const portfolioValue = usdcBalance + wethBalance * lastMid;
+    const pnl = portfolioValue - initialBalance;
+    const pnlPct = initialBalance > 0 ? (pnl / initialBalance) * 100 : 0;
+
+    const summary: BacktestAnalyticsSummary = {
+      totalSteps: ticks.length,
+      buySignals,
+      sellSignals,
+      txAllowed: txAllowedCount,
+      conditionStats: Array.from(statByCondId.values()),
+    };
+
+    const result: BacktestNewResult = {
+      finalUsdcBalance: parseFloat(usdcBalance.toFixed(8)),
+      finalWethBalance: parseFloat(wethBalance.toFixed(8)),
+      portfolioValue: parseFloat(portfolioValue.toFixed(2)),
+      initialBalance,
+      pnl: parseFloat(pnl.toFixed(2)),
+      pnlPct: parseFloat(pnlPct.toFixed(4)),
+      totalTrades: trades.length,
+      buyCount: trades.filter((t) => t.direction === 'USDC_TO_WETH').length,
+      sellCount: trades.filter((t) => t.direction === 'WETH_TO_USDC').length,
+      totalPoints: ticks.length,
+      trades,
+      conditions: conditionsConfig.conditions,
+      summary,
+      steps,
+      significantSteps,
+      stepsTruncated: significantSteps > steps.length,
+    };
+
+    const elapsed = Date.now() - startMs;
+    this.logger.log(
+      `Бэктест (new) ${configId}: ${ticks.length} точек, ${result.totalTrades} сделок, ` +
+        `значимых шагов: ${significantSteps} (отдано ${steps.length}), ` +
+        `PnL: ${result.pnl} USDC (${result.pnlPct}%), время: ${elapsed}мс`,
     );
 
     return result;

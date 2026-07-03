@@ -1,0 +1,7 @@
+# Сгенерированные артефакты обвязки — не коммитим
+.auth/state.json
+.logs/
+screenshots/
+.report/
+.test-results/
+.mcp-output/

@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest",
+        "--browser", "chrome",
+        "--viewport-size", "1440,900",
+        "--storage-state", "arbi-dex/e2e/.auth/state.json",
+        "--output-dir", "arbi-dex/e2e/.mcp-output"
+      ]
+    }
+  }
+}

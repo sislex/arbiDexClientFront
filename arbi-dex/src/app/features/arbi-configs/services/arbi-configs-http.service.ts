@@ -10,6 +10,7 @@ import {
   UpdateArbiConfigPayload,
   ArbiConfigPricesResponse,
   BacktestResult,
+  BacktestNewResult,
 } from './arbi-configs.service.interface';
 
 /** Формат ответа бэкенда — createdAt как ISO-строка */
@@ -106,6 +107,13 @@ export class ArbiConfigsHttpService extends IArbiConfigsService {
   runBacktest(id: string): Observable<BacktestResult> {
     return this.http.post<BacktestResult>(
       `${this.apiUrl}/arbi-configs/${id}/backtest`,
+      {},
+    );
+  }
+
+  runBacktestNew(id: string): Observable<BacktestNewResult> {
+    return this.http.post<BacktestNewResult>(
+      `${this.apiUrl}/arbi-configs/${id}/backtest-new`,
       {},
     );
   }

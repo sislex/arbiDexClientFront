@@ -12,6 +12,7 @@ import {
   deleteArbiConfig,
   loadArbiConfigPrices,
   runBacktest,
+  runBacktestNew,
   clearBacktestResult,
 } from '../store/arbi-configs.actions';
 import {
@@ -75,6 +76,10 @@ export class ArbiConfigsFacade {
 
   runBacktest(id: string): void {
     this.store.dispatch(runBacktest({ id }));
+  }
+
+  runBacktestNew(id: string): void {
+    this.store.dispatch(runBacktestNew({ id }));
   }
 
   clearBacktestResult(): void {

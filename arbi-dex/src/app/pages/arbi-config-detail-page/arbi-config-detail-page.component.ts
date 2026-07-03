@@ -174,6 +174,14 @@ type PlaybackSubMode = 'realtime' | 'server';
                 <mat-icon>cloud_done</mat-icon> Server Backtest
               </mat-button-toggle>
             </mat-button-toggle-group>
+
+            <button mat-stroked-button
+                    color="primary"
+                    class="server-backtest-new-btn"
+                    [disabled]="backtestLoading"
+                    (click)="onRunBacktestNew()">
+              <mat-icon>science</mat-icon> Server backtest new
+            </button>
           </div>
 
           <!-- Realtime sub-mode: standard playback controls -->
@@ -594,6 +602,9 @@ type PlaybackSubMode = 'realtime' | 'server';
       margin-bottom: t.$spacing-md;
     }
     .submode-toggle {
+      font-size: t.$font-size-sm;
+    }
+    .server-backtest-new-btn {
       font-size: t.$font-size-sm;
     }
 
@@ -1209,6 +1220,28 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
         this.configsFacade.runBacktest(this.configId);
       }
     }
+    this.cdr.markForCheck();
+  }
+
+  /** Запуск новой (stub) реализации серверного бэктеста через /backtest-new */
+  onRunBacktestNew(): void {
+    // Переключаемся в серверный режим, чтобы результат отобразился в той же панели
+    if (this.playbackSubMode !== 'server') {
+      if (this.playbackSubMode === 'realtime') {
+        this.multiPlayback.stop();
+      }
+      this.playbackSubMode = 'server';
+      // Восстанавливаем исторические данные на график
+      this.series = [...this.historicalSeries];
+      this.chartData = [...this.historicalChartData];
+      this.hLines = [];
+    }
+
+    // Принудительный перезапрос (минуя кэш предыдущего бэктеста)
+    this.tradeMarkersList = [];
+    this.backtestError = '';
+    this.configsFacade.clearBacktestResult();
+    this.configsFacade.runBacktestNew(this.configId);
     this.cdr.markForCheck();
   }
 

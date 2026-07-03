@@ -1,0 +1,14 @@
+{
+  "name": "arbi-dex-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "workspaces": [
+    "arbi-conditions-libs",
+    "arbi-dex",
+    "arbi-dex-server"
+  ],
+  "scripts": {
+    "build:libs": "npm run build --workspace @sislex/arbi-conditions-libs",
+    "dev:libs": "npm run dev --workspace @sislex/arbi-conditions-libs"
+  }
+}
