@@ -1,0 +1,42 @@
+{
+  "name": "@sislex/arbi-conditions-libs",
+  "version": "0.1.0",
+  "description": "Shared framework-agnostic condition/scripts library for arbi-dex frontend and backend",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sislex/arbiDexClientFront.git",
+    "directory": "arbi-conditions-libs"
+  },
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.5",
+    "typescript": "~5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,169 @@
+# @sislex/arbi-conditions-libs
+
+Framework-agnostic shared library (conditions / strategy engine) used by both the
+`arbi-dex` Angular frontend and the `arbi-dex-server` NestJS backend.
+
+> Pure TypeScript only. No Angular / NestJS / DOM / Node-specific APIs — anything
+> environment-specific must be passed in or declared as a `peerDependency`.
+
+## Analytics conditions
+
+```ts
+import { evaluateConfig, allConditionsMet, type ConditionsConfig } from '@sislex/arbi-conditions-libs';
+
+// Same shape as arbi-configs/analytics/conditions.config.json
+const config: ConditionsConfig = {
+  version: 1,
+  conditions: [
+    { id: 'buy-observed-above', type: 'OBSERVED_ABOVE_BUY', thresholdPct: 0.02, enabled: true },
+    { id: 'spread-within', type: 'SPREAD_WITHIN', thresholdPct: 0.03, enabled: true },
+  ],
+};
+
+const ctx = { observedPrice: 100.5, buyPrice: 100, sellPrice: 100.02 };
+
+evaluateConfig(config, ctx);   // [{ id, type, satisfied }, ...]
+allConditionsMet(config, ctx); // boolean
+```
+
+## Strategy engine
+
+Evaluates market steps against a buy/sell strategy and reports **which conditions
+currently hold**. It is a pure evaluator — it does **not** decide BUY/SELL/WAIT or
+track a position; the caller does that from the reported result.
+
+### Window model
+
+The engine works on a **window** of steps: an ordered `MarketStep[]` where the
+**last element is the current step**. Conditions that need history read the earlier
+steps straight from the window:
+
+- `avg_observed_higher_than_*_for_last_steps` — inspects the last `N` steps.
+- `no_transaction_in_progress` — a transaction is "in progress" while a `started`
+  event has no later `finished`/`failed` for the same id anywhere in the window.
+- `last_finished_transaction_delay_ok` — delay measured from the `time` of the most
+  recent `finished` transaction to the current step.
+
+An empty window throws.
+
+### Config & steps
+
+```ts
+import {
+  processStep,
+  type StrategyEngineConfig,
+  type MarketStep,
+} from '@sislex/arbi-conditions-libs';
+
+const strategy: StrategyEngineConfig = {
+  buy: {
+    enabled: true,
+    requireNoTransactionInProgress: true,
+    avgObservedHigherThanBuyPercent: 0,          // reserved — not evaluated yet
+    avgObservedHigherThanBuyForLastSteps: { steps: 2, percent: 0.1 },
+    maxBuySellSpreadPercent: 0.5,
+    minDelayAfterLastFinishedTransactionMs: 5_000,
+    requireToken1Balance: true,
+    minToken1Balance: 100,
+  },
+  sell: {
+    enabled: true,
+    requireNoTransactionInProgress: true,
+    avgObservedHigherThanSellPercent: 0,         // reserved — not evaluated yet
+    avgObservedHigherThanSellForLastSteps: { steps: 2, percent: 0.1 },
+    maxBuySellSpreadPercent: 0.5,
+    minDelayAfterLastFinishedTransactionMs: 5_000,
+    requireToken2Balance: true,
+    minToken2Balance: 100,
+  },
+};
+
+const steps: MarketStep[] = [
+  { time: 1_000, quotes: { buyQuote: 100, sellQuote: 100.2, avgObservedQuote: 100.6 }, balances: { token1: 1000, token2: 1000 } },
+  { time: 2_000, quotes: { buyQuote: 100, sellQuote: 100.2, avgObservedQuote: 100.7 }, balances: { token1: 1000, token2: 1000 } },
+];
+```
+
+> `avgObservedHigher{Buy,Sell}Percent` are part of the config shape but are not
+> evaluated — only the `…ForLastSteps` variant is checked.
+
+### Entry points
+
+**`processStep(steps, strategy)`** — evaluate the current (last) step over the window:
+
+```ts
+const result = processStep(steps, strategy);
+
+result.transaction.buy;   // true when ALL buy-side conditions pass
+result.transaction.sell;  // true when ALL sell-side conditions pass
+result.condition.buy;     // per-condition booleans (enabled, spread_ok, ...)
+result.condition.sell;
+result.meta;              // { lastStepTime, transactionInProgress, lastFinishedTransactionTime }
+```
+
+**`processStepArray(steps, strategy)`** — evaluate every step in order against the
+**growing** window up to and including it; returns one result per step:
+
+```ts
+import { processStepArray } from '@sislex/arbi-conditions-libs';
+
+const results = processStepArray(steps, strategy);
+results[i]; // conditions for steps[i], evaluated over steps[0..i]
+```
+
+**`processAllStepsAndRecordResults(steps, strategy, options?)`** — same run, but
+returns `records` pairing each step with its index and result, and calls an
+optional `onRecord` callback as each step is processed:
+
+```ts
+import { processAllStepsAndRecordResults } from '@sislex/arbi-conditions-libs';
+
+const { records } = processAllStepsAndRecordResults(steps, strategy, {
+  onRecord: (r) => console.log(r.index, r.result.transaction.buy),
+});
+// records: Array<{ index, step, result }>
+```
+
+### Result shape
+
+`TradingConditionsStepResult`:
+
+```ts
+{
+  transaction: {
+    buy: boolean;                 // all buy conditions pass
+    sell: boolean;                // all sell conditions pass
+  };
+  condition: {
+    buy:  { enabled, no_transaction_in_progress, avg_observed_higher_than_buy,
+            avg_observed_higher_than_buy_for_last_steps, spread_ok,
+            last_finished_transaction_delay_ok, token1_balance_ok };
+    sell: { enabled, no_transaction_in_progress, avg_observed_higher_than_sell,
+            avg_observed_higher_than_sell_for_last_steps, spread_ok,
+            last_finished_transaction_delay_ok, token2_balance_ok };
+  };
+  meta: {
+    lastStepTime: number;
+    transactionInProgress: boolean;
+    lastFinishedTransactionTime: number | null;
+  };
+}
+```
+
+## Build
+
+```bash
+npm run build --workspace @sislex/arbi-conditions-libs   # ESM + CJS + .d.ts -> dist/
+npm run dev   --workspace @sislex/arbi-conditions-libs   # watch mode
+npm test      --workspace @sislex/arbi-conditions-libs   # vitest
+```
+
+## Publish
+
+```bash
+npm login
+npm publish --workspace @sislex/arbi-conditions-libs     # public scoped package
+```
+
+Bump the version (`npm version patch --workspace @sislex/arbi-conditions-libs`)
+before each publish.
