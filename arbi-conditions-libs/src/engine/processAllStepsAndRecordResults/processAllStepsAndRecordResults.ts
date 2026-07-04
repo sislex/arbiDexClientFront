@@ -2,10 +2,10 @@
  * processAllStepsAndRecordResults — full run that records a result per step
  * (public entry point).
  *
- * Like `processStepArray`, but instead of a bare results array it returns
- * `records` pairing each step with its index and result, and calls an optional
- * `onRecord` callback as each step is processed (handy for streaming/logging).
- * Each step is evaluated over the growing window up to and including it.
+ * Runs `processStep` over a growing window and returns `records` pairing each
+ * step with its index and result, calling an optional `onRecord` callback as
+ * each step is processed (handy for streaming/logging). Each step is evaluated
+ * over the window up to and including it.
  *
  * @example
  * import { processAllStepsAndRecordResults } from '@sislex/arbi-conditions-libs';
@@ -48,7 +48,7 @@ export function processAllStepsAndRecordResults(
 
   for (const [index, step] of steps.entries()) {
     window.push(step);
-    const result = processStep(window, strategy);
+    const result = processStep({ steps: window, strategy });
     const record: StepRecord = { index, step, result };
     records.push(record);
     options.onRecord?.(record);

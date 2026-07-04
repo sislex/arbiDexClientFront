@@ -20,11 +20,12 @@ export type {
   StrategyEngineConfig,
   TransactionEvent,
   MarketStep,
+  ProcessStepParams,
   TradingConditionsStepResult,
 } from './engine/types';
 
 export { processStep } from './engine/processStep';
-export { processStepArray } from './engine/processStepArray';
+export { prepareSteps } from './engine/prepareSteps';
 export {
   processAllStepsAndRecordResults,
   type StepRecord,

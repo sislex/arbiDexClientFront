@@ -70,6 +70,21 @@ export interface MarketStep {
   };
 }
 
+/**
+ * Input to the engine: the step window plus the strategy.
+ * A single object (rather than positional args) so new fields can be added
+ * later without breaking call sites.
+ */
+export interface ProcessStepParams {
+  steps: MarketStep[];
+  strategy: StrategyEngineConfig;
+  /**
+   * Index of the current step within `steps`. Steps after it are treated as
+   * future and ignored. Defaults to the last step (`steps.length - 1`).
+   */
+  currentIndex?: number;
+}
+
 /** Per-step breakdown of all conditions and the resulting transaction intent. */
 export interface TradingConditionsStepResult {
   transaction: {

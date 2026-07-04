@@ -89,10 +89,10 @@ const steps: MarketStep[] = [
 
 ### Entry points
 
-**`processStep(steps, strategy)`** — evaluate the current (last) step over the window:
+**`processStep({ steps, strategy })`** — evaluate the current (last) step over the window:
 
 ```ts
-const result = processStep(steps, strategy);
+const result = processStep({ steps, strategy });
 
 result.transaction.buy;   // true when ALL buy-side conditions pass
 result.transaction.sell;  // true when ALL sell-side conditions pass
@@ -101,15 +101,28 @@ result.condition.sell;
 result.meta;              // { lastStepTime, transactionInProgress, lastFinishedTransactionTime }
 ```
 
-**`processStepArray(steps, strategy)`** — evaluate every step in order against the
-**growing** window up to and including it; returns one result per step:
+By default the current step is the last of `steps`. Pass `currentIndex` to pin it
+elsewhere — steps after it are treated as future and ignored:
 
 ```ts
-import { processStepArray } from '@sislex/arbi-conditions-libs';
-
-const results = processStepArray(steps, strategy);
-results[i]; // conditions for steps[i], evaluated over steps[0..i]
+processStep({ steps: history, strategy, currentIndex: 42 }); // current = history[42]
 ```
+
+**`prepareSteps({ steps, strategy, currentIndex? })`** — trim a full history down
+to the minimal window `processStep` needs, then pipe it straight in. It returns a
+`ProcessStepParams` with the trimmed `steps`:
+
+```ts
+import { prepareSteps, processStep } from '@sislex/arbi-conditions-libs';
+
+const result = processStep(prepareSteps({ steps: history, strategy }));
+```
+
+The kept window is the largest requirement across the strategy's conditions:
+- `avgObservedHigher*ForLastSteps` → the last `steps` entries;
+- `minDelayAfterLastFinishedTransactionMs` → steps within that delay of the current step;
+- `requireNoTransactionInProgress` → back to the most recent transaction event;
+- `enabled` / `spread` / `balance` → the current step only.
 
 **`processAllStepsAndRecordResults(steps, strategy, options?)`** — same run, but
 returns `records` pairing each step with its index and result, and calls an

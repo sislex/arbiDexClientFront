@@ -2,20 +2,19 @@
  * processStep — evaluate the current step against the strategy (engine core).
  *
  * This is the single source of truth for a one-step evaluation. The current
- * step is the LAST element of `steps`; the earlier steps in the window feed the
- * lookback conditions (e.g. "observed higher for the last N steps", "no
- * transaction in progress"). `processStepArray` and
- * `processAllStepsAndRecordResults` are built on top of this by calling it over
- * a growing window.
+ * step is `steps[currentIndex]` (defaults to the LAST element); steps after it
+ * are treated as future and ignored, and the earlier steps feed the lookback
+ * conditions (e.g. "observed higher for the last N steps", "no transaction in
+ * progress"). `processAllStepsAndRecordResults` is built on top of this.
  *
  * Pure and framework-agnostic: it orchestrates the predicates from
  * `./conditions` and the utilities from `./helpers`, and mutates nothing.
- * Throws when `steps` is empty.
+ * Throws when the resulting window is empty.
  *
  * @example
  * import { processStep } from '@sislex/arbi-conditions-libs';
  *
- * const result = processStep(window, strategy);
+ * const result = processStep({ steps: window, strategy });
  * // result.transaction.buy / .sell — whether all buy/sell conditions hold.
  */
 
@@ -35,24 +34,26 @@ import {
 } from './conditions';
 import { isTransactionInProgress, lastFinishedTransactionTime, lastStep } from './helpers';
 import type {
-  MarketStep,
-  StrategyEngineConfig,
+  ProcessStepParams,
   TradingConditionsStepResult,
 } from '../types';
 
-export function processStep(
-  steps: MarketStep[],
-  strategy: StrategyEngineConfig,
-): TradingConditionsStepResult {
-  const current = lastStep(steps);
+export function processStep({
+  steps,
+  strategy,
+  currentIndex,
+}: ProcessStepParams): TradingConditionsStepResult {
+  // Everything up to and including the current step; later steps are the future.
+  const window = currentIndex === undefined ? steps : steps.slice(0, currentIndex + 1);
+  const current = lastStep(window);
 
   // ── Buy side ─────────────────────────────────────────────────────────────
-  const buyEnabledOk = buyEnabled(steps, strategy);
-  const buyNoTxOk = buyNoTransactionInProgress(steps, strategy);
-  const buyAvgOk = buyAvgObservedHigherForLastSteps(steps, strategy);
-  const buySpreadOkResult = buySpreadOk(steps, strategy);
-  const buyDelayOk = buyTransactionDelayOk(steps, strategy);
-  const buyToken1Ok = buyToken1BalanceOk(steps, strategy);
+  const buyEnabledOk = buyEnabled(window, strategy);
+  const buyNoTxOk = buyNoTransactionInProgress(window, strategy);
+  const buyAvgOk = buyAvgObservedHigherForLastSteps(window, strategy);
+  const buySpreadOkResult = buySpreadOk(window, strategy);
+  const buyDelayOk = buyTransactionDelayOk(window, strategy);
+  const buyToken1Ok = buyToken1BalanceOk(window, strategy);
 
   const buyAll = buyEnabledOk
     && buyNoTxOk
@@ -62,12 +63,12 @@ export function processStep(
     && buyToken1Ok;
 
   // ── Sell side ────────────────────────────────────────────────────────────
-  const sellEnabledOk = sellEnabled(steps, strategy);
-  const sellNoTxOk = sellNoTransactionInProgress(steps, strategy);
-  const sellAvgOk = sellAvgObservedHigherForLastSteps(steps, strategy);
-  const sellSpreadOkResult = sellSpreadOk(steps, strategy);
-  const sellDelayOk = sellTransactionDelayOk(steps, strategy);
-  const sellToken2Ok = sellToken2BalanceOk(steps, strategy);
+  const sellEnabledOk = sellEnabled(window, strategy);
+  const sellNoTxOk = sellNoTransactionInProgress(window, strategy);
+  const sellAvgOk = sellAvgObservedHigherForLastSteps(window, strategy);
+  const sellSpreadOkResult = sellSpreadOk(window, strategy);
+  const sellDelayOk = sellTransactionDelayOk(window, strategy);
+  const sellToken2Ok = sellToken2BalanceOk(window, strategy);
 
   const sellAll = sellEnabledOk
     && sellNoTxOk
@@ -103,8 +104,8 @@ export function processStep(
     },
     meta: {
       lastStepTime: current.time,
-      transactionInProgress: isTransactionInProgress(steps),
-      lastFinishedTransactionTime: lastFinishedTransactionTime(steps),
+      transactionInProgress: isTransactionInProgress(window),
+      lastFinishedTransactionTime: lastFinishedTransactionTime(window),
     },
   };
 }
