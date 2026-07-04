@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { prepareSteps } from './prepareSteps';
 import { processStep } from '../processStep';
 import { step, TEST_STRATEGY, TEST_STRATEGY_2STEPS } from '../__fixtures__/stubs';
-import type { StrategyEngineConfig } from '../types';
+import type { ConditionDef, StrategyEngineConfig } from '../types';
 
 /** Five qualifying steps, one second apart, no transactions. */
 const HISTORY = [
@@ -60,6 +60,12 @@ describe('prepareSteps', () => {
     expect(currentIndex).toBeUndefined(); // current is the last step again
   });
 
+  it('sizes the window from a custom conditions registry', () => {
+    const need3: ConditionDef = { id: 'need3', window: () => ({ steps: 3 }), evaluate: () => ({ passed: true }) };
+    const { steps } = prepareSteps({ steps: HISTORY, strategy: TEST_STRATEGY, conditions: [need3] });
+    expect(steps.map((s) => s.time)).toEqual([3_000, 4_000, 5_000]);
+  });
+
   it('returns an empty window unchanged', () => {
     const { steps } = prepareSteps({ steps: [], strategy: TEST_STRATEGY });
     expect(steps).toEqual([]);
@@ -70,7 +76,7 @@ describe('prepareSteps', () => {
     const trimmed = processStep(prepareSteps({ steps: HISTORY, strategy: TEST_STRATEGY_2STEPS }));
 
     expect(trimmed.transaction.buy).toBe(full.transaction.buy);
-    expect(trimmed.condition.buy.avg_observed_higher_than_buy_for_last_steps)
-      .toBe(full.condition.buy.avg_observed_higher_than_buy_for_last_steps);
+    expect(trimmed.condition.buy.avg_observed_higher_for_last_steps.passed)
+      .toBe(full.condition.buy.avg_observed_higher_for_last_steps.passed);
   });
 });

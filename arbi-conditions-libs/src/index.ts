@@ -22,9 +22,18 @@ export type {
   MarketStep,
   ProcessStepParams,
   TradingConditionsStepResult,
+  Side,
+  PositionState,
+  WindowRequirement,
+  EvalContext,
+  ConditionOutcome,
+  ConditionOutcomes,
+  ConditionId,
+  ConditionDef,
 } from './engine/types';
 
-export { processStep } from './engine/processStep';
+export { CONDITIONS } from './engine/conditions';
+export { processStep, evaluateSide } from './engine/processStep';
 export { prepareSteps } from './engine/prepareSteps';
 export {
   processAllStepsAndRecordResults,

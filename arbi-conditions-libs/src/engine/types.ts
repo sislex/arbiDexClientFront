@@ -83,7 +83,93 @@ export interface ProcessStepParams {
    * future and ignored. Defaults to the last step (`steps.length - 1`).
    */
   currentIndex?: number;
+  /**
+   * The open position, if any. Passed through the engine so position-aware
+   * conditions (take-profit, stop-loss, PnL, max holding time…) can use it.
+   * `null`/absent means flat.
+   */
+  position?: PositionState | null;
+  /**
+   * Condition set to evaluate. Defaults to the built-in registry `CONDITIONS`.
+   * Pass a custom array to add/replace conditions without changing the engine.
+   */
+  conditions?: ConditionDef[];
 }
+
+/** Which side a condition is evaluated for. */
+export type Side = 'buy' | 'sell';
+
+/** The currently open position. */
+export interface PositionState {
+  /** Average price the position was entered at. */
+  entryPrice: number;
+  /** Position size (in the traded token). */
+  size: number;
+  /** `time` of the step the position was opened on. */
+  openedAt: number;
+}
+
+/**
+ * How much history a condition needs, so `prepareSteps` can size the window.
+ * The engine takes the max over all conditions: the largest `steps`, the
+ * largest `durationMs`, and `toLastTransaction` if any condition asks for it.
+ */
+export interface WindowRequirement {
+  /** Count-based lookback: keep at least this many trailing steps. */
+  steps?: number;
+  /** Time-based lookback: keep steps within this many ms of the current step. */
+  durationMs?: number;
+  /** Keep steps back to the most recent transaction event. */
+  toLastTransaction?: boolean;
+}
+
+/** Everything a condition needs to evaluate the current step. */
+export interface EvalContext {
+  /** Steps up to and including the current one (the window). */
+  window: MarketStep[];
+  /** The current step (last of `window`). */
+  current: MarketStep;
+  /** The open position, or `null` when flat. */
+  position: PositionState | null;
+}
+
+/** Result of evaluating a single condition for one side. */
+export interface ConditionOutcome {
+  passed: boolean;
+  /** Observed value (for UI / debugging), e.g. the current spread. */
+  actual?: number | string;
+  /** The threshold the value is checked against. */
+  required?: number | string;
+}
+
+/** Stable identifiers for the built-in conditions. */
+export type ConditionId =
+  | 'enabled'
+  | 'no_transaction_in_progress'
+  | 'avg_observed_higher_for_last_steps'
+  | 'spread_ok'
+  | 'transaction_delay_ok'
+  | 'balance_ok';
+
+/**
+ * A self-describing condition: it declares how much history it needs
+ * (`window`) and how to evaluate itself (`evaluate`). Registering a new
+ * condition is the only change needed to extend the engine.
+ *
+ * `id` accepts any string for custom conditions; built-in ids are suggested.
+ */
+export interface ConditionDef {
+  id: ConditionId | (string & {});
+  window(strategy: StrategyEngineConfig, side: Side): WindowRequirement;
+  evaluate(ctx: EvalContext, strategy: StrategyEngineConfig, side: Side): ConditionOutcome;
+}
+
+/**
+ * Per-side map of condition id -> outcome. Built-in ids are always present
+ * (non-optional); custom ids are accessed as possibly-undefined.
+ */
+export type ConditionOutcomes =
+  Record<ConditionId, ConditionOutcome> & { [id: string]: ConditionOutcome };
 
 /** Per-step breakdown of all conditions and the resulting transaction intent. */
 export interface TradingConditionsStepResult {
@@ -92,24 +178,8 @@ export interface TradingConditionsStepResult {
     sell: boolean;
   };
   condition: {
-    buy: {
-      enabled: boolean;
-      no_transaction_in_progress: boolean;
-      avg_observed_higher_than_buy: boolean;
-      avg_observed_higher_than_buy_for_last_steps: boolean;
-      spread_ok: boolean;
-      last_finished_transaction_delay_ok: boolean;
-      token1_balance_ok: boolean;
-    };
-    sell: {
-      enabled: boolean;
-      no_transaction_in_progress: boolean;
-      avg_observed_higher_than_sell: boolean;
-      avg_observed_higher_than_sell_for_last_steps: boolean;
-      spread_ok: boolean;
-      last_finished_transaction_delay_ok: boolean;
-      token2_balance_ok: boolean;
-    };
+    buy: ConditionOutcomes;
+    sell: ConditionOutcomes;
   };
   meta: {
     lastStepTime: number;

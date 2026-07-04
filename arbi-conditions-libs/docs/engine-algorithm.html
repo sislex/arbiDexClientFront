@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strategy Engine — Algorithm Flow</title>
+</head>
+<body>
+<style>
+  :root{
+    --ground:#eceff3; --paper:#ffffff; --panel:#f6f8fa;
+    --ink:#14202b; --muted:#5b6774; --faint:#8b97a3;
+    --line:#d5dce2; --line-soft:#e6ebef;
+    --accent:#0d7d84; --accent-soft:#dff0f1; --accent-ink:#0a5c61;
+    --pass:#1f8a4c; --pass-soft:#e4f3ea;
+    --fail:#cc3b3b; --fail-soft:#fae7e7;
+    --warn:#a9701a; --warn-soft:#f6ecd8;
+    --code-bg:#0f1a20; --code-ink:#cddbe0; --code-dim:#7f97a0; --code-str:#8fcf9a; --code-key:#63c2c9;
+    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --maxw: 1000px;
+  }
+  *{box-sizing:border-box}
+  body{
+    background:var(--ground); color:var(--ink);
+    font-family:var(--font-sans); line-height:1.62;
+    -webkit-font-smoothing:antialiased; margin:0;
+  }
+  .wrap{max-width:var(--maxw); margin:0 auto; padding:48px 24px 96px}
+  a{color:var(--accent-ink)}
+
+  /* ── header ── */
+  .masthead{border-bottom:2px solid var(--ink); padding-bottom:22px; margin-bottom:40px}
+  .kicker{font:600 12px/1 var(--font-mono); letter-spacing:.16em; text-transform:uppercase; color:var(--accent-ink); margin-bottom:14px}
+  h1{font-size:clamp(28px,4.4vw,40px); line-height:1.08; margin:0 0 12px; letter-spacing:-.02em; text-wrap:balance; font-weight:750}
+  .lede{font-size:17px; color:var(--muted); max-width:64ch; margin:0}
+  .meta-row{display:flex; flex-wrap:wrap; gap:8px; margin-top:18px}
+  .badge{font:600 11px/1 var(--font-mono); letter-spacing:.04em; color:var(--muted); background:var(--panel); border:1px solid var(--line); border-radius:999px; padding:6px 11px}
+  .badge b{color:var(--accent-ink); font-weight:700}
+
+  /* ── sections ── */
+  section{margin-top:52px}
+  .eyebrow{font:600 11px/1 var(--font-mono); letter-spacing:.14em; text-transform:uppercase; color:var(--accent-ink); display:flex; align-items:center; gap:10px; margin-bottom:10px}
+  .eyebrow::before{content:""; width:22px; height:2px; background:var(--accent)}
+  h2{font-size:24px; line-height:1.15; margin:0 0 10px; letter-spacing:-.01em; font-weight:720; text-wrap:balance}
+  h3{font-size:15px; margin:26px 0 12px; font-weight:700; letter-spacing:-.005em}
+  p{margin:0 0 14px; max-width:70ch}
+  .sub{color:var(--muted)}
+  strong{font-weight:680}
+  code{font-family:var(--font-mono); font-size:.88em; background:var(--accent-soft); color:var(--accent-ink); padding:1px 5px; border-radius:4px; word-break:break-word}
+
+  .card{background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:22px; box-shadow:0 1px 2px rgba(20,32,43,.04)}
+  .card + .card{margin-top:18px}
+
+  /* ── legend / notation ── */
+  .legend{display:flex; flex-wrap:wrap; gap:10px 20px; align-items:center}
+  .lg{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted)}
+  .swatch{width:26px; height:18px; border-radius:5px; border:1px solid var(--line); flex:none}
+  .tag{display:inline-block; font:700 10px/1 var(--font-mono); letter-spacing:.07em; text-transform:uppercase; padding:4px 6px; border-radius:4px; white-space:nowrap}
+  .t-start{background:var(--accent); color:#fff}
+  .t-step{background:#e9eef2; color:var(--muted)}
+  .t-decision{background:var(--warn-soft); color:var(--warn)}
+  .t-loop{background:#c7e6e7; color:var(--accent-ink)}
+  .t-data{background:#e9eef2; color:var(--muted)}
+  .t-end{background:var(--ink); color:#fff}
+
+  /* ── flow diagram ── */
+  .flow{display:flex; flex-direction:column; align-items:stretch}
+  .node{position:relative; border:1px solid var(--line); border-left:4px solid var(--line); border-radius:11px; background:var(--paper); padding:13px 16px}
+  .node .nt{font:700 13.5px/1.35 var(--font-mono); color:var(--ink); word-break:break-word}
+  .node .nd{font-size:13px; color:var(--muted); margin-top:6px}
+  .node .nd code{font-size:12px}
+  .n-start{border-left-color:var(--accent); background:linear-gradient(0deg,var(--paper),var(--accent-soft))}
+  .n-step{border-left-color:#b9c3cc}
+  .n-decision{border-left-color:var(--warn); background:linear-gradient(0deg,var(--paper),var(--warn-soft))}
+  .n-loop{border-left-color:var(--accent); background:var(--accent-soft)}
+  .n-data{border-left-color:#b9c3cc; border-style:dashed}
+  .n-end{border-left-color:var(--ink); background:linear-gradient(0deg,var(--paper),#eef1f3)}
+  .node .toptag{position:absolute; top:-10px; left:14px}
+
+  .conn{position:relative; height:38px; flex:none}
+  .conn::before{content:""; position:absolute; left:50%; top:2px; bottom:9px; width:2px; transform:translateX(-50%); background:var(--line)}
+  .conn::after{content:"▼"; position:absolute; left:50%; bottom:-1px; transform:translateX(-50%); color:var(--faint); font-size:10px; line-height:1}
+  .conn .cl{position:absolute; left:calc(50% + 12px); top:50%; transform:translateY(-50%); font:600 11.5px/1 var(--font-mono); color:var(--muted); background:var(--panel); border:1px solid var(--line); border-radius:5px; padding:3px 7px; white-space:nowrap}
+
+  .branch{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  .branch-col{display:flex; flex-direction:column}
+  .branch-head{font:600 11.5px/1 var(--font-mono); text-align:center; padding:6px; border-radius:6px 6px 0 0; color:#fff}
+  .bh-yes{background:var(--pass)} .bh-no{background:var(--warn)}
+  .branch-col .node{border-radius:0 0 11px 11px; border-top:none}
+
+  .loopwrap{border:1.5px dashed var(--accent); border-radius:12px; padding:14px; background:linear-gradient(0deg,var(--paper),var(--accent-soft))}
+  .loopwrap .loop-cap{font:700 11px/1 var(--font-mono); letter-spacing:.06em; text-transform:uppercase; color:var(--accent-ink); display:flex; align-items:center; gap:8px; margin-bottom:12px}
+  .loopwrap .loop-cap .ico{font-size:14px}
+
+  /* ── code ── */
+  pre.code{background:var(--code-bg); color:var(--code-ink); border-radius:12px; padding:16px 18px; overflow-x:auto; margin:0; font:13px/1.62 var(--font-mono); border:1px solid #12242c}
+  pre.code .c{color:var(--code-dim); font-style:italic}
+  pre.code .s{color:var(--code-str)}
+  pre.code .k{color:var(--code-key)}
+  .code-label{font:600 11px/1 var(--font-mono); letter-spacing:.08em; text-transform:uppercase; color:var(--faint); margin:0 0 8px}
+
+  /* ── condition table ── */
+  .tblscroll{overflow-x:auto; border:1px solid var(--line); border-radius:12px}
+  table.cond{width:100%; border-collapse:collapse; font-size:13px; min-width:640px}
+  table.cond th,table.cond td{text-align:left; padding:11px 14px; border-bottom:1px solid var(--line-soft); vertical-align:top}
+  table.cond thead th{background:var(--panel); font:700 11px/1.3 var(--font-mono); letter-spacing:.04em; text-transform:uppercase; color:var(--muted); position:sticky; top:0}
+  table.cond tbody tr:last-child td{border-bottom:none}
+  table.cond td.id code{background:var(--ink); color:#fff}
+  table.cond td .win{font-family:var(--font-mono); font-size:12px; color:var(--accent-ink)}
+  .dash{color:var(--faint)}
+
+  /* ── chips / semantic ── */
+  .chip{display:inline-flex; align-items:center; gap:6px; font:600 12px/1 var(--font-mono); padding:4px 9px; border-radius:999px; border:1px solid transparent}
+  .chip.pass{background:var(--pass-soft); color:var(--pass); border-color:#bfe3cc}
+  .chip.fail{background:var(--fail-soft); color:var(--fail); border-color:#f0c4c4}
+
+  /* ── trace ── */
+  .trace{overflow-x:auto}
+  table.trace{width:100%; border-collapse:collapse; font:13px/1.4 var(--font-mono); min-width:520px}
+  table.trace th,table.trace td{padding:8px 12px; border-bottom:1px solid var(--line-soft); text-align:left}
+  table.trace thead th{background:var(--panel); color:var(--muted); font-weight:700; font-size:11px; text-transform:uppercase; letter-spacing:.05em}
+  table.trace td.num{font-variant-numeric:tabular-nums; text-align:right}
+  .ok{color:var(--pass); font-weight:700} .no{color:var(--fail); font-weight:700}
+
+  .callout{border-left:4px solid var(--accent); background:var(--accent-soft); border-radius:0 10px 10px 0; padding:14px 18px; font-size:14px; color:var(--accent-ink)}
+  .callout.warn{border-left-color:var(--warn); background:var(--warn-soft); color:#7c5312}
+  .callout b{font-weight:700}
+
+  .two{display:grid; grid-template-columns:1fr 1fr; gap:18px}
+  .foot{margin-top:64px; padding-top:20px; border-top:1px solid var(--line); font-size:13px; color:var(--faint)}
+
+  @media (max-width:720px){
+    .branch,.two{grid-template-columns:1fr}
+    .wrap{padding:34px 16px 72px}
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="kicker">@sislex/arbi-conditions-libs · engine</div>
+    <h1>Strategy Engine — как работают три функции и условия</h1>
+    <p class="lede">Блок-схемы и разбор алгоритма: <code>processStep</code> оценивает шаг по окну, <code>prepareSteps</code> готовит минимальное окно, <code>processAllStepsAndRecordResults</code> прогоняет всю историю. Все три опираются на общий реестр условий <code>CONDITIONS</code>.</p>
+    <div class="meta-row">
+      <span class="badge"><b>pure</b> TypeScript</span>
+      <span class="badge"><b>framework-agnostic</b></span>
+      <span class="badge">registry: <b>6</b> conditions</span>
+      <span class="badge">aggregation: <b>AND</b></span>
+    </div>
+  </header>
+
+  <!-- ===================== OVERVIEW ===================== -->
+  <section>
+    <div class="eyebrow">Общая картина</div>
+    <h2>Данные против правил, по окну шагов</h2>
+    <p>Движок берёт <strong>окно рыночных шагов</strong> (<code>steps</code>, последний = текущий) и <strong>стратегию</strong> (<code>strategy</code> — пороги/флаги). Каждое условие сравнивает данные с правилами и возвращает <code>{ passed, actual, required }</code>. Сторона (buy/sell) проходит, если прошли <em>все</em> её условия.</p>
+
+    <div class="card" style="margin-top:6px">
+      <div class="tblscroll" style="border:none">
+        <div style="min-width:720px">
+          <div class="flow">
+            <div class="node n-data"><span class="tag t-data toptag">данные</span><div class="nt">history: MarketStep[]</div><div class="nd">вся история котировок / транзакций / балансов</div></div>
+            <div class="conn"><span class="cl">prepareSteps(…)</span></div>
+            <div class="node n-step"><span class="tag t-step toptag">обрезка</span><div class="nt">ProcessStepParams { steps: обрезанное окно, strategy, position }</div><div class="nd">минимально достаточное окно для условий</div></div>
+            <div class="conn"><span class="cl">processStep(…)</span></div>
+            <div class="node n-step"><span class="tag t-step toptag">оценка</span><div class="nt">для side ∈ (buy, sell): прогнать CONDITIONS → AND</div><div class="nd">каждое условие читает окно + свою часть strategy</div></div>
+            <div class="conn"></div>
+            <div class="node n-end"><span class="tag t-end toptag">результат</span><div class="nt">TradingConditionsStepResult</div><div class="nd"><code>transaction.buy/sell</code> · <code>condition.buy/sell[id] = {passed, actual, required}</code> · <code>meta</code></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="two" style="margin-top:18px">
+      <div class="card">
+        <h3 style="margin-top:0">Роли трёх функций</h3>
+        <p class="sub" style="margin-bottom:8px"><code>processStep</code> — ядро. Оценивает <strong>один</strong> текущий шаг по окну.</p>
+        <p class="sub" style="margin-bottom:8px"><code>prepareSteps</code> — режет всю историю до минимального окна и отдаёт готовый вход для <code>processStep</code>.</p>
+        <p class="sub" style="margin-bottom:0"><code>processAllStepsAndRecordResults</code> — прогоняет историю шаг за шагом растущим окном, собирает записи.</p>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">Нотация схем</h3>
+        <div class="legend">
+          <span class="lg"><span class="tag t-start">start</span> вход</span>
+          <span class="lg"><span class="tag t-step">step</span> действие</span>
+          <span class="lg"><span class="tag t-decision">decision</span> ветвление</span>
+          <span class="lg"><span class="tag t-loop">loop</span> цикл</span>
+          <span class="lg"><span class="tag t-data">data</span> данные</span>
+          <span class="lg"><span class="tag t-end">end</span> результат</span>
+        </div>
+        <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap">
+          <span class="chip pass">passed: true</span>
+          <span class="chip fail">passed: false</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== BUILDING BLOCK ===================== -->
+  <section>
+    <div class="eyebrow">Строительный блок</div>
+    <h2>ConditionDef — самоописываемое условие</h2>
+    <p>Каждое условие — объект с двумя методами: <code>window()</code> говорит, <strong>сколько истории нужно</strong> (для <code>prepareSteps</code>), а <code>evaluate()</code> — <strong>как считаться</strong> (для <code>processStep</code>). Всё лежит в массиве <code>CONDITIONS</code>; добавить условие = дописать один объект.</p>
+
+    <div class="two">
+      <div>
+        <p class="code-label">Контракт</p>
+        <pre class="code"><span class="k">interface</span> ConditionDef {
+  id: ConditionId;
+  <span class="c">// сколько истории надо</span>
+  window(strategy, side): WindowRequirement;
+  <span class="c">// как оценить текущий шаг</span>
+  evaluate(ctx, strategy, side): ConditionOutcome;
+}
+
+<span class="k">type</span> WindowRequirement = {
+  steps?: number;           <span class="c">// N последних шагов</span>
+  durationMs?: number;      <span class="c">// окно по времени</span>
+  toLastTransaction?: boolean;
+};
+
+<span class="k">type</span> ConditionOutcome = {
+  passed: boolean;
+  actual?: number | string; <span class="c">// что наблюдали</span>
+  required?: number | string;<span class="c">// с чем сравнили</span>
+};</pre>
+      </div>
+      <div>
+        <p class="code-label">Контекст оценки</p>
+        <pre class="code"><span class="k">interface</span> EvalContext {
+  window: MarketStep[];  <span class="c">// шаги до текущего вкл.</span>
+  current: MarketStep;   <span class="c">// последний в window</span>
+  position: PositionState | null;
+}
+
+<span class="c">// пример: spread_ok</span>
+{
+  id: <span class="s">'spread_ok'</span>,
+  window: () => ({}),        <span class="c">// только текущий шаг</span>
+  evaluate: (ctx, strategy, side) => {
+    <span class="k">const</span> spread = pctDiff(
+      ctx.current.quotes.buyQuote,
+      ctx.current.quotes.sellQuote);
+    <span class="k">const</span> max = strategy[side].maxBuySellSpreadPercent;
+    <span class="k">return</span> { passed: spread &lt;= max,
+             actual: spread, required: max };
+  },
+}</pre>
+      </div>
+    </div>
+
+    <h3>Реестр: 6 встроенных условий</h3>
+    <div class="tblscroll">
+      <table class="cond">
+        <thead><tr><th>id</th><th>window() — нужна история</th><th>evaluate() — проверка</th><th>actual / required</th></tr></thead>
+        <tbody>
+          <tr><td class="id"><code>enabled</code></td><td><span class="dash">— (текущий)</span></td><td><code>strategy[side].enabled</code></td><td class="dash">—</td></tr>
+          <tr><td class="id"><code>no_transaction_in_progress</code></td><td><span class="win">toLastTransaction</span> (если требуется)</td><td><code>!require || !isTxInProgress(window)</code></td><td>in_progress / none</td></tr>
+          <tr><td class="id"><code>avg_observed_higher_for_last_steps</code></td><td><span class="win">steps: N</span></td><td>послед. N: <code>pctDiff(avg, quote) ≥ percent</code></td><td>слабейший % / percent</td></tr>
+          <tr><td class="id"><code>spread_ok</code></td><td><span class="dash">— (текущий)</span></td><td><code>pctDiff(buy, sell) ≤ maxSpread</code></td><td>spread% / max</td></tr>
+          <tr><td class="id"><code>transaction_delay_ok</code></td><td><span class="win">durationMs: minDelay</span></td><td><code>now − lastFinished &gt; minDelay</code></td><td>прошло мс / minDelay</td></tr>
+          <tr><td class="id"><code>balance_ok</code></td><td><span class="dash">— (текущий)</span></td><td><code>!require || balance ≥ min</code></td><td>balance / min</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin-top:12px">buy читает <code>buyQuote</code>/<code>token1</code>, sell — <code>sellQuote</code>/<code>token2</code>. Одно определение обслуживает обе стороны через аргумент <code>side</code>.</p>
+  </section>
+
+  <!-- ===================== processStep ===================== -->
+  <section>
+    <div class="eyebrow">Функция 1 · ядро</div>
+    <h2>processStep — оценка текущего шага</h2>
+    <p>Определяет окно (по <code>currentIndex</code>), берёт текущий шаг, строит контекст и прогоняет <strong>все условия для каждой стороны</strong>, агрегируя через AND.</p>
+
+    <div class="card">
+      <div class="flow">
+        <div class="node n-start"><span class="tag t-start toptag">start</span><div class="nt">processStep({ steps, strategy, currentIndex?, position? })</div></div>
+        <div class="conn"></div>
+        <div class="node n-decision"><span class="tag t-decision toptag">decision</span><div class="nt">currentIndex === undefined ?</div></div>
+        <div class="conn"></div>
+        <div class="branch">
+          <div class="branch-col">
+            <div class="branch-head bh-yes">да → текущий = последний</div>
+            <div class="node n-step"><div class="nt">window = steps</div></div>
+          </div>
+          <div class="branch-col">
+            <div class="branch-head bh-no">нет → отбросить будущее</div>
+            <div class="node n-step"><div class="nt">window = steps.slice(0, currentIndex + 1)</div></div>
+          </div>
+        </div>
+        <div class="conn"></div>
+        <div class="node n-step"><span class="tag t-step toptag">step</span><div class="nt">current = lastStep(window)</div><div class="nd">пусто → бросает «steps must contain at least one step»</div></div>
+        <div class="conn"></div>
+        <div class="node n-step"><span class="tag t-step toptag">step</span><div class="nt">ctx = { window, current, position: position ?? null }</div></div>
+        <div class="conn"><span class="cl">для side ∈ (buy, sell)</span></div>
+
+        <div class="loopwrap">
+          <div class="loop-cap"><span class="ico">↻</span> evaluateSide(side) — повторяется для buy и для sell</div>
+          <div class="flow">
+            <div class="node n-step"><div class="nt">outcomes = {}; passed = true</div></div>
+            <div class="conn"><span class="cl">для def ∈ CONDITIONS</span></div>
+            <div class="loopwrap" style="border-style:solid; border-color:var(--line); background:var(--paper)">
+              <div class="loop-cap" style="color:var(--muted)"><span class="ico">↻</span> по каждому условию реестра</div>
+              <div class="flow">
+                <div class="node n-step"><div class="nt">outcome = def.evaluate(ctx, strategy, side)</div></div>
+                <div class="conn"></div>
+                <div class="node n-step"><div class="nt">outcomes[def.id] = outcome</div></div>
+                <div class="conn"></div>
+                <div class="node n-decision"><div class="nt">!outcome.passed ? → passed = false</div><div class="nd">без break — собираем раскладку по всем условиям</div></div>
+              </div>
+            </div>
+            <div class="conn"></div>
+            <div class="node n-data"><span class="tag t-data toptag">return</span><div class="nt">{ outcomes, passed }</div></div>
+          </div>
+        </div>
+
+        <div class="conn"></div>
+        <div class="node n-step"><span class="tag t-step toptag">step</span><div class="nt">buy = evaluateSide('buy'); sell = evaluateSide('sell')</div></div>
+        <div class="conn"></div>
+        <div class="node n-end"><span class="tag t-end toptag">end · return</span>
+          <div class="nt">TradingConditionsStepResult</div>
+          <div class="nd">
+            transaction: { buy: buy.passed, sell: sell.passed }<br>
+            condition: { buy: buy.outcomes, sell: sell.outcomes }<br>
+            meta: { lastStepTime, transactionInProgress, lastFinishedTransactionTime }
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3>Ядро агрегации — evaluateSide</h3>
+    <div class="two">
+      <div>
+        <pre class="code"><span class="k">const</span> evaluateSide = (side) => {
+  <span class="k">const</span> outcomes = {};
+  <span class="k">let</span> passed = <span class="k">true</span>;
+  <span class="k">for</span> (<span class="k">const</span> def <span class="k">of</span> CONDITIONS) {
+    <span class="k">const</span> outcome = def.evaluate(ctx, strategy, side);
+    outcomes[def.id] = outcome;
+    <span class="k">if</span> (!outcome.passed) passed = <span class="k">false</span>;  <span class="c">// AND</span>
+  }
+  <span class="k">return</span> { outcomes, passed };
+};</pre>
+      </div>
+      <div>
+        <p class="code-label">Трейс · side = buy</p>
+        <div class="trace">
+          <table class="trace">
+            <thead><tr><th>условие</th><th>passed</th><th>passed (итог)</th></tr></thead>
+            <tbody>
+              <tr><td>enabled</td><td class="ok">true</td><td>true</td></tr>
+              <tr><td>no_transaction_in_progress</td><td class="ok">true</td><td>true</td></tr>
+              <tr><td>avg_observed_higher_for_last_steps</td><td class="no">false</td><td class="no">false</td></tr>
+              <tr><td>spread_ok</td><td class="ok">true</td><td class="no">false</td></tr>
+              <tr><td>transaction_delay_ok</td><td class="ok">true</td><td class="no">false</td></tr>
+              <tr><td>balance_ok</td><td class="ok">true</td><td class="no">false</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="sub" style="margin:12px 0 0">Одно <span class="no">false</span> роняет итог в <code>false</code>, но цикл идёт до конца — <code>outcomes</code> содержит все 6 записей для UI/дебага.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== prepareSteps ===================== -->
+  <section>
+    <div class="eyebrow">Функция 2 · подготовка</div>
+    <h2>prepareSteps — минимальное окно из истории</h2>
+    <p>Спрашивает у каждого условия его <code>window()</code>, берёт <strong>максимум</strong> требований и режет историю до самого раннего нужного индекса. Возвращает готовый <code>ProcessStepParams</code>.</p>
+
+    <div class="card">
+      <div class="flow">
+        <div class="node n-start"><span class="tag t-start toptag">start</span><div class="nt">prepareSteps({ steps, strategy, currentIndex?, position? })</div></div>
+        <div class="conn"></div>
+        <div class="node n-decision"><span class="tag t-decision toptag">decision</span><div class="nt">steps.length === 0 ?</div><div class="nd">да → return { steps, strategy, position } (пусто пройдёт насквозь)</div></div>
+        <div class="conn"></div>
+        <div class="node n-step"><span class="tag t-step toptag">step</span><div class="nt">ci = clamp(currentIndex ?? last, 0, last)</div><div class="nd">history = steps.slice(0, ci + 1) · отбрасываем будущее · current = history[last]</div></div>
+        <div class="conn"><span class="cl">для def × side ∈ (buy, sell)</span></div>
+        <div class="loopwrap">
+          <div class="loop-cap"><span class="ico">↻</span> агрегируем требования по всему реестру</div>
+          <div class="node n-step" style="background:var(--paper)"><div class="nt">req = def.window(strategy, side)</div><div class="nd">neededSteps = max(neededSteps, req.steps) · maxDurationMs = max(…, req.durationMs) · toLastTransaction ||= req.toLastTransaction</div></div>
+        </div>
+        <div class="conn"><span class="cl">keepFrom — самый ранний индекс</span></div>
+        <div class="node n-step"><span class="tag t-step toptag">rule · count</span><div class="nt">keepFrom = max(0, last − (neededSteps − 1))</div></div>
+        <div class="conn"></div>
+        <div class="node n-decision"><span class="tag t-decision toptag">rule · time</span><div class="nt">maxDurationMs &gt; 0 ?</div><div class="nd">cutoff = current.time − maxDurationMs · idx = history.findIndex(time ≥ cutoff) · keepFrom = min(keepFrom, idx)</div></div>
+        <div class="conn"></div>
+        <div class="node n-decision"><span class="tag t-decision toptag">rule · tx</span><div class="nt">toLastTransaction ?</div><div class="nd">скан назад до последнего события транзакции i · keepFrom = min(keepFrom, i)</div></div>
+        <div class="conn"></div>
+        <div class="node n-end"><span class="tag t-end toptag">end · return</span><div class="nt">{ steps: history.slice(keepFrom), strategy, position }</div><div class="nd">currentIndex опускается — текущий снова последний</div></div>
+      </div>
+    </div>
+
+    <div class="callout" style="margin-top:18px"><b>keepFrom = min(…)</b> — каждое правило может только «отодвинуть» начало окна назад (сделать индекс меньше), но не сузить его. Итог = объединение потребностей всех условий: окна хватает всем сразу, но не больше нужного.</div>
+
+    <h3>Числовой пример · 10 шагов (индексы 0…9, last = 9)</h3>
+    <div class="trace">
+      <table class="trace">
+        <thead><tr><th>правило</th><th>требование</th><th class="num">кандидат idx</th><th class="num">keepFrom</th></tr></thead>
+        <tbody>
+          <tr><td>count</td><td>neededSteps = 3</td><td class="num">9 − 2 = 7</td><td class="num">7</td></tr>
+          <tr><td>time</td><td>maxDurationMs → cutoff → idx = 5</td><td class="num">5</td><td class="num ok">min(7,5) = 5</td></tr>
+          <tr><td>tx</td><td>последняя транзакция на idx = 8</td><td class="num">8</td><td class="num">min(5,8) = 5</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin-top:12px">Итог <code>keepFrom = 5</code> → <code>history.slice(5)</code> → 5 шагов (5…9). «Прожорливое» time-правило расширило окно назад; более скромное tx-правило проигнорировано через <code>min</code>.</p>
+  </section>
+
+  <!-- ===================== processAll ===================== -->
+  <section>
+    <div class="eyebrow">Функция 3 · прогон</div>
+    <h2>processAllStepsAndRecordResults — вся история</h2>
+    <p>Идёт по истории шаг за шагом <strong>растущим окном</strong> <code>steps[0…i]</code>, вызывает <code>processStep</code> на каждом и собирает записи <code>{ index, step, result }</code>, дёргая <code>onRecord</code>.</p>
+
+    <div class="card">
+      <div class="flow">
+        <div class="node n-start"><span class="tag t-start toptag">start</span><div class="nt">processAllStepsAndRecordResults(steps, strategy, { onRecord? })</div></div>
+        <div class="conn"></div>
+        <div class="node n-step"><span class="tag t-step toptag">step</span><div class="nt">records = []; window = []</div></div>
+        <div class="conn"><span class="cl">для [index, step] ∈ steps</span></div>
+        <div class="loopwrap">
+          <div class="loop-cap"><span class="ico">↻</span> по каждому шагу истории</div>
+          <div class="flow">
+            <div class="node n-step" style="background:var(--paper)"><div class="nt">window.push(step)</div><div class="nd">окно растёт: steps[0…index]</div></div>
+            <div class="conn"></div>
+            <div class="node n-step" style="background:var(--paper)"><div class="nt">result = processStep({ steps: window, strategy })</div><div class="nd">полное окно, без обрезки prepareSteps</div></div>
+            <div class="conn"></div>
+            <div class="node n-step" style="background:var(--paper)"><div class="nt">record = { index, step, result }</div><div class="nd">records.push(record) · onRecord?.(record)</div></div>
+          </div>
+        </div>
+        <div class="conn"></div>
+        <div class="node n-end"><span class="tag t-end toptag">end · return</span><div class="nt">{ records }</div></div>
+      </div>
+    </div>
+    <div class="callout warn" style="margin-top:18px"><b>Отличие от prepareSteps.</b> Здесь окно намеренно <b>не</b> обрезается — задача собрать результат на каждом шаге по всей доступной истории. <code>prepareSteps</code> же оптимизирует одиночную оценку, отдавая минимальное окно.</div>
+  </section>
+
+  <!-- ===================== COMPOSITION ===================== -->
+  <section>
+    <div class="eyebrow">Композиция</div>
+    <h2>Как они складываются вместе</h2>
+    <p>Вход и выход <code>prepareSteps</code> — один и тот же тип <code>ProcessStepParams</code>, поэтому функции соединяются в трубу. <code>strategy</code> и <code>position</code> проходят насквозь; <code>position</code> доезжает до <code>ctx</code> и доступен позиционным условиям (TP/SL/PnL).</p>
+
+    <div class="card">
+      <div class="tblscroll" style="border:none">
+        <div style="min-width:680px">
+          <div class="flow">
+            <div class="node n-data"><span class="tag t-data toptag">data</span><div class="nt">{ steps: history, strategy, position }</div></div>
+            <div class="conn"><span class="cl">prepareSteps</span></div>
+            <div class="node n-step"><span class="tag t-step toptag">окно из window()</span><div class="nt">{ steps: обрезанное, strategy, position }</div></div>
+            <div class="conn"><span class="cl">processStep</span></div>
+            <div class="node n-step"><span class="tag t-step toptag">ctx + AND по CONDITIONS</span><div class="nt">EvalContext { window, current, position }</div></div>
+            <div class="conn"></div>
+            <div class="node n-end"><span class="tag t-end toptag">result</span><div class="nt">TradingConditionsStepResult</div></div>
+          </div>
+        </div>
+      </div>
+      <pre class="code" style="margin-top:16px">processStep(prepareSteps({ steps: history, strategy, position }));</pre>
+    </div>
+
+    <div class="callout" style="margin-top:18px">Одно место расширения: чтобы добавить условие (например <b>stop_loss</b>), пишешь один <code>ConditionDef</code> с <code>window()</code> и <code>evaluate()</code> и добавляешь в <code>CONDITIONS</code>. <code>processStep</code>, <code>prepareSteps</code> и результат подхватят его автоматически — ядро не меняется.</div>
+  </section>
+
+  <footer class="foot">
+    Strategy engine · processStep / prepareSteps / processAllStepsAndRecordResults · условия через реестр CONDITIONS. Схемы отражают исходный код на момент составления.
+  </footer>
+
+</div>
+</body>
+</html>

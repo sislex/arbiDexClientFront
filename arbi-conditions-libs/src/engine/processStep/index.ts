@@ -1,1 +1,1 @@
-export { processStep } from './processStep';
+export { processStep, evaluateSide } from './processStep';

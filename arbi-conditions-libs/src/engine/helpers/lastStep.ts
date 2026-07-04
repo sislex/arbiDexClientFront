@@ -1,4 +1,4 @@
-import type { MarketStep } from '../../types';
+import type { MarketStep } from '../types';
 
 /**
  * The current step: the last element of the window.

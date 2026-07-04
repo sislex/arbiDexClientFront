@@ -29,8 +29,8 @@ describe('processAllStepsAndRecordResults', () => {
 
   it('evaluates each record over the growing window', () => {
     const { records } = processAllStepsAndRecordResults(WINDOW_TWO_QUALIFY, TEST_STRATEGY_2STEPS);
-    expect(records[0]?.result.condition.buy.avg_observed_higher_than_buy_for_last_steps).toBe(false);
-    expect(records[1]?.result.condition.buy.avg_observed_higher_than_buy_for_last_steps).toBe(true);
+    expect(records[0]?.result.condition.buy.avg_observed_higher_for_last_steps.passed).toBe(false);
+    expect(records[1]?.result.condition.buy.avg_observed_higher_for_last_steps.passed).toBe(true);
   });
 
   it('returns no records for empty input', () => {

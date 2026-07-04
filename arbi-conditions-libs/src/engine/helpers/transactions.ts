@@ -1,4 +1,4 @@
-import type { MarketStep, TransactionEvent } from '../../types';
+import type { MarketStep, TransactionEvent } from '../types';
 
 /**
  * Whether a transaction is still open across the window.

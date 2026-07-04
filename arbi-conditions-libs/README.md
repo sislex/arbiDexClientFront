@@ -139,21 +139,18 @@ const { records } = processAllStepsAndRecordResults(steps, strategy, {
 
 ### Result shape
 
-`TradingConditionsStepResult`:
+`TradingConditionsStepResult`. Each condition reports a structured outcome
+(`{ passed, actual?, required? }`), keyed by condition id, per side:
 
 ```ts
 {
   transaction: {
-    buy: boolean;                 // all buy conditions pass
-    sell: boolean;                // all sell conditions pass
+    buy: boolean;                 // ALL buy conditions passed
+    sell: boolean;                // ALL sell conditions passed
   };
   condition: {
-    buy:  { enabled, no_transaction_in_progress, avg_observed_higher_than_buy,
-            avg_observed_higher_than_buy_for_last_steps, spread_ok,
-            last_finished_transaction_delay_ok, token1_balance_ok };
-    sell: { enabled, no_transaction_in_progress, avg_observed_higher_than_sell,
-            avg_observed_higher_than_sell_for_last_steps, spread_ok,
-            last_finished_transaction_delay_ok, token2_balance_ok };
+    buy:  Record<ConditionId, { passed: boolean; actual?; required? }>;
+    sell: Record<ConditionId, { passed: boolean; actual?; required? }>;
   };
   meta: {
     lastStepTime: number;
@@ -161,7 +158,35 @@ const { records } = processAllStepsAndRecordResults(steps, strategy, {
     lastFinishedTransactionTime: number | null;
   };
 }
+
+// e.g. result.condition.buy.spread_ok -> { passed: true, actual: -0.99, required: 100 }
 ```
+
+Built-in `ConditionId`s: `enabled`, `no_transaction_in_progress`,
+`avg_observed_higher_for_last_steps`, `spread_ok`, `transaction_delay_ok`,
+`balance_ok`.
+
+### Conditions are pluggable
+
+Each condition is a self-describing `ConditionDef` in the registry (`CONDITIONS`):
+it declares how much history it needs (`window`) and how to evaluate itself
+(`evaluate`, returning `{ passed, actual?, required? }`). Both `processStep` and
+`prepareSteps` iterate the registry, so **adding a condition is a single new
+`ConditionDef`** — no changes to the engine core.
+
+Pass a custom set at runtime via the `conditions` param (defaults to
+`CONDITIONS`); it flows through `prepareSteps` into `processStep`:
+
+```ts
+const myConditions = [...CONDITIONS, stopLossCondition];
+processStep({ steps, strategy, conditions: myConditions });
+// or evaluate one side directly:
+evaluateSide(ctx, strategy, 'buy', myConditions);
+```
+
+`evaluate` receives an `EvalContext` (`{ window, current, position }`), so
+position-aware conditions (take-profit, stop-loss, PnL, max holding time) can be
+added by passing `position` into `processStep`/`prepareSteps`.
 
 ## Build
 
