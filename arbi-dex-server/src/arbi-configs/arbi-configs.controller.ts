@@ -161,13 +161,16 @@ export class ArbiConfigsController {
 
   @Post(':id/backtest-new')
   @ApiOperation({
-    summary: 'Запустить бэктест автоторговли (новая реализация)',
+    summary: 'Запустить бэктест автоторговли (движок стратегии)',
     description:
-      'Заглушка под будущую реализацию runBacktest. ' +
-      'Возвращает результат в том же формате, что и /backtest, но без пересчёта — пустые stub-данные.',
+      'Прогоняет исторические данные через общий движок стратегии ' +
+      '(@sislex/arbi-conditions-libs) с трекингом позиции: auto-buy/sell пороги + ' +
+      'stop-loss + trailing take-profit, slippage и tradeAmountPct. Возвращает ' +
+      'итоги/P&L/сделки плюс компактную аналитику (summary + выборка значимых шагов).',
   })
   @ApiParam({ name: 'id', description: 'UUID конфига' })
-  @ApiResponse({ status: 201, description: 'Stub-результат бэктеста (пустые данные)' })
+  @ApiResponse({ status: 201, description: 'Результат бэктеста: итоги, сделки и аналитика движка' })
+  @ApiResponse({ status: 400, description: 'Нет исторических данных для бэктеста' })
   @ApiResponse({ status: 404, description: 'Конфиг не найден' })
   runBacktestNew(@CurrentUser() user: User, @Param('id') id: string) {
     return this.service.runBacktestNew(user.id, id);

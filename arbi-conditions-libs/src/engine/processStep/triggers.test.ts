@@ -56,10 +56,15 @@ describe('sell trigger conditions (forcedSell)', () => {
       expect(r.transaction.forcedSell).toBe(false);
     });
 
-    it('does not fire when never in profit above entry', () => {
-      // Peak never rises above entry (100) → trailing cannot arm.
-      const flat = [step(1_000, 100, 100, 100), step(2_000, 100, 99, 99)];
-      const r = processStep({ steps: flat, strategy: TEST_STRATEGY_TRAILING, position: TEST_POSITION });
+    it('acts as a trailing stop even below entry (pullback from the running peak)', () => {
+      // Peak (after open) 100, pullback to 96 (< 100*0.97=97) → fires though below entry 100.
+      const down = [step(1_000, 100, 100, 100), step(2_000, 100, 100, 100), step(3_000, 100, 96, 96)];
+      const r = processStep({ steps: down, strategy: TEST_STRATEGY_TRAILING, position: TEST_POSITION });
+      expect(r.condition.sell.trailing_take_profit?.passed).toBe(true);
+    });
+
+    it('does not fire on the entry step alone (no pullback yet)', () => {
+      const r = processStep({ steps: [step(1_000, 100, 100, 100)], strategy: TEST_STRATEGY_TRAILING, position: TEST_POSITION });
       expect(r.condition.sell.trailing_take_profit?.passed).toBe(false);
     });
   });
