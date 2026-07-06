@@ -33,8 +33,7 @@ export class MarketDataService {
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
   ) {
-    this.marketDataUrl =
-      this.configService.get<string>('marketData.url') ?? 'http://45.135.182.251:3002';
+    this.marketDataUrl = this.configService.getOrThrow<string>('marketData.url');
   }
 
   /** Получить метаданные пула по sourceId + pairId + стороне (bid/ask). */

@@ -346,8 +346,11 @@ export class ArbiConfigsService {
         const prev = lastValues.get(subId) ?? { bid: 0, ask: 0, mid: 0 };
 
         if (pt) {
-          const bid = pt['bidPrice'] ?? prev.bid;
-          const ask = pt['askPrice'] ?? prev.ask;
+          // Ноль — сентинел «нет котировки», а не валидная цена: форвард-филлим prev.
+          const rawBid = pt['bidPrice'];
+          const rawAsk = pt['askPrice'];
+          const bid = typeof rawBid === 'number' && rawBid > 0 ? rawBid : prev.bid;
+          const ask = typeof rawAsk === 'number' && rawAsk > 0 ? rawAsk : prev.ask;
           let mid = pt['midPrice'] ?? 0;
           if (mid === 0 && bid > 0 && ask > 0) mid = (bid + ask) / 2;
           else if (mid === 0 && bid > 0) mid = bid;

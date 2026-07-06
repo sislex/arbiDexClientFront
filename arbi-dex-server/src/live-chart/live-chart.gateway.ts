@@ -73,8 +73,7 @@ export class LiveChartGateway
     @InjectRepository(Subscription)
     private readonly subsRepo: Repository<Subscription>,
   ) {
-    this.marketDataUrl =
-      this.configService.get<string>('marketData.url') ?? 'http://45.135.182.251:3002';
+    this.marketDataUrl = this.configService.getOrThrow<string>('marketData.url');
   }
 
   /** Вызывается при подключении клиента */
