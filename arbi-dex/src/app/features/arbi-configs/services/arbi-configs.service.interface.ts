@@ -76,52 +76,37 @@ export interface StepQuotes {
   sellPrice: number;
 }
 
-/** Результат проверки одного условия аналитики */
-export interface ConditionResult {
-  id: string;
-  type: string;
-  passed: boolean;
-  thresholdPct: number;
-  actualPct: number;
-  description?: string;
-}
-
-/** Пошаговая аналитика бэктеста */
+/** Пошаговая аналитика движкового бэктеста (значимый шаг: сигнал/сделка) */
 export interface StepAnalytics {
   time: number;
   index: number;
   quotes: StepQuotes;
-  conditions: ConditionResult[];
   action: 'buy' | 'sell' | 'none';
+  /** Какое условие(я) сработали на этом шаге */
+  reason: string;
 }
 
-/** Статистика по одному условию за весь прогон */
+/** Статистика по одному условию движка за весь прогон */
 export interface ConditionStat {
   id: string;
-  type: string;
-  thresholdPct: number;
   passedCount: number;
   failedCount: number;
 }
 
-/** Сводная аналитика по всему бэктесту */
+/** Сводная аналитика по всему бэктесту (движок стратегии) */
 export interface BacktestAnalyticsSummary {
   totalSteps: number;
+  /** Сколько шагов дали buy-сигнал (все buy-gate прошли) */
   buySignals: number;
+  /** Сколько шагов дали sell-сигнал (arb-gate прошёл) */
   sellSignals: number;
-  txAllowed: number;
+  /** Сколько шагов дали forced-sell (сработал stop-loss/trailing/max-hold) */
+  forcedSells: number;
   conditionStats: ConditionStat[];
 }
 
-/** Результат новой реализации бэктеста: итоги + сводная аналитика + выборка шагов */
+/** Результат бэктеста на общем движке стратегии: итоги + аналитика + выборка шагов */
 export interface BacktestNewResult extends BacktestResult {
-  conditions: Array<{
-    id: string;
-    type: string;
-    thresholdPct: number;
-    enabled?: boolean;
-    description?: string;
-  }>;
   /** Сводная аналитика по всем шагам */
   summary: BacktestAnalyticsSummary;
   /** Ограниченная выборка значимых шагов (сигнал/сделка) */
