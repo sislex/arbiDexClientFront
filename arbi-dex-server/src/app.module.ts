@@ -1,6 +1,4 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -36,9 +34,6 @@ import { MarketDataModule } from './market-data/market-data.module';
       isGlobal: true,
       load: [appConfig, dbConfig, jwtConfig, marketDataConfig, swapNetworksConfig],
     }),
-    // Глобальный rate-limit: 100 запросов в минуту на IP (защита от abuse/DoS).
-    // Более строгие лимиты на чувствительные эндпоинты — через @Throttle() на роутах.
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (cfg: ConfigService) => ({
@@ -68,6 +63,5 @@ import { MarketDataModule } from './market-data/market-data.module';
     MarketDataModule,
   ],
   controllers: [AppController],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

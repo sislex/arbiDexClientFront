@@ -1,5 +1,4 @@
 import { Body, Controller, Post, UseGuards } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ExecuteSwapDto } from './dto/execute-swap.dto';
@@ -12,8 +11,6 @@ import { SwapExecutionService } from './swap-execution.service';
 export class SwapExecutionController {
   constructor(private readonly swapExecutionService: SwapExecutionService) {}
 
-  // Строгий лимит на исполнение свопов (тратит газ/средства серверного кошелька).
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('execute')
   @ApiOperation({
     summary: 'Запустить универсальный своп через ArbExecutor',
