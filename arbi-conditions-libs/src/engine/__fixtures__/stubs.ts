@@ -7,7 +7,7 @@
  * back future wrapper tests too.
  */
 
-import type { MarketStep, StrategyEngineConfig, TransactionEvent } from '../types';
+import type { MarketStep, PositionState, StrategyEngineConfig, TransactionEvent } from '../types';
 
 /** Compact factory for a market step. */
 export function step(
@@ -25,7 +25,6 @@ export const TEST_STRATEGY: StrategyEngineConfig = {
   buy: {
     enabled: true,
     requireNoTransactionInProgress: true,
-    avgObservedHigherThanBuyPercent: 0,
     avgObservedHigherThanBuyForLastSteps: { steps: 1, percent: 0 },
     maxBuySellSpreadPercent: 100,
     minDelayAfterLastFinishedTransactionMs: 0,
@@ -35,7 +34,6 @@ export const TEST_STRATEGY: StrategyEngineConfig = {
   sell: {
     enabled: true,
     requireNoTransactionInProgress: true,
-    avgObservedHigherThanSellPercent: 0,
     avgObservedHigherThanSellForLastSteps: { steps: 1, percent: 0 },
     maxBuySellSpreadPercent: 100,
     minDelayAfterLastFinishedTransactionMs: 0,
@@ -94,4 +92,53 @@ export const WINDOW_TX_CLOSED: MarketStep[] = [
 /** Current step carries token balances. */
 export const WINDOW_WITH_BALANCES: MarketStep[] = [
   step(1_000, 100, 101, 102, { balances: { token1: 1000, token2: 1000 } }),
+];
+
+// ── Position / trigger fixtures ──────────────────────────────────────────────
+
+/** An open position entered at price 100, size 1, opened at t=1000. */
+export const TEST_POSITION: PositionState = { entryPrice: 100, size: 1, openedAt: 1_000 };
+
+/** Sell-side stop-loss at 5% below entry. */
+export const TEST_STRATEGY_STOP_LOSS: StrategyEngineConfig = {
+  buy: { ...TEST_STRATEGY.buy },
+  sell: { ...TEST_STRATEGY.sell, stopLossPercent: 5 },
+};
+
+/** Sell-side trailing take-profit: 3% pullback from the post-entry peak. */
+export const TEST_STRATEGY_TRAILING: StrategyEngineConfig = {
+  buy: { ...TEST_STRATEGY.buy },
+  sell: { ...TEST_STRATEGY.sell, trailingTakeProfitPercent: 3 },
+};
+
+/** Sell-side max holding time of 5000ms. */
+export const TEST_STRATEGY_MAX_HOLD: StrategyEngineConfig = {
+  buy: { ...TEST_STRATEGY.buy },
+  sell: { ...TEST_STRATEGY.sell, maxHoldingTimeMs: 5_000 },
+};
+
+/** Exit price (sellQuote=94) below the 5% stop from entry 100 (=95) — stop fires. */
+export const WINDOW_STOP_HIT: MarketStep[] = [step(2_000, 100, 94, 100)];
+
+/** Exit price (sellQuote=97) above the stop level (95) — no stop. */
+export const WINDOW_STOP_MISS: MarketStep[] = [step(2_000, 100, 97, 100)];
+
+/** Peak exit 110 then pullback to 106 (< 110*0.97=106.7) — trailing fires. */
+export const WINDOW_TRAILING_HIT: MarketStep[] = [
+  step(1_000, 100, 100, 100),
+  step(2_000, 100, 110, 110),
+  step(3_000, 100, 106, 106),
+];
+
+/** Peak exit 110 then only to 108 (> 106.7) — trailing does not fire. */
+export const WINDOW_TRAILING_MISS: MarketStep[] = [
+  step(1_000, 100, 100, 100),
+  step(2_000, 100, 110, 110),
+  step(3_000, 100, 108, 108),
+];
+
+/** Position (opened at 1000) held 5000ms by t=6000 — max-hold fires. */
+export const WINDOW_MAX_HOLD_HIT: MarketStep[] = [
+  step(1_000, 100, 100, 100),
+  step(6_000, 100, 100, 100),
 ];

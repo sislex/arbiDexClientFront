@@ -18,7 +18,6 @@ export interface AvgObservedHigherThanForLastStepsConfig {
 export interface BuyTradingConditionsConfig {
   enabled: boolean;
   requireNoTransactionInProgress: boolean;
-  avgObservedHigherThanBuyPercent: number;
   avgObservedHigherThanBuyForLastSteps: AvgObservedHigherThanForLastStepsConfig;
   maxBuySellSpreadPercent: number;
   minDelayAfterLastFinishedTransactionMs: number;
@@ -26,16 +25,29 @@ export interface BuyTradingConditionsConfig {
   minToken1Balance: number;
 }
 
-/** Sell-side trading conditions. */
+/**
+ * Sell-side trading conditions.
+ *
+ * The first block are "gate" conditions (AND-ed to produce a sell signal).
+ * The optional `*Percent`/`*Ms` fields below drive position "trigger" conditions
+ * (stop-loss / trailing take-profit / max holding time) which are OR-ed into a
+ * forced sell — see `TradingConditionsStepResult.transaction.forcedSell`.
+ */
 export interface SellTradingConditionsConfig {
   enabled: boolean;
   requireNoTransactionInProgress: boolean;
-  avgObservedHigherThanSellPercent: number;
   avgObservedHigherThanSellForLastSteps: AvgObservedHigherThanForLastStepsConfig;
   maxBuySellSpreadPercent: number;
   minDelayAfterLastFinishedTransactionMs: number;
   requireToken2Balance: boolean;
   minToken2Balance: number;
+
+  /** Stop-loss: % loss from entry price that forces a sell. `null`/undefined = off. */
+  stopLossPercent?: number | null;
+  /** Trailing take-profit: % pullback from the post-entry peak. `null`/undefined = off. */
+  trailingTakeProfitPercent?: number | null;
+  /** Max holding time in ms; forces a sell once elapsed. `null`/undefined = off. */
+  maxHoldingTimeMs?: number | null;
 }
 
 /** Full strategy config: buy + sell conditions. */
@@ -90,10 +102,15 @@ export interface ProcessStepParams {
    */
   position?: PositionState | null;
   /**
-   * Condition set to evaluate. Defaults to the built-in registry `CONDITIONS`.
-   * Pass a custom array to add/replace conditions without changing the engine.
+   * Gate condition set (AND-ed per side). Defaults to the built-in `CONDITIONS`.
+   * Pass a custom array to add/replace gate conditions without changing the engine.
    */
   conditions?: ConditionDef[];
+  /**
+   * Sell trigger condition set (OR-ed into `transaction.forcedSell`). Defaults to
+   * the built-in `TRIGGER_CONDITIONS`. Evaluated only on the sell side.
+   */
+  triggerConditions?: ConditionDef[];
 }
 
 /** Which side a condition is evaluated for. */
@@ -121,6 +138,8 @@ export interface WindowRequirement {
   durationMs?: number;
   /** Keep steps back to the most recent transaction event. */
   toLastTransaction?: boolean;
+  /** Keep steps back to when the position was opened (needs an open position). */
+  sincePositionOpen?: boolean;
 }
 
 /** Everything a condition needs to evaluate the current step. */
@@ -142,14 +161,29 @@ export interface ConditionOutcome {
   required?: number | string;
 }
 
-/** Stable identifiers for the built-in conditions. */
-export type ConditionId =
+/**
+ * Gate conditions — AND-ed per side to produce the buy/sell signal.
+ * These are always present in `ConditionOutcomes`.
+ */
+export type GateConditionId =
   | 'enabled'
   | 'no_transaction_in_progress'
   | 'avg_observed_higher_for_last_steps'
   | 'spread_ok'
   | 'transaction_delay_ok'
   | 'balance_ok';
+
+/**
+ * Trigger conditions — OR-ed on the sell side into a forced sell (they fire
+ * independently of the sell gates). Only meaningful with an open position.
+ */
+export type TriggerConditionId =
+  | 'stop_loss'
+  | 'trailing_take_profit'
+  | 'max_holding_time';
+
+/** Stable identifiers for the built-in conditions. */
+export type ConditionId = GateConditionId | TriggerConditionId;
 
 /**
  * A self-describing condition: it declares how much history it needs
@@ -165,17 +199,22 @@ export interface ConditionDef {
 }
 
 /**
- * Per-side map of condition id -> outcome. Built-in ids are always present
- * (non-optional); custom ids are accessed as possibly-undefined.
+ * Per-side map of condition id -> outcome. Gate ids are always present
+ * (non-optional); trigger and custom ids are accessed as possibly-undefined
+ * (triggers appear only on the sell side).
  */
 export type ConditionOutcomes =
-  Record<ConditionId, ConditionOutcome> & { [id: string]: ConditionOutcome };
+  Record<GateConditionId, ConditionOutcome> & { [id: string]: ConditionOutcome };
 
 /** Per-step breakdown of all conditions and the resulting transaction intent. */
 export interface TradingConditionsStepResult {
   transaction: {
+    /** All buy gate conditions passed. */
     buy: boolean;
+    /** All sell gate conditions passed. */
     sell: boolean;
+    /** A sell TRIGGER fired (stop-loss / trailing TP / max holding) — OR-ed. */
+    forcedSell: boolean;
   };
   condition: {
     buy: ConditionOutcomes;

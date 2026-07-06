@@ -1,6 +1,6 @@
 export {
   processAllStepsAndRecordResults,
   type StepRecord,
-  type ProcessAllStepsAndRecordResultsOptions,
+  type ProcessAllStepsAndRecordResultsParams,
   type ProcessAllStepsAndRecordResultsOutput,
 } from './processAllStepsAndRecordResults';

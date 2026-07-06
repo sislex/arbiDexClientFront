@@ -33,7 +33,6 @@ const PERMISSIVE_STRATEGY: StrategyEngineConfig = {
   buy: {
     enabled: true,
     requireNoTransactionInProgress: false,
-    avgObservedHigherThanBuyPercent: 0,
     avgObservedHigherThanBuyForLastSteps: { steps: 1, percent: 0 },
     maxBuySellSpreadPercent: Number.POSITIVE_INFINITY,
     minDelayAfterLastFinishedTransactionMs: 0,
@@ -43,7 +42,6 @@ const PERMISSIVE_STRATEGY: StrategyEngineConfig = {
   sell: {
     enabled: true,
     requireNoTransactionInProgress: false,
-    avgObservedHigherThanSellPercent: 0,
     avgObservedHigherThanSellForLastSteps: { steps: 1, percent: 0 },
     maxBuySellSpreadPercent: Number.POSITIVE_INFINITY,
     minDelayAfterLastFinishedTransactionMs: 0,

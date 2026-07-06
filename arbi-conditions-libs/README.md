@@ -59,7 +59,6 @@ const strategy: StrategyEngineConfig = {
   buy: {
     enabled: true,
     requireNoTransactionInProgress: true,
-    avgObservedHigherThanBuyPercent: 0,          // reserved — not evaluated yet
     avgObservedHigherThanBuyForLastSteps: { steps: 2, percent: 0.1 },
     maxBuySellSpreadPercent: 0.5,
     minDelayAfterLastFinishedTransactionMs: 5_000,
@@ -69,12 +68,15 @@ const strategy: StrategyEngineConfig = {
   sell: {
     enabled: true,
     requireNoTransactionInProgress: true,
-    avgObservedHigherThanSellPercent: 0,         // reserved — not evaluated yet
     avgObservedHigherThanSellForLastSteps: { steps: 2, percent: 0.1 },
     maxBuySellSpreadPercent: 0.5,
     minDelayAfterLastFinishedTransactionMs: 5_000,
     requireToken2Balance: true,
     minToken2Balance: 100,
+    // Optional position TRIGGERS (OR-ed into transaction.forcedSell):
+    stopLossPercent: 2,             // sell if bid falls 2% below entry
+    trailingTakeProfitPercent: 1,   // sell on a 1% pullback from the post-entry peak
+    maxHoldingTimeMs: 3_600_000,    // sell after 1h in position
   },
 };
 
@@ -83,9 +85,6 @@ const steps: MarketStep[] = [
   { time: 2_000, quotes: { buyQuote: 100, sellQuote: 100.2, avgObservedQuote: 100.7 }, balances: { token1: 1000, token2: 1000 } },
 ];
 ```
-
-> `avgObservedHigher{Buy,Sell}Percent` are part of the config shape but are not
-> evaluated — only the `…ForLastSteps` variant is checked.
 
 ### Entry points
 
@@ -145,12 +144,13 @@ const { records } = processAllStepsAndRecordResults(steps, strategy, {
 ```ts
 {
   transaction: {
-    buy: boolean;                 // ALL buy conditions passed
-    sell: boolean;                // ALL sell conditions passed
+    buy: boolean;                 // ALL buy GATE conditions passed
+    sell: boolean;                // ALL sell GATE conditions passed
+    forcedSell: boolean;          // a sell TRIGGER fired (OR: stop-loss / trailing / max-hold)
   };
   condition: {
-    buy:  Record<ConditionId, { passed: boolean; actual?; required? }>;
-    sell: Record<ConditionId, { passed: boolean; actual?; required? }>;
+    buy:  Record<GateConditionId, { passed; actual?; required? }>;              // gates
+    sell: Record<GateConditionId | TriggerConditionId, { passed; actual?; required? }>; // gates + triggers
   };
   meta: {
     lastStepTime: number;
@@ -160,29 +160,39 @@ const { records } = processAllStepsAndRecordResults(steps, strategy, {
 }
 
 // e.g. result.condition.buy.spread_ok -> { passed: true, actual: -0.99, required: 100 }
+//      result.condition.sell.stop_loss?.passed -> whether the stop-loss trigger fired
 ```
 
-Built-in `ConditionId`s: `enabled`, `no_transaction_in_progress`,
+Built-in **gate** ids (AND-ed): `enabled`, `no_transaction_in_progress`,
 `avg_observed_higher_for_last_steps`, `spread_ok`, `transaction_delay_ok`,
-`balance_ok`.
+`balance_ok`. Built-in **trigger** ids (OR-ed into `forcedSell`, sell side only):
+`stop_loss`, `trailing_take_profit`, `max_holding_time`. Gate ids are always
+present in the outcome map; trigger/custom ids are accessed as possibly-undefined.
 
 ### Conditions are pluggable
 
-Each condition is a self-describing `ConditionDef` in the registry (`CONDITIONS`):
-it declares how much history it needs (`window`) and how to evaluate itself
-(`evaluate`, returning `{ passed, actual?, required? }`). Both `processStep` and
-`prepareSteps` iterate the registry, so **adding a condition is a single new
-`ConditionDef`** — no changes to the engine core.
+Each condition is a self-describing `ConditionDef` in a registry (`CONDITIONS`
+for gates, `TRIGGER_CONDITIONS` for sell triggers): it declares how much history
+it needs (`window`) and how to evaluate itself (`evaluate`, returning
+`{ passed, actual?, required? }`). Both `processStep` and `prepareSteps` iterate
+the registries, so **adding a condition is a single new `ConditionDef`** — no
+changes to the engine core.
 
-Pass a custom set at runtime via the `conditions` param (defaults to
-`CONDITIONS`); it flows through `prepareSteps` into `processStep`:
+Pass custom sets at runtime via the `conditions` (gates) and `triggerConditions`
+(sell triggers) params; both flow through `prepareSteps` into `processStep`:
 
 ```ts
-const myConditions = [...CONDITIONS, stopLossCondition];
-processStep({ steps, strategy, conditions: myConditions });
+processStep({ steps, strategy, position, conditions: [...CONDITIONS, myGate] });
+processStep({ steps, strategy, position, triggerConditions: [...TRIGGER_CONDITIONS, myTrigger] });
 // or evaluate one side directly:
 evaluateSide(ctx, strategy, 'buy', myConditions);
 ```
+
+**Position triggers.** `processStep` reads `ctx.position` (`{ entryPrice, size,
+openedAt }`, passed via `position`). The built-in triggers (`stop_loss`,
+`trailing_take_profit`, `max_holding_time`) fire only with an open position and
+their config field set. `prepareSteps` keeps history back to `position.openedAt`
+when a condition needs it (`sincePositionOpen`).
 
 `evaluate` receives an `EvalContext` (`{ window, current, position }`), so
 position-aware conditions (take-profit, stop-loss, PnL, max holding time) can be

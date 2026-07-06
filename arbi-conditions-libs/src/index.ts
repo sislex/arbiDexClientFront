@@ -29,15 +29,29 @@ export type {
   ConditionOutcome,
   ConditionOutcomes,
   ConditionId,
+  GateConditionId,
+  TriggerConditionId,
   ConditionDef,
 } from './engine/types';
 
-export { CONDITIONS } from './engine/conditions';
-export { processStep, evaluateSide } from './engine/processStep';
+export {
+  CONDITIONS,
+  TRIGGER_CONDITIONS,
+  enabledCondition,
+  noTransactionInProgressCondition,
+  avgObservedHigherForLastStepsCondition,
+  spreadOkCondition,
+  transactionDelayOkCondition,
+  balanceOkCondition,
+  stopLossCondition,
+  trailingTakeProfitCondition,
+  maxHoldingTimeCondition,
+} from './engine/conditions';
+export { processStep, evaluateSide, evaluateTriggers } from './engine/processStep';
 export { prepareSteps } from './engine/prepareSteps';
 export {
   processAllStepsAndRecordResults,
   type StepRecord,
-  type ProcessAllStepsAndRecordResultsOptions,
+  type ProcessAllStepsAndRecordResultsParams,
   type ProcessAllStepsAndRecordResultsOutput,
 } from './engine/processAllStepsAndRecordResults';
