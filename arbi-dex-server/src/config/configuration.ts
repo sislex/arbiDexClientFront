@@ -1,5 +1,25 @@
 import { registerAs } from '@nestjs/config';
 
+const IS_PRODUCTION = (process.env.NODE_ENV ?? 'development') === 'production';
+
+/** Read a required env var; throw at boot if missing/empty (no insecure fallback). */
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(
+      `Missing required environment variable: ${name}. ` +
+        `Set it in the environment (see .env.example). No insecure default is provided.`,
+    );
+  }
+  return value;
+}
+
+/** In production require the var; in dev fall back to a convenience default. */
+function envOrDevDefault(name: string, devDefault: string): string {
+  if (IS_PRODUCTION) return requireEnv(name);
+  return process.env[name] ?? devDefault;
+}
+
 const SUPPORTED_NETWORK_PREFIXES = ['ARBITRUM', 'OPTIMISM', 'BASE'] as const;
 
 type SupportedNetworkPrefix = (typeof SUPPORTED_NETWORK_PREFIXES)[number];
@@ -24,16 +44,17 @@ export const appConfig = registerAs('app', () => ({
 }));
 
 export const dbConfig = registerAs('db', () => ({
-  host: process.env.DB_HOST ?? 'localhost',
+  host: envOrDevDefault('DB_HOST', 'localhost'),
   port: parseInt(process.env.DB_PORT ?? '5433', 10),
-  username: process.env.DB_USER ?? 'arbidex',
-  password: process.env.DB_PASSWORD ?? 'arbidex_pass',
-  database: process.env.DB_NAME ?? 'arbidex_db',
+  username: envOrDevDefault('DB_USER', 'arbidex'),
+  password: envOrDevDefault('DB_PASSWORD', 'arbidex_pass'),
+  database: envOrDevDefault('DB_NAME', 'arbidex_db'),
 }));
 
 export const jwtConfig = registerAs('jwt', () => ({
-  accessSecret: process.env.JWT_ACCESS_SECRET ?? 'dev_access_secret',
-  refreshSecret: process.env.JWT_REFRESH_SECRET ?? 'dev_refresh_secret',
+  // Secrets are mandatory in every environment — no hardcoded fallback (forgeable tokens).
+  accessSecret: requireEnv('JWT_ACCESS_SECRET'),
+  refreshSecret: requireEnv('JWT_REFRESH_SECRET'),
   accessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN ?? '4h',
   refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '7d',
 }));

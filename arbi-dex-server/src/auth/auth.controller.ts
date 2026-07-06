@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { GetNonceDto } from './dto/get-nonce.dto';
@@ -10,6 +11,8 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  // Строгий лимит: /nonce незащищён и создаёт пользователя в БД на каждый новый адрес.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('nonce')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

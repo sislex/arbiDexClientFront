@@ -75,18 +75,20 @@ export class PricesService {
     userId: string,
     noCache = false,
   ): Promise<SubscriptionPriceData> {
-    // ── Проверка кэша ──
+    // 1. Проверка владельца ДО кэша (anti-IDOR: кэш ключуется по subscriptionId,
+    //    поэтому владельца нужно проверять на каждый вызов, включая cache hit).
+    const sub = await this.subsRepo.findOne({ where: { id: subscriptionId, userId } });
+    if (!sub) {
+      throw new NotFoundException('Подписка не найдена');
+    }
+
+    // ── Проверка кэша (уже после проверки владельца) ──
     if (!noCache) {
       const cached = this.cache.get(subscriptionId);
       if (cached && Date.now() - cached.cachedAt < PricesService.CACHE_TTL_MS) {
         this.logger.debug(`Cache hit для подписки ${subscriptionId} (возраст ${Math.round((Date.now() - cached.cachedAt) / 1000)}с)`);
         return cached.data;
       }
-    }
-    // 1. Найти подписку
-    const sub = await this.subsRepo.findOne({ where: { id: subscriptionId, userId } });
-    if (!sub) {
-      throw new NotFoundException('Подписка не найдена');
     }
 
     // 2. Определяем формат ключей и строим bid/ask ключи

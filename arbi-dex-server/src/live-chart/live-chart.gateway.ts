@@ -61,6 +61,9 @@ export class LiveChartGateway
   /** roomId → состояние подключения к upstream */
   private readonly rooms = new Map<string, RoomState>();
 
+  /** roomId'ы, для которых startRoom уже выполняется (защита от гонки) */
+  private readonly pendingRooms = new Set<string>();
+
   /** socketId → roomId */
   private readonly socketRooms = new Map<string, string>();
 
@@ -76,18 +79,23 @@ export class LiveChartGateway
 
   /** Вызывается при подключении клиента */
   async handleConnection(client: Socket): Promise<void> {
-    // 1. Верификация JWT
+    // 1. JWT обязателен — без валидного токена соединение отклоняется
     const token = client.handshake.auth?.token as string | undefined;
-    if (token) {
-      try {
-        this.jwtService.verify(token, {
-          secret: this.configService.get<string>('jwt.accessSecret'),
-        });
-      } catch {
-        this.logger.warn(`Клиент ${client.id}: неверный JWT, отключаем`);
-        client.disconnect();
-        return;
-      }
+    if (!token) {
+      this.logger.warn(`Клиент ${client.id}: токен не передан, отключаем`);
+      client.disconnect();
+      return;
+    }
+    let userId: string;
+    try {
+      const payload = this.jwtService.verify<{ sub: string }>(token, {
+        secret: this.configService.get<string>('jwt.accessSecret'),
+      });
+      userId = payload.sub;
+    } catch {
+      this.logger.warn(`Клиент ${client.id}: неверный JWT, отключаем`);
+      client.disconnect();
+      return;
     }
 
     // 2. Получаем subscriptionId из query-параметров
@@ -102,16 +110,33 @@ export class LiveChartGateway
       return;
     }
 
+    // 3. Проверка владельца: подписка должна принадлежать пользователю из токена (anti-IDOR)
+    const sub = await this.subsRepo.findOne({
+      where: { id: subscriptionId, userId },
+    });
+    if (!sub) {
+      this.logger.warn(
+        `Клиент ${client.id}: подписка ${subscriptionId} не найдена или чужая, отключаем`,
+      );
+      client.disconnect();
+      return;
+    }
+
     const roomId = `subscription:${subscriptionId}`;
 
-    // 3. Добавляем клиента в room
+    // 4. Добавляем клиента в room
     void client.join(roomId);
     this.socketRooms.set(client.id, roomId);
     this.logger.log(`Клиент ${client.id} вошёл в комнату ${roomId}`);
 
-    // 4. Если upstream-подключение для room ещё не создано — создаём
-    if (!this.rooms.has(roomId)) {
-      await this.startRoom(roomId, subscriptionId);
+    // 5. Один upstream на комнату; резервируем pending синхронно до await (защита от гонки)
+    if (!this.rooms.has(roomId) && !this.pendingRooms.has(roomId)) {
+      this.pendingRooms.add(roomId);
+      try {
+        await this.startRoom(roomId, sub);
+      } finally {
+        this.pendingRooms.delete(roomId);
+      }
     }
   }
 
@@ -134,44 +159,27 @@ export class LiveChartGateway
    * Подключается к arbiDexMarketData Socket.IO /store namespace
    * и подписывается на ключи bid/ask для данной подписки.
    */
-  private async startRoom(
-    roomId: string,
-    subscriptionId: string,
-  ): Promise<void> {
-    // Получаем подписку из БД для определения реальных ключей
-    const sub = await this.subsRepo.findOne({
-      where: { id: subscriptionId },
-    });
+  private async startRoom(roomId: string, sub: Subscription): Promise<void> {
+    // Определяем формат ключей на сервере
+    let format: 'pipe' | 'concat' = 'concat';
+    try {
+      const resp = await fetch(`${this.marketDataUrl}/store/keys`);
+      const allKeys: string[] = await resp.json();
+      format = detectKeyFormat(allKeys);
+    } catch { /* по умолчанию concat */ }
 
-    let bidKey = 'dex:arbitrumWETHUSdCbidPrice';
-    let askKey = 'dex:arbitrumWETHUSDCaskPrice';
-
-    if (sub) {
-      // Определяем формат ключей на сервере
-      let format: 'pipe' | 'concat' = 'concat';
-      try {
-        const resp = await fetch(`${this.marketDataUrl}/store/keys`);
-        const allKeys: string[] = await resp.json();
-        format = detectKeyFormat(allKeys);
-      } catch { /* fallback */ }
-
-      const keys = buildStoreKeys(sub.sourceId, sub.pairId, format);
-      if (keys) {
-        bidKey = keys.bidKey;
-        askKey = keys.askKey;
-        this.logger.log(
-          `Комната ${roomId}: ключи построены → bid=${bidKey}, ask=${askKey}`,
-        );
-      } else {
-        this.logger.warn(
-          `Комната ${roomId}: не удалось построить ключи для sourceId="${sub.sourceId}", pairId="${sub.pairId}", используем fallback`,
-        );
-      }
-    } else {
+    // Никаких хардкод-фолбэков: если ключи не собрались — upstream не запускаем
+    const keys = buildStoreKeys(sub.sourceId, sub.pairId, format);
+    if (!keys) {
       this.logger.warn(
-        `Комната ${roomId}: подписка не найдена, используем fallback-ключи`,
+        `Комната ${roomId}: не удалось построить ключи для sourceId="${sub.sourceId}", pairId="${sub.pairId}" — upstream не запущен`,
       );
+      return;
     }
+    const { bidKey, askKey } = keys;
+    this.logger.log(
+      `Комната ${roomId}: ключи построены → bid=${bidKey}, ask=${askKey}`,
+    );
 
     // Подключаемся к arbiDexMarketData Socket.IO /store namespace
     const upstreamSocket = ioClient(`${this.marketDataUrl}/store`, {

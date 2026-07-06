@@ -11,11 +11,15 @@ import {
   IsString,
   Matches,
   Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
 
 const UINT_REGEX = /^\d+$/;
+// Sanity bound on raw uint amounts (defense-in-depth against pathological inputs).
+// NOT a business limit: a real per-token cap needs product input and token decimals.
+const RAW_AMOUNT_MAX_DIGITS = 40;
 
 export enum NetworkPrefix {
   ARBITRUM = 'ARBITRUM',
@@ -60,6 +64,7 @@ export class SwapStepDto {
   @ApiProperty({ description: 'Сумма входа в raw-единицах токена (uint256)', example: '1000000' })
   @IsString()
   @Matches(UINT_REGEX)
+  @MaxLength(RAW_AMOUNT_MAX_DIGITS)
   amountIn: string;
 
   @ApiPropertyOptional({

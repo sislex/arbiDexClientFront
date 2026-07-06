@@ -11,14 +11,20 @@ async function bootstrap() {
   const cfg = app.get(ConfigService);
 
   // ── CORS ────────────────────────────────────────────────────────────────────
+  // Разрешаем список источников через запятую. Никогда не сочетаем '*'/reflect-any
+  // с credentials:true — это позволяет любому сайту делать credentialed-запросы.
   const corsOriginRaw = cfg.get<string>('app.corsOrigin') ?? 'http://localhost:4200';
-  // '*' несовместим с credentials: true — используем true (отражение Origin)
-  const corsOrigin: string | boolean = corsOriginRaw === '*' ? true : corsOriginRaw;
+  const allowlist = corsOriginRaw
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  const allowsWildcard = allowlist.includes('*');
   app.enableCors({
-    origin: corsOrigin,
+    origin: allowsWildcard ? true : allowlist,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,
+    // credentials только для явного allowlist; при wildcard отключаем (иначе дыра)
+    credentials: !allowsWildcard,
   });
 
   // ── Global prefix ───────────────────────────────────────────────────────────
