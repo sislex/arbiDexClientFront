@@ -9,7 +9,9 @@ import { IAuthService } from '../../features/auth/services/auth.service.interfac
 
 /** Флаг — идёт ли сейчас процесс обновления токена */
 let isRefreshing = false;
-/** Subject для ожидания нового токена другими запросами */
+/** Sentinel: refresh завершился неудачей — ожидающие запросы должны упасть, а не висеть. */
+const REFRESH_FAILED = '__REFRESH_FAILED__';
+/** Subject для ожидания нового токена другими запросами (или сигнала провала). */
 const refreshTokenSubject = new BehaviorSubject<string | null>(null);
 
 /**
@@ -65,8 +67,9 @@ function handle401(
       take(1),
       switchMap((refreshToken) => {
         if (!refreshToken) {
-          // Нет refresh-токена — сразу logout
+          // Нет refresh-токена — сразу logout и будим ожидающих сигналом провала
           isRefreshing = false;
+          refreshTokenSubject.next(REFRESH_FAILED);
           store.dispatch(logout());
           return throwError(() => new Error('No refresh token'));
         }
@@ -84,9 +87,9 @@ function handle401(
             return next(addToken(req, tokens.accessToken));
           }),
           catchError((refreshErr) => {
-            // Refresh не удался — logout
+            // Refresh не удался — logout; ожидающие запросы должны упасть, а не висеть
             isRefreshing = false;
-            refreshTokenSubject.next(null);
+            refreshTokenSubject.next(REFRESH_FAILED);
             store.dispatch(logout());
             return throwError(() => refreshErr);
           }),
@@ -94,11 +97,15 @@ function handle401(
       }),
     );
   } else {
-    // Другой запрос уже обновляет токен — ждём нового токена
+    // Другой запрос уже обновляет токен — ждём нового токена ИЛИ сигнала провала
     return refreshTokenSubject.pipe(
       filter((token) => token !== null),
       take(1),
-      switchMap((token) => next(addToken(req, token!))),
+      switchMap((token) =>
+        token === REFRESH_FAILED
+          ? throwError(() => new Error('Token refresh failed'))
+          : next(addToken(req, token!)),
+      ),
     );
   }
 }

@@ -10,7 +10,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { Store } from '@ngrx/store';
-import { Subscription as RxSubscription, combineLatest, Observable, EMPTY, forkJoin, of, throwError } from 'rxjs';
+import { Subscription as RxSubscription, combineLatest, Observable, EMPTY, forkJoin, of, throwError, finalize } from 'rxjs';
 import { take, filter, switchMap, map, catchError } from 'rxjs/operators';
 import { MatButtonModule } from '@angular/material/button';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
@@ -334,10 +334,10 @@ type PlaybackSubMode = 'realtime' | 'server';
         <!-- Balance cards -->
         <div class="info-row" style="margin-top: 16px;">
           <app-stat-card label="USDC Balance"
-            [value]="(usdcBalance | number:'1.2-2') ?? '0.00'"
+            [value]="(displayUsdcBalance | number:'1.2-2') ?? '0.00'"
             icon="attach_money" color="green" />
           <app-stat-card label="WETH Balance"
-            [value]="(wethBalance | number:'1.4-8') ?? '0.00000000'"
+            [value]="(displayWethBalance | number:'1.4-8') ?? '0.00000000'"
             icon="currency_exchange" color="purple" />
           <app-stat-card label="Portfolio (USDC)"
             [value]="(portfolioValue | number:'1.2-2') ?? '0.00'"
@@ -927,6 +927,12 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
    * идёт уже на эту сумму, а не на исходную.
    */
   private realUsdcHeld = 0;
+  /** Стартовый реальный капитал (для расчёта P&L в real-режиме). */
+  private realInitialUsdc = 0;
+  /** id конфига, для которого инициализирован движок/сиды (защита от reseed на re-emit). */
+  private lastConfigId = '';
+  /** Подписка на tick$ playback — держим отдельно, чтобы заменять при рестарте (без утечки). */
+  private tickSub?: RxSubscription;
 
   // Server backtest
   backtestResult: BacktestResult | null = null;
@@ -953,6 +959,25 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     }
     if (this.direction === 'USDC_TO_WETH') return this.amountIn <= this.usdcBalance;
     return this.amountIn <= this.wethBalance;
+  }
+
+  /** Баланс USDC для отображения: реальный held в real-режиме, демо — иначе. */
+  get displayUsdcBalance(): number {
+    return this.tradingMode === 'real' ? this.realUsdcHeld : this.usdcBalance;
+  }
+
+  /** Баланс WETH для отображения: реальный held в real-режиме, демо — иначе. */
+  get displayWethBalance(): number {
+    return this.tradingMode === 'real' ? this.realWethHeld : this.wethBalance;
+  }
+
+  /**
+   * Абсолютная сумма сделки = tradeAmountPct % от переданного баланса (по умолчанию 100%).
+   * `tradeAmountPct` — процент от баланса на сделку (см. arbi-config.model.ts).
+   */
+  private computeTradeAmount(balance: number): number {
+    const pct = this.config?.tradeAmountPct ?? 100;
+    return balance * (pct / 100);
   }
 
   ngOnInit(): void {
@@ -989,15 +1014,19 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       this.tradingSubId = config.tradingSubscriptionId;
       this.referenceSubIds = config.sources.map((s) => s.subscriptionId);
 
-      // Init demo balance from config
-      this.demoFacade.setInitialBalance(config.initialBalance);
-      // Стартовая сумма сделки = абсолютная сумма из настройки Trade Amount (USDC).
-      this.amountIn = config.tradeAmountPct ?? config.initialBalance;
-      // Стартовый реальный USDC-баланс для компаундинга авто-трейда.
-      this.realUsdcHeld = config.tradeAmountPct ?? config.initialBalance;
-
-      // Init auto-trade engine
-      this.engine = new AutoTradeEngine(config);
+      // Движок и сиды инициализируем ТОЛЬКО при первой загрузке / смене конфига,
+      // а не на каждый re-emit combineLatest (иначе теряется позиция и сбрасывается
+      // накопленный realUsdcHeld при обновлении каталога/цен).
+      if (config.id !== this.lastConfigId) {
+        this.lastConfigId = config.id;
+        this.demoFacade.setInitialBalance(config.initialBalance);
+        // Сумма сделки = tradeAmountPct % от баланса (см. computeTradeAmount).
+        this.amountIn = this.computeTradeAmount(config.initialBalance);
+        // Стартовый реальный USDC-капитал для компаундинга авто-трейда.
+        this.realUsdcHeld = this.computeTradeAmount(config.initialBalance);
+        this.realInitialUsdc = this.realUsdcHeld;
+        this.engine = new AutoTradeEngine(config);
+      }
 
       this.cdr.markForCheck();
     });
@@ -1080,17 +1109,21 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       this.initialUsdc = initial;
       this.trades = history;
 
-      // Cap amountIn to current balance (fixes sell disabled after buy)
-      if (this.direction === 'USDC_TO_WETH' && this.amountIn > usdc && usdc > 0) {
-        this.amountIn = usdc;
-      } else if (this.direction === 'WETH_TO_USDC' && this.amountIn > weth && weth > 0) {
-        this.amountIn = weth;
-      }
-      // After a swap the balance for the new direction appears — set amountIn
-      if (this.direction === 'WETH_TO_USDC' && this.amountIn <= 0 && weth > 0) {
-        this.amountIn = weth;
-      } else if (this.direction === 'USDC_TO_WETH' && this.amountIn <= 0 && usdc > 0) {
-        this.amountIn = usdc;
+      // Клампинг amountIn демо-балансом применяем ТОЛЬКО в demo-режиме —
+      // в real-режиме сумма задаётся вручную и не должна урезаться демо-балансом.
+      if (this.tradingMode === 'demo') {
+        // Cap amountIn to current balance (fixes sell disabled after buy)
+        if (this.direction === 'USDC_TO_WETH' && this.amountIn > usdc && usdc > 0) {
+          this.amountIn = usdc;
+        } else if (this.direction === 'WETH_TO_USDC' && this.amountIn > weth && weth > 0) {
+          this.amountIn = weth;
+        }
+        // After a swap the balance for the new direction appears — set amountIn
+        if (this.direction === 'WETH_TO_USDC' && this.amountIn <= 0 && weth > 0) {
+          this.amountIn = weth;
+        } else if (this.direction === 'USDC_TO_WETH' && this.amountIn <= 0 && usdc > 0) {
+          this.amountIn = usdc;
+        }
       }
 
       this.updateTradeMarkers();
@@ -1136,6 +1169,7 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.tickSub?.unsubscribe();
     this.rxSubs.forEach((s) => s.unsubscribe());
     this.liveChartSocket.disconnectAll();
     this.multiPlayback.stop();
@@ -1166,6 +1200,10 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     }
 
     this.mode = m;
+
+    // Сбрасываем торговое состояние при каждой смене режима — позиция/held/флаги
+    // не должны протекать между historical/playback/live.
+    this.resetTradeState();
 
     if (m === 'live') {
       this.connectSockets();
@@ -1349,26 +1387,27 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // const slip = this.config?.slippage ?? 0.01;
-    // const { step, playbackTime } = this.currentPlaybackInfo();
-    // // Покупка по ask, продажа по bid (как на реальном рынке)
-    // const execPrice = this.direction === 'USDC_TO_WETH'
-    //   ? (this.tradingAsk > 0 ? this.tradingAsk : this.tradingMid)
-    //   : (this.tradingBid > 0 ? this.tradingBid : this.tradingMid);
-    // this.demoFacade.swap(this.direction, this.amountIn, slip, execPrice, step, playbackTime);
-    // this.snackBar.open(
-    //   `Swap: ${this.amountIn.toFixed(2)} ${this.direction === 'USDC_TO_WETH' ? 'USDC → WETH' : 'WETH → USDC'}`,
-    //   'OK', { duration: 3000 },
-    // );
-    //
-    // if (this.engine) {
-    //   if (this.direction === 'USDC_TO_WETH') {
-    //     this.engine.onBuy(this.tradingAsk > 0 ? this.tradingAsk : this.tradingMid);
-    //   } else {
-    //     this.engine.onSell();
-    //   }
-    // }
-    // this.updateHorizontalLines();
+    // ── Demo-режим: выполняем симулированный своп через demo-стор ──
+    const slip = this.config?.slippage ?? this.SWAP_SLIPPAGE;
+    const { step, playbackTime } = this.currentPlaybackInfo();
+    // Покупка по ask, продажа по bid (как на реальном рынке)
+    const execPrice = this.direction === 'USDC_TO_WETH'
+      ? (this.tradingAsk > 0 ? this.tradingAsk : this.tradingMid)
+      : (this.tradingBid > 0 ? this.tradingBid : this.tradingMid);
+    this.demoFacade.swap(this.direction, this.amountIn, slip, execPrice, step, playbackTime);
+    this.snackBar.open(
+      `Swap: ${this.amountIn.toFixed(2)} ${this.direction === 'USDC_TO_WETH' ? 'USDC → WETH' : 'WETH → USDC'}`,
+      'OK', { duration: 3000 },
+    );
+
+    if (this.engine) {
+      if (this.direction === 'USDC_TO_WETH') {
+        this.engine.onBuy(this.tradingAsk > 0 ? this.tradingAsk : this.tradingMid);
+      } else {
+        this.engine.onSell();
+      }
+    }
+    this.updateHorizontalLines();
 
     // Авто-переключение направления после свопа
     this.autoFlipDirection();
@@ -1582,6 +1621,11 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       return;
     }
 
+    // Защита от двойного клика: пока идёт своп — новый не запускаем.
+    if (this.isRealSwapInProgress) return;
+    this.isRealSwapInProgress = true;
+    this.cdr.markForCheck();
+
     const direction = this.direction;
     const amountIn = this.amountIn;
     this.recalcEstimate(); // только для отображения "You receive ≈"
@@ -1617,6 +1661,11 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
         return this.swapExecution.execute(lastPayload).pipe(
           map((response) => ({ payload: lastPayload!, response })),
         );
+      }),
+      // Снимаем флаг in-flight в любом исходе (успех/ошибка/EMPTY-завершение).
+      finalize(() => {
+        this.isRealSwapInProgress = false;
+        this.cdr.markForCheck();
       }),
     ).subscribe({
       next: ({ payload, response }) => {
@@ -1740,6 +1789,10 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   private startPlaybackMode(): void {
     if (this.chartSubs.length === 0) return;
 
+    // Снимаем прошлую подписку на tick$ — рестарт playback не должен плодить
+    // дубликаты обработчиков (иначе N× runAutoTrade и дубли сделок за один тик).
+    this.tickSub?.unsubscribe();
+
     // Используем данные из store — те же, что и для historical режима
     const sub = this.configsFacade.currentPrices$.pipe(
       filter((prices) => !!prices),
@@ -1756,10 +1809,9 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
       this.chartData = [];
       this.cdr.markForCheck();
 
-      const tickSub = this.multiPlayback.tick$.subscribe((tick) => {
+      this.tickSub = this.multiPlayback.tick$.subscribe((tick) => {
         this.onPlaybackTick(tick);
       });
-      this.rxSubs.push(tickSub);
     });
     this.rxSubs.push(sub);
   }
@@ -1992,8 +2044,8 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     } else {
       // ── Demo режим ──────────────────────────────────────────────────────────
       if (result.action === 'buy') {
-        // Абсолютная сумма сделки (USDC), но не больше демо-баланса.
-        const amount = Math.min(this.config.tradeAmountPct ?? 0, this.usdcBalance);
+        // Сумма сделки = tradeAmountPct % от текущего демо-баланса USDC.
+        const amount = Math.min(this.computeTradeAmount(this.usdcBalance), this.usdcBalance);
         if (amount > 0) {
           const { step, playbackTime } = this.currentPlaybackInfo();
           const buyPrice = this.tradingAsk > 0 ? this.tradingAsk : this.tradingMid;
@@ -2082,12 +2134,18 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
   }
 
   private updatePortfolio(): void {
+    // В real-режиме портфель/P&L считаем по реальным held-балансам и стартовому
+    // реальному капиталу, а не по демо-стору.
+    const usdc = this.tradingMode === 'real' ? this.realUsdcHeld : this.usdcBalance;
+    const weth = this.tradingMode === 'real' ? this.realWethHeld : this.wethBalance;
+    const initial = this.tradingMode === 'real' ? this.realInitialUsdc : this.initialUsdc;
+
     if (this.tradingMid > 0) {
-      this.portfolioValue = this.usdcBalance + this.wethBalance * this.tradingMid;
+      this.portfolioValue = usdc + weth * this.tradingMid;
     } else {
-      this.portfolioValue = this.usdcBalance;
+      this.portfolioValue = usdc;
     }
-    this.pnl = this.portfolioValue - this.initialUsdc;
+    this.pnl = this.portfolioValue - initial;
     const sign = this.pnl >= 0 ? '+' : '';
     this.pnlDisplay = `${sign}${this.pnl.toFixed(2)} USDC`;
   }
@@ -2106,7 +2164,8 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
     this.realTradeId = 0;
     this.isRealSwapInProgress = false;
     this.realWethHeld = 0;
-    this.realUsdcHeld = this.config?.tradeAmountPct ?? this.config?.initialBalance ?? 0;
+    this.realUsdcHeld = this.computeTradeAmount(this.config?.initialBalance ?? 0);
+    this.realInitialUsdc = this.realUsdcHeld;
   }
 
   private makeLabel(
