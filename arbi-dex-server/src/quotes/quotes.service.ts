@@ -31,6 +31,9 @@ export interface QuoteDto {
   timestamp: number;
 }
 
+/** Максимальный возраст последней точки, при котором котировка считается актуальной. */
+const QUOTE_MAX_AGE_MS = 60_000;
+
 @Injectable()
 export class QuotesService {
   private readonly logger = new Logger(QuotesService.name);
@@ -82,14 +85,18 @@ export class QuotesService {
       return [];
     }
 
-    // snapshot: ключ → самая свежая точка серии (по максимальному t)
+    // snapshot: ключ → самая свежая точка серии (по максимальному t),
+    // но только если она не старше QUOTE_MAX_AGE_MS (иначе считаем ключ «протухшим»).
+    const now = Date.now();
     const snapshot: SnapshotResponse = {};
     for (const [key, val] of Object.entries(series)) {
       const points = val?.points;
-      snapshot[key] =
-        points && points.length > 0
-          ? points.reduce((latest, p) => (p.t >= latest.t ? p : latest))
-          : null;
+      if (!points || points.length === 0) {
+        snapshot[key] = null;
+        continue;
+      }
+      const latest = points.reduce((a, p) => (p.t >= a.t ? p : a));
+      snapshot[key] = now - latest.t <= QUOTE_MAX_AGE_MS ? latest : null;
     }
 
     // Группируем bid/ask по ключу source+pair
