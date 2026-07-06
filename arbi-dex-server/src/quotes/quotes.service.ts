@@ -49,16 +49,47 @@ export class QuotesService {
    * маппит обратно на sourceId/pairId.
    */
   async getLatestQuotes(): Promise<QuoteDto[]> {
-    let snapshot: SnapshotResponse;
+    // arbiDexMarketData не отдаёт готовый snapshot одним запросом. Собираем его сами:
+    //   1) GET  /store/keys        — список всех доступных ключей
+    //   2) POST /store/keys {keys} — серии точек по нужным ключам
+    // и берём последнюю (самую свежую) точку каждой серии.
 
+    // 1. Список ключей → оставляем только bid/ask-price (parseMarketDataKey отсеет pool и пр.)
+    let priceKeys: string[];
+    try {
+      const keysResp = await firstValueFrom(
+        this.httpService.get<string[]>(`${this.marketDataUrl}/store/keys`),
+      );
+      priceKeys = (keysResp.data ?? []).filter((k) => parseMarketDataKey(k) !== null);
+    } catch (error) {
+      this.logger.error(`Ошибка при запросе ключей из arbiDexMarketData: ${error.message}`);
+      return [];
+    }
+    if (priceKeys.length === 0) return [];
+
+    // 2. Значения по ключам (серия точек на ключ)
+    let series: Record<string, { points?: DataPoint[] } | null>;
     try {
       const response = await firstValueFrom(
-        this.httpService.get<SnapshotResponse>(`${this.marketDataUrl}/store/snapshot`),
+        this.httpService.post<Record<string, { points?: DataPoint[] } | null>>(
+          `${this.marketDataUrl}/store/keys`,
+          { keys: priceKeys },
+        ),
       );
-      snapshot = response.data;
+      series = response.data ?? {};
     } catch (error) {
-      this.logger.error(`Ошибка при запросе snapshot из arbiDexMarketData: ${error.message}`);
+      this.logger.error(`Ошибка при запросе значений из arbiDexMarketData: ${error.message}`);
       return [];
+    }
+
+    // snapshot: ключ → самая свежая точка серии (по максимальному t)
+    const snapshot: SnapshotResponse = {};
+    for (const [key, val] of Object.entries(series)) {
+      const points = val?.points;
+      snapshot[key] =
+        points && points.length > 0
+          ? points.reduce((latest, p) => (p.t >= latest.t ? p : latest))
+          : null;
     }
 
     // Группируем bid/ask по ключу source+pair
