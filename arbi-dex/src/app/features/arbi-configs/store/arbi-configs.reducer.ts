@@ -18,6 +18,7 @@ import {
   loadArbiConfigPricesSuccess,
   loadArbiConfigPricesFailure,
   runBacktest,
+  runBacktestNew,
   runBacktestSuccess,
   runBacktestFailure,
   clearBacktestResult,
@@ -123,8 +124,8 @@ export const arbiConfigsReducer = createReducer(
     error,
   })),
 
-  // Backtest
-  on(runBacktest, (state) => ({
+  // Backtest — обе реализации (/backtest и /backtest-new) используют один слайс.
+  on(runBacktest, runBacktestNew, (state) => ({
     ...state,
     backtestLoading: true,
     backtestResult: null,

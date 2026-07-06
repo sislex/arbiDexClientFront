@@ -12,6 +12,9 @@ import {
   deleteArbiConfigSuccess,
   loadArbiConfigPrices,
   loadArbiConfigPricesSuccess,
+  runBacktest,
+  runBacktestNew,
+  runBacktestSuccess,
 } from './arbi-configs.actions';
 import { ArbiConfig } from '../../../shared/models';
 
@@ -119,6 +122,31 @@ describe('arbiConfigsReducer', () => {
     );
     expect(state.pricesLoading).toBe(false);
     expect(state.currentPrices).toEqual(pricesResponse);
+  });
+
+  it('runBacktest sets backtestLoading and clears previous result', () => {
+    const state = arbiConfigsReducer(
+      { ...initialArbiConfigsState, backtestResult: { totalTrades: 1 } as never },
+      runBacktest({ id: 'cfg-1' }),
+    );
+    expect(state.backtestLoading).toBe(true);
+    expect(state.backtestResult).toBeNull();
+  });
+
+  it('runBacktestNew also sets backtestLoading (shares the backtest slice)', () => {
+    const state = arbiConfigsReducer(initialArbiConfigsState, runBacktestNew({ id: 'cfg-1' }));
+    expect(state.backtestLoading).toBe(true);
+    expect(state.backtestResult).toBeNull();
+  });
+
+  it('runBacktestSuccess stores the result and clears loading', () => {
+    const result = { totalTrades: 3 } as never;
+    const state = arbiConfigsReducer(
+      { ...initialArbiConfigsState, backtestLoading: true },
+      runBacktestSuccess({ result }),
+    );
+    expect(state.backtestLoading).toBe(false);
+    expect(state.backtestResult).toBe(result);
   });
 });
 
