@@ -13,7 +13,6 @@ import { CreateArbiConfigDto, UpdateArbiConfigDto } from './dto/arbi-config.dto'
 import { PricesService, SubscriptionPriceData, ChartPricePoint } from '../prices/prices.service';
 import { BacktestEngine, BacktestTick, BacktestResult } from './engine/backtest.engine';
 import {
-  evaluateConditions,
   decideAction,
   StepQuotes,
   StepAnalytics,
@@ -21,6 +20,7 @@ import {
   BacktestAnalyticsSummary,
   AnalyticsConditionsConfig,
 } from './analytics/trade-analytics.helper';
+import { evaluateConditionsViaEngine } from './analytics/strategy-engine.adapter';
 import conditionsConfigJson from './analytics/conditions.config.json';
 
 /**
@@ -327,8 +327,8 @@ export class ArbiConfigsService {
         sellPrice: tick.tradingBid,
       };
 
-      // Аналитика: какие условия прошли / не прошли
-      const conditions = evaluateConditions(quotes, conditionsConfig);
+      // Аналитика: какие условия прошли / не прошли (оценка через processStep)
+      const conditions = evaluateConditionsViaEngine(quotes, conditionsConfig);
       const decided = decideAction(conditions, hasPosition);
 
       // Копим статистику по условиям

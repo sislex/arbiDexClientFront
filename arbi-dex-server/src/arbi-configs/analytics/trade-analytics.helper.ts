@@ -97,8 +97,8 @@ export interface BacktestAnalyticsSummary {
   conditionStats: ConditionStat[];
 }
 
-/** Внутренний результат вычисления метрики условия */
-interface EvaluatorOutput {
+/** Результат вычисления метрики условия */
+export interface EvaluatorOutput {
   passed: boolean;
   /** Фактическое значение метрики в процентах */
   actualPct: number;
@@ -115,7 +115,7 @@ function isValidPrice(value: number): boolean {
  *
  * thresholdPct передаётся в процентах (0.02 = 0.02%); внутри переводим в долю /100.
  */
-const CONDITION_EVALUATORS: Record<
+export const CONDITION_EVALUATORS: Record<
   ConditionType,
   (quotes: StepQuotes, thresholdPct: number) => EvaluatorOutput
 > = {
