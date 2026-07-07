@@ -2,12 +2,13 @@
 
 ## Project Overview
 
-ArbiDex is a crypto arbitrage monitoring platform. The repo is a **monorepo with two independent apps**:
+ArbiDex is a crypto arbitrage monitoring platform. The repo is an **npm-workspaces monorepo** with two apps plus a shared engine:
 
 - `arbi-dex/` — Angular 19 SPA (standalone components, NgRx, Angular Material, AG Grid, Storybook)
 - `arbi-dex-server/` — NestJS 11 REST API (TypeORM + PostgreSQL, JWT auth via crypto wallet signatures)
+- `arbi-conditions-libs/` (`@sislex/arbi-conditions-libs`) — framework-agnostic pure-TS **strategy/conditions engine** shared by both apps; run `npm run build:libs` after changing it. See `ARCHITECTURE.md` for the deep dive.
 
-Infrastructure is orchestrated via `docker-compose.yml` (PostgreSQL 16 + server container). The Angular app runs separately (`ng serve`, port 4200). The server listens on port 3000 with global prefix `/api`.
+Infrastructure is orchestrated via `docker-compose.yml` (PostgreSQL 16 + server container). The Angular app runs separately (`ng serve`, port 4200). The server listens on port 3006 with global prefix `/api`.
 
 ## Architecture & Key Patterns
 
@@ -18,16 +19,16 @@ Infrastructure is orchestrated via `docker-compose.yml` (PostgreSQL 16 + server 
 - `services/` — abstract interface class + mock implementation (e.g., `IAuthService` / `AuthMockService`)
 - `facades/` — injectable facade wrapping Store dispatch & selectors; components NEVER touch Store directly
 
-**Mock-first development**: the frontend uses abstract service interfaces with swappable implementations. Services are configured via DI in `app.config.ts`:
+**Swappable service layer**: the frontend uses abstract service interfaces with swappable implementations. Services are configured via DI in `app.config.ts` — all six feature services are now wired to their real HTTP implementations:
 ```ts
-// Real backend services (auth, catalog, subscriptions)
-{ provide: IAuthService, useClass: AuthHttpService }
-{ provide: ICatalogService, useClass: CatalogHttpService }
+{ provide: IAuthService,          useClass: AuthHttpService }
+{ provide: ICatalogService,       useClass: CatalogHttpService }
 { provide: ISubscriptionsService, useClass: SubscriptionsHttpService }
-// Mock service (quotes — backend endpoint not yet implemented)
-{ provide: IQuotesService, useClass: QuotesMockService }
+{ provide: IPricesService,        useClass: PricesHttpService }
+{ provide: IQuotesService,        useClass: QuotesHttpService }
+{ provide: IArbiConfigsService,   useClass: ArbiConfigsHttpService }
 ```
-To switch between mock and real — swap `useClass` in `app.config.ts`. Do NOT modify existing mock services. Service interfaces live in `<feature>/services/<name>.service.interface.ts`, HTTP implementations in `<feature>/services/<name>-http.service.ts`.
+To switch an implementation — swap `useClass` in `app.config.ts`. One mock remains for reference only (`quotes/services/quotes-mock.service.ts` — import commented out, unused). Service interfaces live in `<feature>/services/<name>.service.interface.ts`, HTTP implementations in `<feature>/services/<name>-http.service.ts`.
 
 **HTTP layer**: `HttpClient` configured with `provideHttpClient(withInterceptors([authInterceptor]))`. The `authInterceptor` (`core/interceptors/auth.interceptor.ts`) attaches JWT Bearer token from NgRx store and dispatches `logout` on 401. API base URL via `API_BASE_URL` InjectionToken (`core/config/api.config.ts`, default `http://localhost:3000/api`).
 
@@ -65,7 +66,7 @@ npm run test:watch     # Karma in watch mode
 npm run storybook      # Storybook dev server
 
 # Backend (from arbi-dex-server/)
-npm run start:dev      # NestJS in watch mode on port 3000
+npm run start:dev      # NestJS in watch mode on port 3006
 npm test               # Jest unit tests (--forceExit)
 npm run test:e2e       # e2e tests (separate jest config)
 npm run test:cov       # coverage report
