@@ -83,4 +83,6 @@ export interface Market {
   pairId: string;
   base: string;
   quote: string;
+  /** Сырой ключ arbiDexMarketData `source|base/quote` (без |bidPrice/|askPrice). */
+  storeKey?: string;
 }

@@ -59,7 +59,7 @@ export function MarketConfigEditorPage() {
   // the selected markets change. `mode` is part of the deps so the historical/
   // realtime toggle refetches.
   useEffect(() => {
-    if (observedMarketIds.length === 0) {
+    if (!tradingMarketId && observedMarketIds.length === 0) {
       setPreview({ quotes: [], observed: [] });
       return;
     }
@@ -92,7 +92,7 @@ export function MarketConfigEditorPage() {
   const [streaming, setStreaming] = useState(false);
   const observedKey = observedMarketIds.join(',');
   useEffect(() => {
-    if (!IS_LIVE || mode !== 'realtime' || observedMarketIds.length === 0) {
+    if (!IS_LIVE || mode !== 'realtime' || (!tradingMarketId && observedMarketIds.length === 0)) {
       setStreaming(false);
       return;
     }
@@ -153,7 +153,9 @@ export function MarketConfigEditorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, tradingMarketId, observedKey]);
 
-  const canSave = name.trim().length > 0 && tradingMarketId && observedMarketIds.length > 0;
+  // Наблюдаемые рынки необязательны: без них конфигурацию можно сохранить,
+  // но торговать по ней нельзя (нет средневзвешенной цены).
+  const canSave = name.trim().length > 0 && !!tradingMarketId;
 
   const addObserved = () => {
     if (pendingObserved && !observedMarketIds.includes(pendingObserved)) {
@@ -199,17 +201,6 @@ export function MarketConfigEditorPage() {
                 inputProps={{ 'data-testid': 'mc-name' }}
               />
 
-              <Divider textAlign="left"><Typography variant="caption">Торговый рынок</Typography></Divider>
-              <MarketPicker
-                markets={markets}
-                kind="dex"
-                value={tradingMarketId}
-                onChange={setTradingMarketId}
-                label="Где торгуем (DEX)"
-                testid="trading-picker"
-                exclude={observedMarketIds}
-              />
-
               <Divider textAlign="left"><Typography variant="caption">Наблюдаемые рынки</Typography></Divider>
               <Stack direction="row" spacing={1}>
                 <MarketPicker
@@ -241,9 +232,23 @@ export function MarketConfigEditorPage() {
                   );
                 })}
                 {observedMarketIds.length === 0 && (
-                  <Typography variant="caption" color="text.secondary">Добавьте хотя бы один рынок</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Не заполнено — торговля по этой конфигурации невозможна
+                  </Typography>
                 )}
               </List>
+
+              <Divider textAlign="left"><Typography variant="caption">Торговый рынок</Typography></Divider>
+              <MarketPicker
+                markets={markets}
+                kind="dex"
+                value={tradingMarketId}
+                onChange={setTradingMarketId}
+                label="Где торгуем (DEX)"
+                testid="trading-picker"
+                exclude={observedMarketIds}
+                showStoreKey
+              />
             </Stack>
           </CardContent>
         </Card>
@@ -274,9 +279,9 @@ export function MarketConfigEditorPage() {
                 <ToggleButton value="realtime" data-testid="mode-realtime">Реальное время</ToggleButton>
               </ToggleButtonGroup>
             </Stack>
-            {observedMarketIds.length === 0 ? (
+            {!tradingMarketId && observedMarketIds.length === 0 ? (
               <Box sx={{ height: 360, display: 'grid', placeItems: 'center' }}>
-                <Typography color="text.secondary">Добавьте наблюдаемые рынки для предпросмотра</Typography>
+                <Typography color="text.secondary">Выберите торговый или наблюдаемые рынки для предпросмотра</Typography>
               </Box>
             ) : loadingPreview && quotes.length === 0 ? (
               <Stack sx={{ height: 360 }} alignItems="center" justifyContent="center" spacing={1} data-testid="preview-loading">

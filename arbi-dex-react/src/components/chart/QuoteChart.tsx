@@ -3,6 +3,7 @@ import {
   createChart,
   ColorType,
   LineStyle,
+  LineType,
   type IChartApi,
   type ISeriesApi,
   type UTCTimestamp,
@@ -119,6 +120,7 @@ export function QuoteChart({
           color: def.color,
           lineWidth: 2,
           lineStyle: def.dashed ? LineStyle.Dashed : LineStyle.Solid,
+          lineType: LineType.WithSteps,
           priceLineVisible: false,
           lastValueVisible: false,
         });

@@ -11,6 +11,7 @@ export function MarketPicker({
   kind,
   exclude = [],
   testid,
+  showStoreKey = false,
 }: {
   markets: Market[];
   value: string | null;
@@ -19,20 +20,23 @@ export function MarketPicker({
   kind?: 'cex' | 'dex';
   exclude?: string[];
   testid?: string;
+  /** Show the raw arbiDexMarketData key (`source|base/quote`) instead of the display label. */
+  showStoreKey?: boolean;
 }) {
   const options = markets.filter((m) => (kind ? m.kind === kind : true) && !exclude.includes(m.id));
   const selected = markets.find((m) => m.id === value) ?? null;
+  const optionLabel = (m: Market) => (showStoreKey && m.storeKey) || marketLabel(m);
   return (
     <Autocomplete
       options={options}
       value={selected}
-      getOptionLabel={marketLabel}
+      getOptionLabel={optionLabel}
       onChange={(_, v) => onChange(v?.id ?? null)}
       renderInput={(params) => <TextField {...params} label={label} size="small" inputProps={{ ...params.inputProps, 'data-testid': testid }} />}
       renderOption={(props, m) => (
-        <li {...props} key={m.id}>
+        <li {...props} key={m.id} style={{ wordBreak: 'break-all' }}>
           <Chip size="small" label={m.kind.toUpperCase()} sx={{ mr: 1 }} variant="outlined" />
-          {marketLabel(m)}
+          {optionLabel(m)}
         </li>
       )}
       sx={{ minWidth: 280 }}

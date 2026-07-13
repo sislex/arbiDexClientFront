@@ -17,6 +17,8 @@ export interface Market {
   pairId: string;
   base: string;
   quote: string;
+  /** Raw arbiDexMarketData key `source|base/quote` (without |bidPrice/|askPrice). */
+  storeKey?: string;
 }
 
 // ── Market configuration ─────────────────────────────────────────────────────

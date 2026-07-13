@@ -136,6 +136,43 @@ export function QuoteChartPanel({
     setPlayhead(total - 1);
   };
 
+  // Wheel over the chart: vertical scroll zooms, horizontal scroll moves the
+  // player. Native non-passive listener — React's onWheel is passive since
+  // v17, so preventDefault (page scroll) needs this. Latest total/visible are
+  // mirrored into a ref so the listener isn't reattached on every zoom/pan.
+  const chartWrapRef = useRef<HTMLDivElement | null>(null);
+  const wheelState = useRef({ total, visible, panAcc: 0 });
+  wheelState.current.total = total;
+  wheelState.current.visible = visible;
+  useEffect(() => {
+    const el = chartWrapRef.current;
+    if (!el || !total) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const st = wheelState.current;
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        // Pan speed scales with the visible window; fractional steps
+        // accumulate so slow trackpad swipes still move the playhead.
+        const win = st.visible > 0 ? st.visible : st.total;
+        st.panAcc += e.deltaX * win * 0.003;
+        const step = Math.trunc(st.panAcc);
+        if (step) {
+          st.panAcc -= step;
+          setPlaying(false);
+          setPlayhead((p) => Math.max(0, Math.min(st.total - 1, p + step)));
+        }
+      } else {
+        setVisible((v) => {
+          const cur = v > 0 ? v : st.total;
+          const next = Math.round(cur * Math.exp(e.deltaY * 0.002));
+          return Math.min(st.total, Math.max(MIN_VISIBLE, next));
+        });
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [total]);
+
   // Visible window derived from playhead + zoom.
   const win = visible > 0 ? visible : total;
   const endIdx = Math.min(playhead, total - 1);
@@ -192,7 +229,9 @@ export function QuoteChartPanel({
         </Box>
       ) : (
         <>
-          <QuoteChart series={series} markers={markers} height={height} viewStartTime={viewStartTime} viewEndTime={viewEndTime} />
+          <Box ref={chartWrapRef}>
+            <QuoteChart series={series} markers={markers} height={height} viewStartTime={viewStartTime} viewEndTime={viewEndTime} />
+          </Box>
 
           {/* History playback player */}
           {player && total > 1 && (

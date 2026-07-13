@@ -94,6 +94,7 @@ export class CatalogService {
           pairId,
           base: tokenDisplayName(parsed.base),
           quote: tokenDisplayName(parsed.quote),
+          storeKey: `${parsed.source}|${parsed.base}/${parsed.quote}`,
         });
       }
       const markets = Array.from(seen.values());
