@@ -13,6 +13,8 @@ import {
   tokenDisplayName,
   SOURCE_META,
 } from '../prices/market-data-keys';
+import { MARKETS } from '../demo/engine/markets';
+import type { Market } from '../demo/engine/types';
 
 /** DTO источника для фронтенда */
 export interface SourceDto {
@@ -66,6 +68,42 @@ export class CatalogService {
         icon: s.icon ?? null,
       }));
     }
+  }
+
+  /**
+   * Список рынков (источник × пара) для нового фронта, выведенный из живых
+   * ключей arbiDexMarketData — у каждого рынка есть реальные котировки.
+   * Id: `${sourceId}__${pairId}`. Fallback на статичный список, если сервис недоступен.
+   */
+  async getMarkets(): Promise<Market[]> {
+    try {
+      const keys = await this.fetchMarketDataKeys();
+      const seen = new Map<string, Market>();
+      for (const key of keys) {
+        const parsed = parseMarketDataKey(key);
+        if (!parsed) continue;
+        const pairId = makePairId(parsed.base, parsed.quote);
+        const id = `${parsed.source}__${pairId}`;
+        if (seen.has(id)) continue;
+        const meta = SOURCE_META[parsed.source];
+        seen.set(id, {
+          id,
+          sourceId: parsed.source,
+          sourceName: meta?.displayName ?? parsed.source,
+          kind: meta?.type ?? (parsed.source.startsWith('dex') ? 'dex' : 'cex'),
+          pairId,
+          base: tokenDisplayName(parsed.base),
+          quote: tokenDisplayName(parsed.quote),
+        });
+      }
+      const markets = Array.from(seen.values());
+      if (markets.length) {
+        return markets.sort((a, b) => a.kind.localeCompare(b.kind) || a.sourceName.localeCompare(b.sourceName));
+      }
+    } catch (err) {
+      this.logger.warn(`Fallback на статичные рынки: ${err.message}`);
+    }
+    return MARKETS;
   }
 
   /**

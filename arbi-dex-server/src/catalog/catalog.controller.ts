@@ -47,6 +47,24 @@ export class CatalogController {
     return this.service.getPairs();
   }
 
+  @Get('markets')
+  @ApiOperation({
+    summary: 'Список рынков (источник × пара)',
+    description:
+      'Курируемый список рынков для конструктора конфигураций нового фронта: ' +
+      'источник (биржа/DEX) + торговая пара. Id вида `${sourceId}__${pairId}`.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Массив рынков',
+    schema: {
+      example: [{ id: 'cex_binance__ETH_USDT', sourceId: 'cex_binance', sourceName: 'Binance', kind: 'cex', pairId: 'ETH_USDT', base: 'ETH', quote: 'USDT' }],
+    },
+  })
+  getMarkets() {
+    return this.service.getMarkets();
+  }
+
   @Get('sources/:sourceId/pairs')
   @ApiOperation({
     summary: 'Торговые пары для конкретного источника',

@@ -31,5 +31,24 @@ export class PricesController {
   ) {
     return this.service.getPricesBySubscription(subscriptionId, user.id, noCache === 'true');
   }
+
+  @Get('market')
+  @ApiOperation({
+    summary: 'Реальные ценовые данные по рынку (source + pair)',
+    description:
+      'Возвращает реальную историю bid/ask (DEX) или mid (CEX) из arbiDexMarketData ' +
+      'по sourceId и pairId — без подписки. Для страницы конфигурации рынков.',
+  })
+  @ApiQuery({ name: 'sourceId', example: 'binance' })
+  @ApiQuery({ name: 'pairId', example: 'BTC_USDT' })
+  @ApiQuery({ name: 'noCache', required: false, type: Boolean })
+  @ApiResponse({ status: 200, description: 'Серии + ценовые точки' })
+  getPricesByMarket(
+    @Query('sourceId') sourceId: string,
+    @Query('pairId') pairId: string,
+    @Query('noCache') noCache?: string,
+  ) {
+    return this.service.getPricesByMarket(sourceId, pairId, noCache === 'true');
+  }
 }
 

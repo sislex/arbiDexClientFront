@@ -55,3 +55,12 @@ export {
   type ProcessAllStepsAndRecordResultsParams,
   type ProcessAllStepsAndRecordResultsOutput,
 } from './engine/processAllStepsAndRecordResults';
+export {
+  runBacktest,
+  type BacktestTrade,
+  type BacktestStats,
+  type BacktestConditionStat,
+  type BacktestSummary,
+  type EngineBacktestResult,
+  type BacktestOptions,
+} from './engine/runBacktest';

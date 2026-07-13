@@ -43,6 +43,15 @@ export interface SubscriptionPriceData {
   data: ChartPricePoint[];
 }
 
+/** Прореживает массив до max точек равномерно, сохраняя первую и последнюю. */
+function downsample<T>(arr: T[], max: number): T[] {
+  if (arr.length <= max) return arr;
+  const step = (arr.length - 1) / (max - 1);
+  const out: T[] = [];
+  for (let i = 0; i < max; i++) out.push(arr[Math.round(i * step)]);
+  return out;
+}
+
 @Injectable()
 export class PricesService {
   private readonly logger = new Logger(PricesService.name);
@@ -51,7 +60,7 @@ export class PricesService {
   /** TTL кэша — 1 час (в мс) */
   private static readonly CACHE_TTL_MS = 60 * 60 * 1000;
 
-  /** In-memory кэш: subscriptionId → { data, cachedAt } */
+  /** In-memory кэш: `${sourceId}|${pairId}` → { data, cachedAt } */
   private readonly cache = new Map<string, { data: SubscriptionPriceData; cachedAt: number }>();
 
   constructor(
@@ -64,34 +73,44 @@ export class PricesService {
   }
 
   /**
-   * Получить ценовые данные по subscriptionId.
-   * Маппит sourceId+pairId → ключи PriceStore, запрашивает историю из arbiDexServerBots,
-   * трансформирует в формат PriceChartComponent.
-   *
-   * @param noCache — если true, игнорирует кэш и обновляет его свежими данными
+   * Ценовые данные по подписке (с проверкой владельца — anti-IDOR).
    */
   async getPricesBySubscription(
     subscriptionId: string,
     userId: string,
     noCache = false,
   ): Promise<SubscriptionPriceData> {
-    // 1. Проверка владельца ДО кэша (anti-IDOR: кэш ключуется по subscriptionId,
-    //    поэтому владельца нужно проверять на каждый вызов, включая cache hit).
     const sub = await this.subsRepo.findOne({ where: { id: subscriptionId, userId } });
-    if (!sub) {
-      throw new NotFoundException('Подписка не найдена');
-    }
+    if (!sub) throw new NotFoundException('Подписка не найдена');
+    return this.fetchByPair(sub.sourceId, sub.pairId, noCache);
+  }
 
-    // ── Проверка кэша (уже после проверки владельца) ──
+  /**
+   * Реальные ценовые данные по рынку (source + pair) без подписки.
+   * Используется страницей конфигурации рынков нового фронта.
+   */
+  getPricesByMarket(sourceId: string, pairId: string, noCache = false): Promise<SubscriptionPriceData> {
+    return this.fetchByPair(sourceId, pairId, noCache);
+  }
+
+  /**
+   * Тянет и трансформирует историю bid/ask из arbiDexMarketData по sourceId+pairId.
+   * DEX → серии bid/ask; CEX → одна серия mid. Кэш на 1 час по паре.
+   */
+  private async fetchByPair(
+    sourceId: string,
+    pairId: string,
+    noCache: boolean,
+  ): Promise<SubscriptionPriceData> {
+    const cacheKey = `${sourceId}|${pairId}`;
     if (!noCache) {
-      const cached = this.cache.get(subscriptionId);
+      const cached = this.cache.get(cacheKey);
       if (cached && Date.now() - cached.cachedAt < PricesService.CACHE_TTL_MS) {
-        this.logger.debug(`Cache hit для подписки ${subscriptionId} (возраст ${Math.round((Date.now() - cached.cachedAt) / 1000)}с)`);
         return cached.data;
       }
     }
 
-    // 2. Определяем формат ключей и строим bid/ask ключи
+    // Определяем формат ключей market-data (pipe / concat).
     let format: 'pipe' | 'concat' = 'concat';
     try {
       const keysResp = await firstValueFrom(
@@ -99,20 +118,18 @@ export class PricesService {
       );
       format = detectKeyFormat(keysResp.data);
     } catch {
-      // используем формат по умолчанию
+      /* формат по умолчанию */
     }
 
-    const keys = buildStoreKeys(sub.sourceId, sub.pairId, format);
+    const keys = buildStoreKeys(sourceId, pairId, format);
     if (!keys) {
       throw new BadRequestException(
-        `Не удалось построить ключи для sourceId="${sub.sourceId}", pairId="${sub.pairId}".`,
+        `Не удалось построить ключи для sourceId="${sourceId}", pairId="${pairId}".`,
       );
     }
 
-    // 3. Запрос к arbiDexMarketData
     const { bidKey, askKey } = keys;
     let botsData: BotsPriceKeysResponse;
-
     try {
       const response = await firstValueFrom(
         this.httpService.post<BotsPriceKeysResponse>(`${this.marketDataUrl}/store/keys`, {
@@ -123,60 +140,47 @@ export class PricesService {
     } catch (error) {
       this.logger.error(`Ошибка при запросе к arbiDexMarketData: ${error.message}`);
       throw new BadRequestException(
-        `Не удалось получить данные от сервиса котировок (${this.marketDataUrl}). ` +
-        `Убедитесь что arbiDexMarketData запущен.`,
+        `Не удалось получить данные от сервиса котировок (${this.marketDataUrl}).`,
       );
     }
 
-    // 4. Трансформация в формат PriceChartComponent
     const bidPoints: BotsPricePoint[] = botsData[bidKey]?.points ?? [];
     const askPoints: BotsPricePoint[] = botsData[askKey]?.points ?? [];
+    const isDex = sourceId.startsWith('dex');
 
-    // Определяем тип источника: DEX показываем bid/ask, CEX — только mid
-    const isDex = sub.sourceId.startsWith('dex');
-
-    // Merge bid и ask по timestamp с помощью Map
     const timeMap = new Map<number, ChartPricePoint>();
-
-    for (const p of bidPoints) {
-      timeMap.set(p.t, { time: p.t, bidPrice: p.v, askPrice: 0 });
-    }
-
+    for (const p of bidPoints) timeMap.set(p.t, { time: p.t, bidPrice: p.v, askPrice: 0 });
     for (const p of askPoints) {
       const existing = timeMap.get(p.t);
-      if (existing) {
-        existing.askPrice = p.v;
-      } else {
-        timeMap.set(p.t, { time: p.t, bidPrice: 0, askPrice: p.v });
-      }
+      if (existing) existing.askPrice = p.v;
+      else timeMap.set(p.t, { time: p.t, bidPrice: 0, askPrice: p.v });
     }
 
-    // Сортировка по времени, заполнение пропусков предыдущим значением
-    const sorted = Array.from(timeMap.values()).sort((a, b) => a.time - b.time);
-
+    const merged = Array.from(timeMap.values()).sort((a, b) => a.time - b.time);
     let lastBid = 0;
     let lastAsk = 0;
-    for (const point of sorted) {
+    for (const point of merged) {
       if (point.bidPrice === 0 && lastBid !== 0) point.bidPrice = lastBid;
       if (point.askPrice === 0 && lastAsk !== 0) point.askPrice = lastAsk;
       lastBid = point.bidPrice;
       lastAsk = point.askPrice;
     }
 
-    // 5. Конфиг серий — единый формат bid/ask для всех источников (DEX и CEX)
-    const sourceName = SOURCE_META[sub.sourceId]?.displayName ?? sub.sourceId;
+    // Прореживаем историю до ~800 точек (сервис отдаёт десятки тысяч) — чтобы
+    // график грузился быстро; первая и последняя точки сохраняются.
+    const sorted = downsample(merged, 800);
 
+    const sourceName = SOURCE_META[sourceId]?.displayName ?? sourceId;
+    let result: SubscriptionPriceData;
     if (isDex) {
-      // DEX: две серии — bid и ask
-      const series: PriceSeriesConfig[] = [
-        { key: 'bidPrice', name: `${sourceName} Bid`, color: '#0ecb81' },
-        { key: 'askPrice', name: `${sourceName} Ask`, color: '#f6465d' },
-      ];
-      const result: SubscriptionPriceData = { series, data: sorted };
-      this.cacheResult(subscriptionId, result);
-      return result;
+      result = {
+        series: [
+          { key: 'bidPrice', name: `${sourceName} Bid`, color: '#0ecb81' },
+          { key: 'askPrice', name: `${sourceName} Ask`, color: '#f6465d' },
+        ],
+        data: sorted,
+      };
     } else {
-      // CEX: одна серия — mid (среднее bid и ask)
       const midData: ChartPricePoint[] = sorted.map((point) => ({
         time: point.time,
         midPrice:
@@ -184,20 +188,13 @@ export class PricesService {
             ? (point.bidPrice + point.askPrice) / 2
             : point.bidPrice || point.askPrice,
       }));
-
-      const series: PriceSeriesConfig[] = [
-        { key: 'midPrice', name: `${sourceName} Mid`, color: '#2196f3' },
-      ];
-
-      const result: SubscriptionPriceData = { series, data: midData };
-      this.cacheResult(subscriptionId, result);
-      return result;
+      result = {
+        series: [{ key: 'midPrice', name: `${sourceName} Mid`, color: '#2196f3' }],
+        data: midData,
+      };
     }
-  }
 
-  /** Сохраняет результат в кэш */
-  private cacheResult(subscriptionId: string, data: SubscriptionPriceData): void {
-    this.cache.set(subscriptionId, { data, cachedAt: Date.now() });
-    this.logger.debug(`Кэш обновлён для подписки ${subscriptionId} (${data.data.length} точек)`);
+    this.cache.set(cacheKey, { data: result, cachedAt: Date.now() });
+    return result;
   }
 }

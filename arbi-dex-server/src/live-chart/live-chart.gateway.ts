@@ -97,42 +97,48 @@ export class LiveChartGateway
       return;
     }
 
-    // 2. Получаем subscriptionId из query-параметров
-    const subscriptionId = client.handshake.query?.subscriptionId as
-      | string
-      | undefined;
-    if (!subscriptionId) {
-      this.logger.warn(
-        `Клиент ${client.id}: subscriptionId не передан, отключаем`,
-      );
+    // 2. Определяем цель стрима: подписка (старый фронт) ИЛИ рынок source+pair (новый фронт)
+    const q = client.handshake.query ?? {};
+    const subscriptionId = q.subscriptionId as string | undefined;
+    const sourceId = q.sourceId as string | undefined;
+    const pairId = q.pairId as string | undefined;
+
+    let roomId: string;
+    let streamSource: string;
+    let streamPair: string;
+
+    if (subscriptionId) {
+      // Проверка владельца подписки (anti-IDOR)
+      const sub = await this.subsRepo.findOne({ where: { id: subscriptionId, userId } });
+      if (!sub) {
+        this.logger.warn(`Клиент ${client.id}: подписка ${subscriptionId} не найдена/чужая, отключаем`);
+        client.disconnect();
+        return;
+      }
+      roomId = `subscription:${subscriptionId}`;
+      streamSource = sub.sourceId;
+      streamPair = sub.pairId;
+    } else if (sourceId && pairId) {
+      // Стрим по рынку (публичные данные каталога) — без подписки.
+      roomId = `market:${sourceId}|${pairId}`;
+      streamSource = sourceId;
+      streamPair = pairId;
+    } else {
+      this.logger.warn(`Клиент ${client.id}: не передан subscriptionId или sourceId+pairId, отключаем`);
       client.disconnect();
       return;
     }
 
-    // 3. Проверка владельца: подписка должна принадлежать пользователю из токена (anti-IDOR)
-    const sub = await this.subsRepo.findOne({
-      where: { id: subscriptionId, userId },
-    });
-    if (!sub) {
-      this.logger.warn(
-        `Клиент ${client.id}: подписка ${subscriptionId} не найдена или чужая, отключаем`,
-      );
-      client.disconnect();
-      return;
-    }
-
-    const roomId = `subscription:${subscriptionId}`;
-
-    // 4. Добавляем клиента в room
+    // Добавляем клиента в room
     void client.join(roomId);
     this.socketRooms.set(client.id, roomId);
     this.logger.log(`Клиент ${client.id} вошёл в комнату ${roomId}`);
 
-    // 5. Один upstream на комнату; резервируем pending синхронно до await (защита от гонки)
+    // Один upstream на комнату; резервируем pending синхронно до await (защита от гонки)
     if (!this.rooms.has(roomId) && !this.pendingRooms.has(roomId)) {
       this.pendingRooms.add(roomId);
       try {
-        await this.startRoom(roomId, sub);
+        await this.startRoom(roomId, streamSource, streamPair);
       } finally {
         this.pendingRooms.delete(roomId);
       }
@@ -158,7 +164,7 @@ export class LiveChartGateway
    * Подключается к arbiDexMarketData Socket.IO /store namespace
    * и подписывается на ключи bid/ask для данной подписки.
    */
-  private async startRoom(roomId: string, sub: Subscription): Promise<void> {
+  private async startRoom(roomId: string, sourceId: string, pairId: string): Promise<void> {
     // Определяем формат ключей на сервере
     let format: 'pipe' | 'concat' = 'concat';
     try {
@@ -168,10 +174,10 @@ export class LiveChartGateway
     } catch { /* по умолчанию concat */ }
 
     // Никаких хардкод-фолбэков: если ключи не собрались — upstream не запускаем
-    const keys = buildStoreKeys(sub.sourceId, sub.pairId, format);
+    const keys = buildStoreKeys(sourceId, pairId, format);
     if (!keys) {
       this.logger.warn(
-        `Комната ${roomId}: не удалось построить ключи для sourceId="${sub.sourceId}", pairId="${sub.pairId}" — upstream не запущен`,
+        `Комната ${roomId}: не удалось построить ключи для sourceId="${sourceId}", pairId="${pairId}" — upstream не запущен`,
       );
       return;
     }

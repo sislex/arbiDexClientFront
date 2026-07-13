@@ -27,6 +27,13 @@ import { ArbiConfig } from './arbi-configs/entities/arbi-config.entity';
 import { ArbiConfigSource } from './arbi-configs/entities/arbi-config-source.entity';
 import { SwapExecutionModule } from './swap-execution/swap-execution.module';
 import { MarketDataModule } from './market-data/market-data.module';
+import { ConditionsCatalogModule } from './conditions-catalog/conditions-catalog.module';
+import { MarketConfigsModule } from './market-configs/market-configs.module';
+import { MarketConfig } from './market-configs/entities/market-config.entity';
+import { StrategyConfigsModule } from './strategy-configs/strategy-configs.module';
+import { StrategyConfig } from './strategy-configs/entities/strategy-config.entity';
+import { BotsModule } from './bots/bots.module';
+import { Bot } from './bots/entities/bot.entity';
 
 @Module({
   imports: [
@@ -43,7 +50,7 @@ import { MarketDataModule } from './market-data/market-data.module';
         username: cfg.get<string>('db.username'),
         password: cfg.get<string>('db.password'),
         database: cfg.get<string>('db.database'),
-        entities: [User, Subscription, UserSettings, Source, TradingPair, ArbiConfig, ArbiConfigSource],
+        entities: [User, Subscription, UserSettings, Source, TradingPair, ArbiConfig, ArbiConfigSource, MarketConfig, StrategyConfig, Bot],
         // Никогда не синхронизируем схему автоматически в production (риск потери данных).
         // TODO: перейти на явные миграции.
         synchronize: cfg.get<string>('app.nodeEnv') !== 'production',
@@ -61,6 +68,10 @@ import { MarketDataModule } from './market-data/market-data.module';
     ArbiConfigsModule,
     SwapExecutionModule,
     MarketDataModule,
+    ConditionsCatalogModule,
+    MarketConfigsModule,
+    StrategyConfigsModule,
+    BotsModule,
   ],
   controllers: [AppController],
 })
