@@ -39,6 +39,7 @@ services:
       JWT_ACCESS_EXPIRES_IN: 15m
       JWT_REFRESH_EXPIRES_IN: 7d
       CORS_ORIGIN: '*'
+      MARKET_DATA_URL: ${MARKET_DATA_URL:-http://89.125.68.35:3002}
     depends_on:
       postgres:
         condition: service_healthy

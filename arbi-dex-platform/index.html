@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ArbiDex — Trading Automation Platform</title>
+    <script>
+      try {
+        var raw = localStorage.getItem('arbidex-preferences');
+        if (raw) {
+          var prefs = JSON.parse(raw);
+          if (prefs.theme) document.documentElement.dataset.theme = prefs.theme;
+          if (prefs.locale) document.documentElement.lang = prefs.locale;
+        }
+      } catch (e) {}
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
