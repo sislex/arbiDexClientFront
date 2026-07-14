@@ -70,4 +70,34 @@ export class MarketDataService {
       );
     }
   }
+
+  /** Прокси GET /store/keys → arbiDexMarketData */
+  async getStoreKeys(): Promise<string[]> {
+    try {
+      const response = await firstValueFrom(
+        this.httpService.get<string[]>(`${this.marketDataUrl}/store/keys`),
+      );
+      return response.data ?? [];
+    } catch (error) {
+      this.logger.error(`Store keys GET failed: ${(error as Error).message}`);
+      throw new BadRequestException(
+        `Не удалось получить ключи от arbiDexMarketData (${this.marketDataUrl}).`,
+      );
+    }
+  }
+
+  /** Прокси POST /store/keys → arbiDexMarketData */
+  async postStoreKeys(body: { keys: string[]; limit?: number }) {
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post(`${this.marketDataUrl}/store/keys`, body),
+      );
+      return response.data;
+    } catch (error) {
+      this.logger.error(`Store keys POST failed: ${(error as Error).message}`);
+      throw new BadRequestException(
+        `Не удалось получить серии от arbiDexMarketData (${this.marketDataUrl}).`,
+      );
+    }
+  }
 }
