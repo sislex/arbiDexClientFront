@@ -142,11 +142,12 @@ export const mockApi: ApiClient = {
       const stats = { up: { events: 0, followed: 0 }, down: { events: 0, followed: 0 } };
       let lagStepsSum = 0;
       let lagTimeSum = 0;
+      const eventList: import('./types').FollowEvent[] = [];
       for (let t = 1; t < quotes.length; t++) {
         const prevObs = quotes[t - 1].avgObservedQuote;
         const curObs = quotes[t].avgObservedQuote;
         const base = mid(quotes[t - 1]);
-        if (!(prevObs > 0) || !(base > 0)) continue;
+        if (!(prevObs > 0) || !(curObs > 0) || !(base > 0)) continue;
         const movedPct = ((curObs - prevObs) / prevObs) * 100;
         if (Math.abs(movedPct) < movePct) continue;
         const dir = movedPct > 0 ? 1 : -1;
@@ -166,6 +167,14 @@ export const mockApi: ApiClient = {
           lagStepsSum += followedAt - t;
           lagTimeSum += quotes[followedAt].time - quotes[t].time;
         }
+        eventList.push({
+          time: quotes[t].time,
+          direction: dir > 0 ? 'up' : 'down',
+          movedPct: +movedPct.toFixed(4),
+          followed: followedAt >= 0,
+          followedAt: followedAt >= 0 ? quotes[followedAt].time : null,
+          lagSteps: followedAt >= 0 ? followedAt - t : null,
+        });
       }
       const events = stats.up.events + stats.down.events;
       const followed = stats.up.followed + stats.down.followed;
@@ -179,6 +188,7 @@ export const mockApi: ApiClient = {
         down: { ...stats.down, followRate: rate(stats.down.followed, stats.down.events) },
         avgLagSteps: followed > 0 ? +(lagStepsSum / followed).toFixed(1) : null,
         avgLagMs: followed > 0 ? Math.round((lagTimeSum / followed) * 1000) : null,
+        eventList,
         movePct,
         windowSteps,
         from: lo,

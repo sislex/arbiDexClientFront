@@ -56,6 +56,19 @@ export function MarketConfigEditorPage() {
   const [loadingPreview, setLoadingPreview] = useState(false);
   const { quotes, observed } = preview;
 
+  // Step highlighted on the preview chart (a clicked follow-analysis event).
+  // Event times come in ms from the server; the preview timeline is in seconds
+  // (floored), so snap to the nearest preview point for an exact scale match.
+  const [selectedEventTime, setSelectedEventTime] = useState<number | null>(null);
+  const selectEventOnChart = (timeMs: number) => {
+    const sec = Math.round(timeMs > 1e12 ? timeMs / 1000 : timeMs);
+    let best: number | null = null;
+    for (const q of preview.quotes) {
+      if (best === null || Math.abs(q.time - sec) < Math.abs(best - sec)) best = q.time;
+    }
+    setSelectedEventTime(best ?? sec);
+  };
+
   // Load the chart preview (mock → generated; live → real market-data) whenever
   // the selected markets change. `mode` is part of the deps so the historical/
   // realtime toggle refetches.
@@ -328,6 +341,7 @@ export function MarketConfigEditorPage() {
                   defaultWeighted={useWeightedAverage}
                   height={360}
                   player={mode === 'historical'}
+                  selectedTime={selectedEventTime}
                 />
               </Box>
             )}
@@ -337,7 +351,11 @@ export function MarketConfigEditorPage() {
           </CardContent>
         </Card>
 
-        <FollowAnalysisCard configId={id} disabledReason={followDisabledReason} />
+        <FollowAnalysisCard
+          configId={id}
+          disabledReason={followDisabledReason}
+          onEventClick={(e) => selectEventOnChart(e.time)}
+        />
         </Stack>
       </Stack>
     </Box>

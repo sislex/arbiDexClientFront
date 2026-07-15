@@ -30,6 +30,19 @@ export interface FollowDirectionStats {
   followRate: number;
 }
 
+/** One significant observed move and whether the trading market followed it. */
+export interface FollowEvent {
+  /** Step time of the event (data units). */
+  time: number;
+  direction: 'up' | 'down';
+  /** Observed move at the event step, %. */
+  movedPct: number;
+  followed: boolean;
+  /** Time when the trading market caught up (data units), null if it didn't. */
+  followedAt: number | null;
+  lagSteps: number | null;
+}
+
 /** «Как часто торговый рынок следует за наблюдаемыми» over a period. */
 export interface FollowAnalysisResult {
   totalSteps: number;
@@ -42,6 +55,8 @@ export interface FollowAnalysisResult {
   /** Average catch-up delay over followed events; null when none followed. */
   avgLagSteps: number | null;
   avgLagMs: number | null;
+  /** Every event in chronological order (for drill-down on the chart). */
+  eventList: FollowEvent[];
   /** Echoed parameters and the resolved period. */
   movePct: number;
   windowSteps: number;
@@ -237,6 +252,7 @@ export class MarketConfigsService {
     };
     let lagStepsSum = 0;
     let lagTimeSum = 0;
+    const eventList: FollowEvent[] = [];
 
     for (let t = 1; t < quotes.length; t++) {
       const prevObs = quotes[t - 1].avgObservedQuote;
@@ -267,6 +283,14 @@ export class MarketConfigsService {
         lagStepsSum += followedAt - t;
         lagTimeSum += quotes[followedAt].time - quotes[t].time;
       }
+      eventList.push({
+        time: quotes[t].time,
+        direction: dir > 0 ? 'up' : 'down',
+        movedPct: +movedPct.toFixed(4),
+        followed: followedAt >= 0,
+        followedAt: followedAt >= 0 ? quotes[followedAt].time : null,
+        lagSteps: followedAt >= 0 ? followedAt - t : null,
+      });
     }
 
     const events = stats.up.events + stats.down.events;
@@ -283,6 +307,7 @@ export class MarketConfigsService {
       down: { ...stats.down, followRate: rate(stats.down.followed, stats.down.events) },
       avgLagSteps: followed > 0 ? +(lagStepsSum / followed).toFixed(1) : null,
       avgLagMs: followed > 0 ? Math.round((lagTimeSum / followed) * (unitMs ? 1 : 1000)) : null,
+      eventList,
       movePct,
       windowSteps,
       from,

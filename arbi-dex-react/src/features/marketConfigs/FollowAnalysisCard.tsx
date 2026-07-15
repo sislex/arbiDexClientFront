@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import {
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Divider, Stack, TextField,
-  Tooltip, Typography,
+  Table, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography,
 } from '@mui/material';
 import QueryStatsIcon from '@mui/icons-material/QueryStats';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { api } from '../../api';
-import type { FollowAnalysis } from '../../api/types';
+import type { FollowAnalysis, FollowEvent } from '../../api/types';
 import { usePeriod } from '../bots/usePeriod';
 import { PeriodPicker } from '../bots/PeriodPicker';
 import { StatCard } from '../../components/StatCard';
-import { fmtDuration } from '../../components/format';
+import { fmtDuration, fmtTime } from '../../components/format';
 
 /**
  * «Анализ следования»: how often the trading market repeats significant moves
@@ -19,11 +21,14 @@ import { fmtDuration } from '../../components/format';
 export function FollowAnalysisCard({
   configId,
   disabledReason,
+  onEventClick,
 }: {
   /** Saved config id; undefined for a new (unsaved) config. */
   configId?: string;
   /** Non-null → the run button is disabled with this tooltip (unsaved changes). */
   disabledReason?: string | null;
+  /** Event row click — e.g. to highlight the event's step on the preview chart. */
+  onEventClick?: (event: FollowEvent) => void;
 }) {
   const period = usePeriod(configId, 'marketConfig');
   const [movePct, setMovePct] = useState(0.05);
@@ -31,6 +36,12 @@ export function FollowAnalysisCard({
   const [result, setResult] = useState<FollowAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<number | null>(null);
+
+  const pickEvent = (e: FollowEvent) => {
+    setSelectedEvent(e.time);
+    onEventClick?.(e);
+  };
 
   const disabled = !configId || !!disabledReason || loading;
 
@@ -129,6 +140,62 @@ export function FollowAnalysisCard({
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
                 За период не было движений наблюдаемых рынков сильнее порога — уменьшите порог или расширьте период.
               </Typography>
+            )}
+
+            {result.eventList.length > 0 && (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                  События ({result.eventList.length}) — клик выделяет шаг на графике
+                </Typography>
+                <Box sx={{ maxHeight: 280, overflow: 'auto' }} data-testid="fa-events">
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Время</TableCell>
+                        <TableCell>Направление</TableCell>
+                        <TableCell align="right">Движение</TableCell>
+                        <TableCell>Следование</TableCell>
+                        <TableCell align="right">Задержка</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {result.eventList.map((e) => (
+                        <TableRow
+                          key={e.time}
+                          hover
+                          selected={selectedEvent === e.time}
+                          onClick={() => pickEvent(e)}
+                          sx={{ cursor: 'pointer' }}
+                          data-testid={`fa-event-${e.time}`}
+                        >
+                          <TableCell>{fmtTime(e.time > 1e12 ? e.time / 1000 : e.time)}</TableCell>
+                          <TableCell>
+                            {e.direction === 'up' ? (
+                              <Chip size="small" variant="outlined" color="success" icon={<ArrowUpwardIcon />} label="вверх" />
+                            ) : (
+                              <Chip size="small" variant="outlined" color="error" icon={<ArrowDownwardIcon />} label="вниз" />
+                            )}
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {e.movedPct > 0 ? '+' : ''}{e.movedPct}%
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              size="small"
+                              label={e.followed ? 'последовал' : 'нет'}
+                              color={e.followed ? 'success' : 'default'}
+                              variant={e.followed ? 'filled' : 'outlined'}
+                            />
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {e.lagSteps != null ? `${e.lagSteps} шаг(ов)` : '—'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Box>
+              </Box>
             )}
           </Box>
         )}

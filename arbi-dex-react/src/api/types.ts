@@ -79,6 +79,16 @@ export interface FollowDirectionStats {
   followRate: number;
 }
 
+/** One significant observed move and whether the trading market followed it. */
+export interface FollowEvent {
+  time: number;
+  direction: 'up' | 'down';
+  movedPct: number;
+  followed: boolean;
+  followedAt: number | null;
+  lagSteps: number | null;
+}
+
 /** «Как часто торговый рынок следует за наблюдаемыми» over a period. */
 export interface FollowAnalysis {
   totalSteps: number;
@@ -89,6 +99,8 @@ export interface FollowAnalysis {
   down: FollowDirectionStats;
   avgLagSteps: number | null;
   avgLagMs: number | null;
+  /** Every event in chronological order (for drill-down on the chart). */
+  eventList: FollowEvent[];
   movePct: number;
   windowSteps: number;
   from: number;
