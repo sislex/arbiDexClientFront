@@ -35,6 +35,11 @@ function toLocal(unixSec: number): UTCTimestamp {
   return (unixSec - new Date(unixSec * 1000).getTimezoneOffset() * 60) as UTCTimestamp;
 }
 
+/** Inverse of `toLocal` — chart click times back to real (UTC) epoch seconds. */
+function fromLocal(localSec: number): number {
+  return localSec + new Date(localSec * 1000).getTimezoneOffset() * 60;
+}
+
 /**
  * Thin wrapper around lightweight-charts. Renders any number of line series
  * plus optional buy/sell markers. Purely presentational — legend & toggles
@@ -46,6 +51,7 @@ export function QuoteChart({
   height = 360,
   viewStartTime,
   viewEndTime,
+  onTimeClick,
 }: {
   series: ChartSeries[];
   markers?: ChartMarker[];
@@ -53,10 +59,19 @@ export function QuoteChart({
   /** When both set, the chart shows this time window (player/zoom); else fitContent. */
   viewStartTime?: number;
   viewEndTime?: number;
+  /** Called with the clicked point's time (real UTC epoch seconds). */
+  onTimeClick?: (timeSec: number) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<Map<string, ISeriesApi<'Line'>>>(new Map());
+
+  // Keep the latest handler in a ref so the click subscription (created once
+  // with the chart) always calls the current callback.
+  const onTimeClickRef = useRef(onTimeClick);
+  useEffect(() => {
+    onTimeClickRef.current = onTimeClick;
+  }, [onTimeClick]);
 
   const applyView = (chart: IChartApi) => {
     if (viewStartTime != null && viewEndTime != null && viewEndTime > viewStartTime) {
@@ -89,6 +104,10 @@ export function QuoteChart({
       handleScale: false,
     });
     chartRef.current = chart;
+
+    chart.subscribeClick((param) => {
+      if (typeof param.time === 'number') onTimeClickRef.current?.(fromLocal(param.time));
+    });
 
     const ro = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width;

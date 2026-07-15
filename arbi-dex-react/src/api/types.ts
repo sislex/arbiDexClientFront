@@ -85,6 +85,8 @@ export interface ApiClient {
     remove(id: string): Promise<void>;
     /** Bounds of available quote history for the bot's market. */
     historyRange(id: string): Promise<HistoryRange>;
+    /** Real historical quotes of the bot's market over [from, to] (no backtest run). */
+    quotes(id: string, params?: { from?: number; to?: number }): Promise<{ quotes: QuotePoint[] }>;
   };
   marketConfigs: {
     list(): Promise<MarketConfig[]>;

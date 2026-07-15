@@ -57,6 +57,29 @@ export class BotsController {
     return this.service.historyRange(user.id, id);
   }
 
+  @Get(':id/quotes')
+  @ApiOperation({
+    summary: 'Реальные котировки рынка бота за период (без прогона)',
+    description:
+      'История котировок рынка бота за [from, to] для предпросмотра периода на графике. ' +
+      'Семантика окна как у бэктеста: по умолчанию последняя неделя, границы зажимаются ' +
+      'в пределы доступной истории. Демосчёт не трогает.',
+  })
+  @ApiParam({ name: 'id' })
+  @ApiQuery({ name: 'from', required: false, description: 'Начало периода (метка времени)' })
+  @ApiQuery({ name: 'to', required: false, description: 'Конец периода (метка времени)' })
+  quotes(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.quotesRange(user.id, id, {
+      from: from !== undefined ? Number(from) : undefined,
+      to: to !== undefined ? Number(to) : undefined,
+    });
+  }
+
   @Post(':id/backtest')
   @ApiOperation({
     summary: 'Бэктест стратегии за период (обновляет демосчёт)',

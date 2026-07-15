@@ -20,6 +20,9 @@ export interface ObservedSeries {
 /** Minimum number of steps kept visible when zooming in. */
 const MIN_VISIBLE = 12;
 
+/** Normalize a timestamp to unix seconds — backend series come in ms. */
+const toSec = (t: number): number => (t > 1e12 ? Math.round(t / 1000) : t);
+
 /**
  * Full quote panel: reference (observed) lines that can be collapsed to a
  * single weighted-average line, optional trading buy/sell lines, trade markers,
@@ -33,6 +36,7 @@ export function QuoteChartPanel({
   height = 360,
   defaultWeighted = false,
   player = false,
+  onTimeClick,
 }: {
   quotes: QuotePoint[];
   observed?: ObservedSeries[];
@@ -42,6 +46,8 @@ export function QuoteChartPanel({
   defaultWeighted?: boolean;
   /** Show the history playback player (scrubber + play/pause). */
   player?: boolean;
+  /** Called with the clicked point's time in the quotes' own unit (sec/ms). */
+  onTimeClick?: (time: number) => void;
 }) {
   const [weighted, setWeighted] = useState(defaultWeighted);
   const canWeight = !!observed && observed.length > 0;
@@ -51,14 +57,19 @@ export function QuoteChartPanel({
     const out: ChartSeries[] = [];
     if (canWeight && !effectiveWeighted) {
       observed!.forEach((o, i) => {
-        out.push({ id: o.id, label: o.label, color: CATEGORICAL[i % CATEGORICAL.length], data: o.data });
+        out.push({
+          id: o.id,
+          label: o.label,
+          color: CATEGORICAL[i % CATEGORICAL.length],
+          data: o.data.map((p) => ({ time: toSec(p.time), value: p.value })),
+        });
       });
     } else {
       out.push({
         id: 'weighted',
         label: 'Средневзвешенная',
         color: CHART.weighted,
-        data: quotes.map((q) => ({ time: q.time, value: q.avgObservedQuote })),
+        data: quotes.map((q) => ({ time: toSec(q.time), value: q.avgObservedQuote })),
       });
     }
     if (hasTradingMarket) {
@@ -67,21 +78,21 @@ export function QuoteChartPanel({
         label: 'Цена покупки',
         color: CHART.buy,
         dashed: true,
-        data: quotes.map((q) => ({ time: q.time, value: q.buyQuote })),
+        data: quotes.map((q) => ({ time: toSec(q.time), value: q.buyQuote })),
       });
       out.push({
         id: 'sell',
         label: 'Цена продажи',
         color: CHART.sell,
         dashed: true,
-        data: quotes.map((q) => ({ time: q.time, value: q.sellQuote })),
+        data: quotes.map((q) => ({ time: toSec(q.time), value: q.sellQuote })),
       });
     }
     return out;
   }, [quotes, observed, canWeight, effectiveWeighted, hasTradingMarket]);
 
   const markers = useMemo<ChartMarker[]>(
-    () => (hasTradingMarket ? trades.map((t) => ({ time: t.time, side: t.side })) : []),
+    () => (hasTradingMarket ? trades.map((t) => ({ time: toSec(t.time), side: t.side })) : []),
     [trades, hasTradingMarket],
   );
 
@@ -229,8 +240,18 @@ export function QuoteChartPanel({
         </Box>
       ) : (
         <>
-          <Box ref={chartWrapRef}>
-            <QuoteChart series={series} markers={markers} height={height} viewStartTime={viewStartTime} viewEndTime={viewEndTime} />
+          <Box ref={chartWrapRef} sx={onTimeClick ? { cursor: 'crosshair' } : undefined}>
+            <QuoteChart
+              series={series}
+              markers={markers}
+              height={height}
+              viewStartTime={viewStartTime}
+              viewEndTime={viewEndTime}
+              onTimeClick={
+                onTimeClick &&
+                ((sec) => onTimeClick((quotes[0]?.time ?? 0) > 1e12 ? sec * 1000 : sec))
+              }
+            />
           </Box>
 
           {/* History playback player */}

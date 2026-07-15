@@ -103,6 +103,30 @@ export class BotsService {
   }
 
   /**
+   * Real historical quotes of the bot's market over `[from, to]` WITHOUT running
+   * a backtest — for previewing the period on a chart. Same window semantics as
+   * `backtest` (defaults to the last week, clamped to the available history).
+   */
+  async quotesRange(
+    userId: string,
+    id: string,
+    opts: { from?: number; to?: number } = {},
+  ): Promise<{ quotes: QuotePoint[]; from: number; to: number; historyFrom: number; historyTo: number }> {
+    const bot = await this.findOne(userId, id);
+
+    const { historyFrom, historyTo } = await this.marketConfigs.getHistoryRange(
+      userId,
+      bot.marketConfigId,
+    );
+    const week = historyTo > 1e12 ? 7 * 24 * 3600 * 1000 : 7 * 24 * 3600;
+    const to = clamp(opts.to ?? historyTo, historyFrom, historyTo);
+    const from = clamp(opts.from ?? to - week, historyFrom, to);
+
+    const { quotes } = await this.marketConfigs.getQuotesRange(userId, bot.marketConfigId, from, to);
+    return { quotes, from, to, historyFrom, historyTo };
+  }
+
+  /**
    * Load the bot's linked strategy, turning a missing (e.g. deleted) strategy into
    * a clear, actionable error instead of a bare "not found".
    */

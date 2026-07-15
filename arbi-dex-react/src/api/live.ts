@@ -122,6 +122,9 @@ export const liveApi: ApiClient = {
     historyRange(id) {
       return request<{ historyFrom: number; historyTo: number }>(`/bots/${id}/history-range`);
     },
+    quotes(id, params = {}) {
+      return request(`/bots/${id}/quotes`, { query: { from: params.from, to: params.to } });
+    },
   },
 
   marketConfigs: {

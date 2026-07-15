@@ -88,6 +88,13 @@ export const mockApi: ApiClient = {
         historyTo: full[full.length - 1]?.time ?? 0,
       });
     },
+    quotes: (id: string, params: { from?: number; to?: number } = {}) => {
+      const bot = db.bots.find((b) => b.id === id);
+      const full = series({ marketConfigId: bot?.marketConfigId, count: 800 });
+      const lo = params.from ?? full[0]?.time ?? 0;
+      const hi = params.to ?? full[full.length - 1]?.time ?? 0;
+      return delay({ quotes: full.filter((q) => q.time >= lo && q.time <= hi) });
+    },
   },
 
   marketConfigs: {

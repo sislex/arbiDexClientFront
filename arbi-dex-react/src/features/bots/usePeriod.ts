@@ -49,14 +49,24 @@ export function usePeriod(botId: string) {
     }
   };
 
-  // Convert between the data's time unit and a `YYYY-MM-DD` date-input string.
+  // Convert between the data's time unit and a local `YYYY-MM-DDTHH:mm`
+  // datetime-local input string.
   const toMs = (t: number): number => (unitMs ? t : t * 1000);
   const toData = (ms: number): number => (unitMs ? ms : Math.round(ms / 1000));
-  const dateStr = (t: number | null): string => (t == null ? '' : new Date(toMs(t)).toISOString().slice(0, 10));
-  const parseDate = (str: string, endOfDay: boolean): number | null => {
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  const dateStr = (t: number | null): string => {
+    if (t == null) return '';
+    const d = new Date(toMs(t));
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  /** Parse a local datetime-local string, clamped to the available history. */
+  const parseDate = (str: string): number | null => {
     if (!str) return null;
-    const ms = Date.parse(`${str}T${endOfDay ? '23:59:59' : '00:00:00'}Z`);
-    return Number.isNaN(ms) ? null : toData(ms);
+    const ms = Date.parse(str); // no zone suffix → parsed as local time
+    if (Number.isNaN(ms)) return null;
+    const t = toData(ms);
+    if (!range) return t;
+    return Math.min(Math.max(t, range.historyFrom), range.historyTo);
   };
 
   return { range, from, to, setFrom, setTo, setPreset, dateStr, parseDate, WEEK, MONTH };
