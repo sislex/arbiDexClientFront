@@ -72,6 +72,39 @@ export interface MarketPreview {
   observed: PreviewSeries[];
 }
 
+/** Per-direction stats of the follow analysis. */
+export interface FollowDirectionStats {
+  events: number;
+  followed: number;
+  followRate: number;
+}
+
+/** «Как часто торговый рынок следует за наблюдаемыми» over a period. */
+export interface FollowAnalysis {
+  totalSteps: number;
+  events: number;
+  followed: number;
+  followRate: number;
+  up: FollowDirectionStats;
+  down: FollowDirectionStats;
+  avgLagSteps: number | null;
+  avgLagMs: number | null;
+  movePct: number;
+  windowSteps: number;
+  from: number;
+  to: number;
+  historyFrom: number;
+  historyTo: number;
+  tookMs: number;
+}
+
+export interface FollowAnalysisParams {
+  movePct?: number;
+  window?: number;
+  from?: number;
+  to?: number;
+}
+
 export interface MarketPreviewParams {
   tradingMarketId?: string | null;
   observedMarketIds: string[];
@@ -116,6 +149,10 @@ export interface ApiClient {
     create(input: Omit<MarketConfig, 'id' | 'createdAt'>): Promise<MarketConfig>;
     update(id: string, patch: Partial<MarketConfig>): Promise<MarketConfig>;
     remove(id: string): Promise<void>;
+    /** Bounds of available quote history for the config's trading market. */
+    historyRange(id: string): Promise<HistoryRange>;
+    /** How often the trading market follows the observed ones over [from, to]. */
+    followAnalysis(id: string, params?: FollowAnalysisParams): Promise<FollowAnalysis>;
   };
   strategyConfigs: {
     list(): Promise<StrategyConfig[]>;

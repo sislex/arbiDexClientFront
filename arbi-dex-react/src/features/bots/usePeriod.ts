@@ -5,20 +5,21 @@ import { api } from '../../api';
 const isMsUnit = (t: number): boolean => t > 1e12;
 
 /**
- * Manages a backtest/autotune period `[from, to]` for a bot: loads the available
- * history bounds, defaults to the last week, and exposes preset/date helpers.
- * The time unit (seconds vs ms) is detected from the loaded bounds so the same
- * control works regardless of the backend's data unit.
+ * Manages a backtest/autotune/analysis period `[from, to]`: loads the available
+ * history bounds (of a bot's market or a market config), defaults to the last
+ * week, and exposes preset/date helpers. The time unit (seconds vs ms) is
+ * detected from the loaded bounds so the same control works regardless of the
+ * backend's data unit.
  */
-export function usePeriod(botId: string) {
+export function usePeriod(id: string | undefined, source: 'bot' | 'marketConfig' = 'bot') {
   const [range, setRange] = useState<{ historyFrom: number; historyTo: number } | null>(null);
   const [from, setFrom] = useState<number | null>(null);
   const [to, setTo] = useState<number | null>(null);
 
   useEffect(() => {
+    if (!id) return;
     let alive = true;
-    api.bots
-      .historyRange(botId)
+    (source === 'bot' ? api.bots.historyRange(id) : api.marketConfigs.historyRange(id))
       .then((r) => {
         if (!alive) return;
         setRange(r);
@@ -32,7 +33,7 @@ export function usePeriod(botId: string) {
     return () => {
       alive = false;
     };
-  }, [botId]);
+  }, [id, source]);
 
   const unitMs = isMsUnit(range?.historyTo ?? 0);
   const WEEK = unitMs ? 7 * 24 * 3600 * 1000 : 7 * 24 * 3600;

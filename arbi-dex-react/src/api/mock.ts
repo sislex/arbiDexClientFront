@@ -117,6 +117,70 @@ export const mockApi: ApiClient = {
       db.marketConfigs = db.marketConfigs.filter((m) => m.id !== id);
       return delay(undefined);
     },
+    historyRange: (id: string) => {
+      const full = series({ marketConfigId: id, count: 800 });
+      return delay({ historyFrom: full[0]?.time ?? 0, historyTo: full[full.length - 1]?.time ?? 0 });
+    },
+    followAnalysis: (id: string, params: { movePct?: number; window?: number; from?: number; to?: number } = {}) => {
+      const startedAt = Date.now();
+      const full = series({ marketConfigId: id, count: 800 });
+      const lo = params.from ?? full[0]?.time ?? 0;
+      const hi = params.to ?? full[full.length - 1]?.time ?? 0;
+      const quotes = full.filter((q) => q.time >= lo && q.time <= hi);
+      const movePct = params.movePct && params.movePct > 0 ? params.movePct : 0.05;
+      const windowSteps = Math.max(1, Math.round(params.window ?? 5));
+
+      // Same algorithm as the live backend (see MarketConfigsService.followAnalysis).
+      const mid = (q: QuotePoint): number => (q.buyQuote + q.sellQuote) / 2;
+      const stats = { up: { events: 0, followed: 0 }, down: { events: 0, followed: 0 } };
+      let lagStepsSum = 0;
+      let lagTimeSum = 0;
+      for (let t = 1; t < quotes.length; t++) {
+        const prevObs = quotes[t - 1].avgObservedQuote;
+        const curObs = quotes[t].avgObservedQuote;
+        const base = mid(quotes[t - 1]);
+        if (!(prevObs > 0) || !(base > 0)) continue;
+        const movedPct = ((curObs - prevObs) / prevObs) * 100;
+        if (Math.abs(movedPct) < movePct) continue;
+        const dir = movedPct > 0 ? 1 : -1;
+        const bucket = dir > 0 ? stats.up : stats.down;
+        bucket.events += 1;
+        let followedAt = -1;
+        const last = Math.min(t + windowSteps, quotes.length - 1);
+        for (let j = t; j <= last; j++) {
+          const chgPct = ((mid(quotes[j]) - base) / base) * 100;
+          if (dir > 0 ? chgPct >= movePct : chgPct <= -movePct) {
+            followedAt = j;
+            break;
+          }
+        }
+        if (followedAt >= 0) {
+          bucket.followed += 1;
+          lagStepsSum += followedAt - t;
+          lagTimeSum += quotes[followedAt].time - quotes[t].time;
+        }
+      }
+      const events = stats.up.events + stats.down.events;
+      const followed = stats.up.followed + stats.down.followed;
+      const rate = (f: number, e: number): number => (e > 0 ? +((f / e) * 100).toFixed(1) : 0);
+      return delay({
+        totalSteps: quotes.length,
+        events,
+        followed,
+        followRate: rate(followed, events),
+        up: { ...stats.up, followRate: rate(stats.up.followed, stats.up.events) },
+        down: { ...stats.down, followRate: rate(stats.down.followed, stats.down.events) },
+        avgLagSteps: followed > 0 ? +(lagStepsSum / followed).toFixed(1) : null,
+        avgLagMs: followed > 0 ? Math.round((lagTimeSum / followed) * 1000) : null,
+        movePct,
+        windowSteps,
+        from: lo,
+        to: hi,
+        historyFrom: full[0]?.time ?? 0,
+        historyTo: full[full.length - 1]?.time ?? 0,
+        tookMs: Date.now() - startedAt,
+      });
+    },
   },
 
   strategyConfigs: {

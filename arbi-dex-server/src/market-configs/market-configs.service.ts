@@ -23,6 +23,38 @@ interface NormPoint {
   mid: number;
 }
 
+/** Per-direction follow stats. */
+export interface FollowDirectionStats {
+  events: number;
+  followed: number;
+  followRate: number;
+}
+
+/** «Как часто торговый рынок следует за наблюдаемыми» over a period. */
+export interface FollowAnalysisResult {
+  totalSteps: number;
+  events: number;
+  followed: number;
+  /** % of significant observed moves the trading market repeated within the window. */
+  followRate: number;
+  up: FollowDirectionStats;
+  down: FollowDirectionStats;
+  /** Average catch-up delay over followed events; null when none followed. */
+  avgLagSteps: number | null;
+  avgLagMs: number | null;
+  /** Echoed parameters and the resolved period. */
+  movePct: number;
+  windowSteps: number;
+  from: number;
+  to: number;
+  historyFrom: number;
+  historyTo: number;
+  /** Server-side computation time, ms. */
+  tookMs: number;
+}
+
+const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v, lo), hi);
+
 @Injectable()
 export class MarketConfigsService {
   constructor(
@@ -158,6 +190,94 @@ export class MarketConfigsService {
       };
     }
     return { historyFrom: series[0].time, historyTo: series[series.length - 1].time };
+  }
+
+  /**
+   * «Как часто торговый рынок следует за наблюдаемыми»: for every step where the
+   * weighted observed price moved by ≥ `movePct`% vs the previous step (an
+   * event), check whether the trading market's mid moved in the same direction
+   * by ≥ `movePct`% from its pre-event level within the next `windowSteps`
+   * steps. Returns the follow rate (overall and per direction), the average
+   * catch-up lag and the computation time. Period semantics match the backtest:
+   * `[from, to]` clamped to the available history, defaulting to the last week.
+   */
+  async followAnalysis(
+    userId: string,
+    id: string,
+    opts: { movePct?: number; window?: number; from?: number; to?: number } = {},
+  ): Promise<FollowAnalysisResult> {
+    const startedAt = Date.now();
+
+    const { historyFrom, historyTo } = await this.getHistoryRange(userId, id);
+    const week = historyTo > 1e12 ? 7 * 24 * 3600 * 1000 : 7 * 24 * 3600;
+    const to = clamp(opts.to ?? historyTo, historyFrom, historyTo);
+    const from = clamp(opts.from ?? to - week, historyFrom, to);
+
+    const { quotes } = await this.getQuotesRange(userId, id, from, to);
+
+    const movePct = opts.movePct && opts.movePct > 0 ? opts.movePct : 0.05;
+    const windowSteps = Math.max(1, Math.round(opts.window ?? 5));
+
+    const mid = (q: QuotePoint): number => (q.buyQuote + q.sellQuote) / 2;
+    const stats = {
+      up: { events: 0, followed: 0 },
+      down: { events: 0, followed: 0 },
+    };
+    let lagStepsSum = 0;
+    let lagTimeSum = 0;
+
+    for (let t = 1; t < quotes.length; t++) {
+      const prevObs = quotes[t - 1].avgObservedQuote;
+      const curObs = quotes[t].avgObservedQuote;
+      const base = mid(quotes[t - 1]);
+      if (!(prevObs > 0) || !(base > 0)) continue;
+
+      const movedPct = ((curObs - prevObs) / prevObs) * 100;
+      if (Math.abs(movedPct) < movePct) continue;
+
+      const dir = movedPct > 0 ? 1 : -1;
+      const bucket = dir > 0 ? stats.up : stats.down;
+      bucket.events += 1;
+
+      // Did the trading mid move ≥ movePct% in the same direction within the window?
+      let followedAt = -1;
+      const last = Math.min(t + windowSteps, quotes.length - 1);
+      for (let j = t; j <= last; j++) {
+        const chgPct = ((mid(quotes[j]) - base) / base) * 100;
+        if (dir > 0 ? chgPct >= movePct : chgPct <= -movePct) {
+          followedAt = j;
+          break;
+        }
+      }
+      if (followedAt >= 0) {
+        bucket.followed += 1;
+        lagStepsSum += followedAt - t;
+        lagTimeSum += quotes[followedAt].time - quotes[t].time;
+      }
+    }
+
+    const events = stats.up.events + stats.down.events;
+    const followed = stats.up.followed + stats.down.followed;
+    const rate = (f: number, e: number): number => (e > 0 ? +((f / e) * 100).toFixed(1) : 0);
+    const unitMs = (quotes[quotes.length - 1]?.time ?? 0) > 1e12;
+
+    return {
+      totalSteps: quotes.length,
+      events,
+      followed,
+      followRate: rate(followed, events),
+      up: { ...stats.up, followRate: rate(stats.up.followed, stats.up.events) },
+      down: { ...stats.down, followRate: rate(stats.down.followed, stats.down.events) },
+      avgLagSteps: followed > 0 ? +(lagStepsSum / followed).toFixed(1) : null,
+      avgLagMs: followed > 0 ? Math.round((lagTimeSum / followed) * (unitMs ? 1 : 1000)) : null,
+      movePct,
+      windowSteps,
+      from,
+      to,
+      historyFrom,
+      historyTo,
+      tookMs: Date.now() - startedAt,
+    };
   }
 
   /** Fetch a market's real data and normalise each point to bid/ask/mid. */

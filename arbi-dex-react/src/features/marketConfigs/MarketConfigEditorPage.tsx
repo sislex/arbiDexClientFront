@@ -13,6 +13,7 @@ import { useAppDispatch, useAppSelector } from '../../store';
 import { fetchMarketConfigs, createMarketConfig, updateMarketConfig } from '../../store/marketConfigsSlice';
 import { fetchMarkets } from '../../store/catalogSlice';
 import { MarketPicker } from './MarketPicker';
+import { FollowAnalysisCard } from './FollowAnalysisCard';
 import { findMarket, marketLabel } from './marketLabel';
 import { api, IS_LIVE } from '../../api';
 import type { MarketPreview, PreviewSeries } from '../../api/types';
@@ -157,6 +158,20 @@ export function MarketConfigEditorPage() {
   // но торговать по ней нельзя (нет средневзвешенной цены).
   const canSave = name.trim().length > 0 && !!tradingMarketId;
 
+  // Анализ следования считается по СОХРАНЁННОЙ конфигурации — кнопка недоступна
+  // для новой или изменённой, но не сохранённой конфигурации.
+  const dirty =
+    !!existing &&
+    (name.trim() !== existing.name ||
+      (tradingMarketId ?? '') !== (existing.tradingMarketId || '') ||
+      observedMarketIds.join(',') !== existing.observedMarketIds.join(',') ||
+      useWeightedAverage !== existing.useWeightedAverage);
+  const followDisabledReason = isNew
+    ? 'Сохраните конфигурацию, чтобы запустить анализ'
+    : dirty
+      ? 'Есть несохранённые изменения — сохраните конфигурацию'
+      : null;
+
   const addObserved = () => {
     if (pendingObserved && !observedMarketIds.includes(pendingObserved)) {
       setObservedMarketIds((ids) => [...ids, pendingObserved]);
@@ -257,7 +272,8 @@ export function MarketConfigEditorPage() {
           </CardContent>
         </Card>
 
-        <Card sx={{ flexGrow: 1, width: '100%' }}>
+        <Stack spacing={2} sx={{ flexGrow: 1, width: '100%', minWidth: 0 }}>
+        <Card>
           <CardContent>
             <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
               <Stack direction="row" spacing={1} alignItems="center">
@@ -318,6 +334,9 @@ export function MarketConfigEditorPage() {
             )}
           </CardContent>
         </Card>
+
+        <FollowAnalysisCard configId={id} disabledReason={followDisabledReason} />
+        </Stack>
       </Stack>
     </Box>
   );

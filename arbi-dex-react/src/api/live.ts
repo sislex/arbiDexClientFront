@@ -166,6 +166,14 @@ export const liveApi: ApiClient = {
     remove(id) {
       return request<void>(`/market-configs/${id}`, { method: 'DELETE' });
     },
+    historyRange(id) {
+      return request<{ historyFrom: number; historyTo: number }>(`/market-configs/${id}/history-range`);
+    },
+    followAnalysis(id, params = {}) {
+      return request(`/market-configs/${id}/follow-analysis`, {
+        query: { movePct: params.movePct, window: params.window, from: params.from, to: params.to },
+      });
+    },
   },
 
   strategyConfigs: {
