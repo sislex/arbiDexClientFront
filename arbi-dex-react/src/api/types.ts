@@ -5,9 +5,12 @@ import type {
   Market,
   MarketConfig,
   QuotePoint,
+  StepEngineResult,
   StrategyConfig,
   User,
 } from '../domain/types';
+
+export type { StepConditionOutcome } from '../domain/types';
 
 /** How to authenticate the wallet: real MetaMask or the dev test key. */
 export type WalletMethod = 'metamask' | 'dev';
@@ -39,35 +42,21 @@ export interface HistoryRange {
   historyTo: number;
 }
 
-/** Outcome of a single strategy condition on a step (engine ConditionOutcome). */
-export interface StepConditionOutcome {
-  passed: boolean;
-  actual?: number;
-  required?: number;
-}
-
 /** Engine evaluation of one step (TradingConditionsStepResult + step context). */
-export interface BotStepResult {
-  transaction: { buy: boolean; sell: boolean; forcedSell: boolean };
-  condition: {
-    buy: Record<string, StepConditionOutcome>;
-    sell: Record<string, StepConditionOutcome>;
-  };
-  meta: {
-    lastStepTime: number;
-    transactionInProgress: boolean;
-    lastFinishedTransactionTime: number | null;
-  };
+export interface BotStepResult extends StepEngineResult {
   /** The resolved (nearest ≤ time) step the strategy was evaluated on. */
   step: QuotePoint;
   /** Index of the evaluated step within the history (0-based). */
   index: number;
   /** Steps available up to the evaluated time. */
   totalSteps: number;
-  /** Steps actually fed into processStep (window sized by the bot's conditions). */
-  windowSteps: number;
-  historyFrom: number;
-  historyTo: number;
+  /** Steps actually fed into processStep (window sized by the bot's conditions).
+   * Absent when the breakdown comes from a recorded backtest run. */
+  windowSteps?: number;
+  historyFrom?: number;
+  historyTo?: number;
+  /** Server-side computation time, ms (absent for recorded backtest breakdowns). */
+  tookMs?: number;
 }
 
 /** One reference-market line for the market-config preview. */

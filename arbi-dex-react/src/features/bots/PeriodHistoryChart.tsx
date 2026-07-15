@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Box, Button, Card, CardContent, CircularProgress, Stack, Typography } from '@mui/material';
 import HighlightAltIcon from '@mui/icons-material/HighlightAlt';
 import type { QuotePoint, Trade } from '../../domain/types';
@@ -20,6 +20,7 @@ export function PeriodHistoryChart({
   idPrefix,
   height = 340,
   onStepClick,
+  selectRequest,
 }: {
   botId: string;
   period: PeriodState;
@@ -30,9 +31,20 @@ export function PeriodHistoryChart({
   height?: number;
   /** Chart click outside the pick-period mode — e.g. to inspect the step. */
   onStepClick?: (time: number) => void;
+  /** External request to select a step (e.g. a trades-table row click).
+   * Pass a fresh object per request so repeated picks re-apply. */
+  selectRequest?: { time: number } | null;
 }) {
   const [quotes, setQuotes] = useState<QuotePoint[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // The persistently highlighted step: the clicked one, or the last step by default.
+  const [selectedTime, setSelectedTime] = useState<number | null>(null);
+
+  // Keep the latest callback out of the fetch effect's deps.
+  const onStepClickRef = useRef(onStepClick);
+  onStepClickRef.current = onStepClick;
+
   useEffect(() => {
     // Wait until usePeriod resolves the default period so we don't fetch twice.
     if (period.from == null || period.to == null) return;
@@ -41,7 +53,12 @@ export function PeriodHistoryChart({
     api.bots
       .quotes(botId, { from: period.from, to: period.to })
       .then((r) => {
-        if (!cancelled) setQuotes(r.quotes);
+        if (cancelled) return;
+        setQuotes(r.quotes);
+        // New period → selection falls back to the last step (and is inspected).
+        setSelectedTime(null);
+        const last = r.quotes[r.quotes.length - 1];
+        if (last) onStepClickRef.current?.(last.time);
       })
       .catch(() => {
         if (!cancelled) setQuotes([]);
@@ -53,6 +70,17 @@ export function PeriodHistoryChart({
       cancelled = true;
     };
   }, [botId, period.from, period.to]);
+
+  const effectiveSelected = selectedTime ?? quotes[quotes.length - 1]?.time ?? null;
+  const handleStepClick = (time: number) => {
+    setSelectedTime(time);
+    onStepClick?.(time);
+  };
+
+  // External selection (e.g. a trades-table row click) moves the highlight too.
+  useEffect(() => {
+    if (selectRequest) setSelectedTime(selectRequest.time);
+  }, [selectRequest]);
 
   // Pick the period by clicking the chart: first click → «Начало», second → «Конец».
   const [pick, setPick] = useState<'idle' | 'from' | 'to'>('idle');
@@ -108,7 +136,8 @@ export function PeriodHistoryChart({
             height={height}
             defaultWeighted
             player
-            onTimeClick={pick === 'idle' ? onStepClick : onChartTimeClick}
+            onTimeClick={pick === 'idle' ? handleStepClick : onChartTimeClick}
+            selectedTime={effectiveSelected}
           />
         )}
       </CardContent>

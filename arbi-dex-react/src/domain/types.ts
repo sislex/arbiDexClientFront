@@ -117,6 +117,27 @@ export interface BacktestStats {
   finalBalance: number;
 }
 
+/** Engine outcome of one condition on a step. */
+export interface StepConditionOutcome {
+  passed: boolean;
+  actual?: number;
+  required?: number;
+}
+
+/** Engine evaluation of one step (mirrors TradingConditionsStepResult). */
+export interface StepEngineResult {
+  transaction: { buy: boolean; sell: boolean; forcedSell: boolean };
+  condition: {
+    buy: Record<string, StepConditionOutcome>;
+    sell: Record<string, StepConditionOutcome>;
+  };
+  meta: {
+    lastStepTime: number;
+    transactionInProgress: boolean;
+    lastFinishedTransactionTime: number | null;
+  };
+}
+
 export interface BacktestResult {
   id: string;
   from: number;
@@ -124,6 +145,10 @@ export interface BacktestResult {
   quotes: QuotePoint[];
   trades: Trade[];
   stats: BacktestStats;
+  /** Per-step engine breakdowns recorded during the run (live backend only). */
+  stepResults?: { index: number; time: number; result: StepEngineResult }[];
+  /** Server-side computation time, ms (live backend only). */
+  tookMs?: number;
 }
 
 // ── Auto-tuning ───────────────────────────────────────────────────────────────

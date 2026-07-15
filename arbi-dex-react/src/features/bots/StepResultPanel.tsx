@@ -1,9 +1,10 @@
-import { Alert, Box, Card, CardContent, Chip, CircularProgress, Divider, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Divider, Stack, Typography } from '@mui/material';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import HighlightOffIcon from '@mui/icons-material/HighlightOff';
+import CalculateIcon from '@mui/icons-material/Calculate';
 import type { BotStepResult, StepConditionOutcome } from '../../api/types';
 import { getCatalogEntry } from '../../domain/conditionsCatalog';
-import { fmtTime } from '../../components/format';
+import { fmtDuration, fmtTime } from '../../components/format';
 
 /** Compact number for actual/required condition values. */
 function fmtNum(v: number): string {
@@ -44,10 +45,16 @@ export function StepResultPanel({
   result,
   loading,
   error,
+  source,
+  onRecalc,
 }: {
   result: BotStepResult | null;
   loading: boolean;
   error: string | null;
+  /** Where the breakdown came from: a recorded backtest run or a live API call. */
+  source?: 'backtest' | 'api' | null;
+  /** Re-evaluate the selected step via the API. */
+  onRecalc?: () => void;
 }) {
   return (
     <Card sx={{ flexGrow: 1, minWidth: 0 }} data-testid="step-result-panel">
@@ -55,6 +62,33 @@ export function StepResultPanel({
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
           <Typography variant="subtitle1">Разбор шага</Typography>
           {loading && <CircularProgress size={16} />}
+          {result && source && (
+            <Chip
+              size="small"
+              variant="outlined"
+              label={source === 'backtest' ? 'из бэктеста' : 'из API'}
+              data-testid="step-source"
+            />
+          )}
+          {result?.tookMs != null && (
+            <Typography variant="caption" color="text.secondary" data-testid="step-took">
+              за {fmtDuration(result.tookMs)}
+            </Typography>
+          )}
+          <Box sx={{ flexGrow: 1 }} />
+          {onRecalc && (
+            <Button
+              size="small"
+              variant="outlined"
+              color="inherit"
+              startIcon={<CalculateIcon />}
+              onClick={onRecalc}
+              disabled={loading}
+              data-testid="step-recalc"
+            >
+              Рассчитать в API
+            </Button>
+          )}
         </Stack>
 
         {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
@@ -71,7 +105,8 @@ export function StepResultPanel({
           <Stack spacing={1.25} data-testid="step-result">
             <Typography variant="caption" color="text.secondary">
               {fmtTime((result.step.time > 1e12 ? result.step.time / 1000 : result.step.time))} · шаг{' '}
-              {result.index + 1}/{result.totalSteps} · окно {result.windowSteps} шаг(ов)
+              {result.index + 1}/{result.totalSteps}
+              {result.windowSteps != null && ` · окно ${result.windowSteps} шаг(ов)`}
             </Typography>
 
             <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 0.5 }}>

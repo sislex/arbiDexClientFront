@@ -15,10 +15,22 @@ import type {
   PositionState,
   TradingConditionsStepResult,
 } from '@sislex/arbi-conditions-libs';
+/** Per-step engine breakdown recorded during a backtest run. */
+export interface BacktestStepRecord {
+  index: number;
+  time: number;
+  result: TradingConditionsStepResult;
+}
+
 /** Result of a bot backtest: the demo `BacktestResult` plus the resolved window. */
 export interface BotBacktestResult extends BacktestResult {
   historyFrom: number;
   historyTo: number;
+  /** Engine evaluation of every step (with the real position state) — lets the
+   * UI show the step breakdown without extra API calls. */
+  stepResults: BacktestStepRecord[];
+  /** Server-side computation time, ms (data load + engine run). */
+  tookMs: number;
 }
 
 /** Engine evaluation of a single step: signals + per-condition breakdown. */
@@ -33,6 +45,8 @@ export interface BotStepResult extends TradingConditionsStepResult {
   windowSteps: number;
   historyFrom: number;
   historyTo: number;
+  /** Server-side computation time, ms. */
+  tookMs: number;
 }
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v, lo), hi);
@@ -155,6 +169,7 @@ export class BotsService {
     id: string,
     opts: { from?: number; to?: number } = {},
   ): Promise<BotBacktestResult> {
+    const startedAt = Date.now();
     const bot = await this.findOne(userId, id);
 
     const { historyFrom, historyTo } = await this.marketConfigs.getHistoryRange(
@@ -175,11 +190,13 @@ export class BotsService {
       quotes: { buyQuote: q.buyQuote, sellQuote: q.sellQuote, avgObservedQuote: q.avgObservedQuote },
     }));
 
+    const stepResults: BacktestStepRecord[] = [];
     const engineResult = runBacktest(steps, engineStrategy, {
       initialBalance: bot.initialBalance,
       conditions: gates,
       triggerConditions: triggers,
       id: `bt_${bot.id}`,
+      onStepResult: (record) => stepResults.push(record),
     });
 
     const trades: Trade[] = engineResult.trades.map((t) => ({
@@ -201,6 +218,8 @@ export class BotsService {
       stats: engineResult.stats,
       historyFrom,
       historyTo,
+      stepResults,
+      tookMs: Date.now() - startedAt,
     };
 
     // Update the demo account.
@@ -230,6 +249,7 @@ export class BotsService {
     id: string,
     opts: { time?: number; entryPrice?: number; openedAt?: number; size?: number } = {},
   ): Promise<BotStepResult> {
+    const startedAt = Date.now();
     const bot = await this.findOne(userId, id);
 
     const { historyFrom, historyTo } = await this.marketConfigs.getHistoryRange(
@@ -281,6 +301,7 @@ export class BotsService {
       windowSteps: params.steps.length,
       historyFrom,
       historyTo,
+      tookMs: Date.now() - startedAt,
     };
   }
 

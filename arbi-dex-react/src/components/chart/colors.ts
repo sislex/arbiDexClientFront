@@ -6,6 +6,8 @@ export const CHART = {
   sell: '#e2445c',
   grid: 'rgba(255,255,255,0.06)',
   text: 'rgba(255,255,255,0.55)',
+  /** Persistent selected-step marker. */
+  selected: '#ffd166',
 };
 
 /** Distinct colors for individual observed-market lines. */

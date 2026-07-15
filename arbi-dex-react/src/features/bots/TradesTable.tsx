@@ -10,7 +10,27 @@ const REASON_LABEL: Record<string, string> = {
   close_at_end: 'закрытие в конце',
 };
 
-export function TradesTable({ trades }: { trades: Trade[] }) {
+export function TradesTable({
+  trades,
+  baseAsset,
+  quoteAsset,
+  onRowClick,
+}: {
+  trades: Trade[];
+  /** Traded pair assets — «Получено» is shown in the received one per side. */
+  baseAsset?: string;
+  quoteAsset?: string;
+  /** Row click — e.g. to highlight the trade's step on the chart. */
+  onRowClick?: (trade: Trade) => void;
+}) {
+  // What we RECEIVE in the trade: buy → tokens, sell → cash. The price feed is
+  // denominated «cash per token», which for these markets maps to the pair's
+  // quote asset being the token and the base asset being the cash.
+  const received = (t: Trade): string => {
+    const value = t.side === 'buy' ? t.amount : t.amount * t.price;
+    const asset = t.side === 'buy' ? quoteAsset : baseAsset;
+    return `${value.toFixed(4)}${asset ? ` ${asset}` : ''}`;
+  };
   return (
     <Box sx={{ maxHeight: 320, overflow: 'auto' }} data-testid="trades-table">
       <Table size="small" stickyHeader>
@@ -19,20 +39,26 @@ export function TradesTable({ trades }: { trades: Trade[] }) {
             <TableCell>Время</TableCell>
             <TableCell>Сторона</TableCell>
             <TableCell align="right">Цена</TableCell>
-            <TableCell align="right">Объём</TableCell>
+            <TableCell align="right">Получено</TableCell>
             <TableCell align="right">PnL</TableCell>
             <TableCell>Причина</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {trades.map((t) => (
-            <TableRow key={t.id}>
-              <TableCell>{fmtTime(t.time)}</TableCell>
+            <TableRow
+              key={t.id}
+              hover={!!onRowClick}
+              onClick={() => onRowClick?.(t)}
+              sx={onRowClick ? { cursor: 'pointer' } : undefined}
+              data-testid={`trade-row-${t.id}`}
+            >
+              <TableCell>{fmtTime(t.time > 1e12 ? t.time / 1000 : t.time)}</TableCell>
               <TableCell>
                 <Chip size="small" label={t.side === 'buy' ? 'Покупка' : 'Продажа'} color={t.side === 'buy' ? 'success' : 'error'} variant="outlined" />
               </TableCell>
               <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{t.price}</TableCell>
-              <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{t.amount.toFixed(4)}</TableCell>
+              <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>{received(t)}</TableCell>
               <TableCell align="right">{t.pnl != null ? <PnlValue value={t.pnl} /> : '—'}</TableCell>
               <TableCell>
                 <Typography variant="caption" color="text.secondary">{t.reason ? REASON_LABEL[t.reason] ?? t.reason : '—'}</Typography>

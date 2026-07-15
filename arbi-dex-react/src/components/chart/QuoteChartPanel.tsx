@@ -37,6 +37,7 @@ export function QuoteChartPanel({
   defaultWeighted = false,
   player = false,
   onTimeClick,
+  selectedTime,
 }: {
   quotes: QuotePoint[];
   observed?: ObservedSeries[];
@@ -48,6 +49,8 @@ export function QuoteChartPanel({
   player?: boolean;
   /** Called with the clicked point's time in the quotes' own unit (sec/ms). */
   onTimeClick?: (time: number) => void;
+  /** Persistently highlighted step (in the quotes' own unit). */
+  selectedTime?: number | null;
 }) {
   const [weighted, setWeighted] = useState(defaultWeighted);
   const canWeight = !!observed && observed.length > 0;
@@ -251,6 +254,7 @@ export function QuoteChartPanel({
                 onTimeClick &&
                 ((sec) => onTimeClick((quotes[0]?.time ?? 0) > 1e12 ? sec * 1000 : sec))
               }
+              selectedTime={selectedTime != null ? toSec(selectedTime) : null}
             />
           </Box>
 

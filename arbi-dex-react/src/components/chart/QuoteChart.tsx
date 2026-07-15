@@ -6,6 +6,8 @@ import {
   LineType,
   type IChartApi,
   type ISeriesApi,
+  type ISeriesPrimitive,
+  type SeriesAttachedParameter,
   type UTCTimestamp,
   type SeriesMarker,
   type Time,
@@ -25,6 +27,59 @@ export interface ChartMarker {
   time: number;
   side: 'buy' | 'sell';
   text?: string;
+}
+
+/** Series primitive drawing a dashed vertical line at the selected step. */
+class SelectedTimeLine implements ISeriesPrimitive<Time> {
+  private _time: UTCTimestamp | null = null;
+  private _chart: IChartApi | null = null;
+  private _requestUpdate: (() => void) | null = null;
+
+  attached({ chart, requestUpdate }: SeriesAttachedParameter<Time>) {
+    this._chart = chart;
+    this._requestUpdate = requestUpdate;
+  }
+
+  detached() {
+    this._chart = null;
+    this._requestUpdate = null;
+  }
+
+  setTime(t: UTCTimestamp | null) {
+    this._time = t;
+    this._requestUpdate?.();
+  }
+
+  paneViews() {
+    return [
+      {
+        renderer: () => ({
+          draw: (target: {
+            useMediaCoordinateSpace: (
+              cb: (scope: { context: CanvasRenderingContext2D; mediaSize: { width: number; height: number } }) => void,
+            ) => void;
+          }) => {
+            const time = this._time;
+            const chart = this._chart;
+            if (time == null || !chart) return;
+            const x = chart.timeScale().timeToCoordinate(time);
+            if (x == null) return;
+            target.useMediaCoordinateSpace(({ context, mediaSize }) => {
+              context.save();
+              context.strokeStyle = CHART.selected;
+              context.lineWidth = 1;
+              context.setLineDash([4, 3]);
+              context.beginPath();
+              context.moveTo(x, 0);
+              context.lineTo(x, mediaSize.height);
+              context.stroke();
+              context.restore();
+            });
+          },
+        }),
+      },
+    ];
+  }
 }
 
 /** lightweight-charts renders the time scale in UTC and has no timezone
@@ -52,6 +107,7 @@ export function QuoteChart({
   viewStartTime,
   viewEndTime,
   onTimeClick,
+  selectedTime,
 }: {
   series: ChartSeries[];
   markers?: ChartMarker[];
@@ -61,10 +117,14 @@ export function QuoteChart({
   viewEndTime?: number;
   /** Called with the clicked point's time (real UTC epoch seconds). */
   onTimeClick?: (timeSec: number) => void;
+  /** Dashed vertical line at this time (real UTC epoch seconds). */
+  selectedTime?: number | null;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<Map<string, ISeriesApi<'Line'>>>(new Map());
+  const selectedLineRef = useRef<SelectedTimeLine>(new SelectedTimeLine());
+  const selectedHostRef = useRef<ISeriesApi<'Line'> | null>(null);
 
   // Keep the latest handler in a ref so the click subscription (created once
   // with the chart) always calls the current callback.
@@ -121,6 +181,7 @@ export function QuoteChart({
       chart.remove();
       chartRef.current = null;
       seriesRef.current.clear();
+      selectedHostRef.current = null;
     };
   }, [height]);
 
@@ -159,16 +220,25 @@ export function QuoteChart({
       if (!markerHost) markerHost = s;
     }
 
-    // Attach markers to the first series.
+    // Attach markers to the first series (sorted — the lib requires ascending times).
     if (markerHost) {
-      const ms: SeriesMarker<Time>[] = markers.map((m) => ({
-        time: toLocal(m.time),
-        position: m.side === 'buy' ? 'belowBar' : 'aboveBar',
-        color: m.side === 'buy' ? CHART.buy : CHART.sell,
-        shape: m.side === 'buy' ? 'arrowUp' : 'arrowDown',
-        text: m.text ?? (m.side === 'buy' ? 'B' : 'S'),
-      }));
+      const ms: SeriesMarker<Time>[] = [...markers]
+        .sort((a, b) => a.time - b.time)
+        .map((m) => ({
+          time: toLocal(m.time),
+          position: m.side === 'buy' ? 'belowBar' : 'aboveBar',
+          color: m.side === 'buy' ? CHART.buy : CHART.sell,
+          shape: m.side === 'buy' ? 'arrowUp' : 'arrowDown',
+          text: m.text ?? (m.side === 'buy' ? 'B' : 'S'),
+        }));
       markerHost.setMarkers(ms);
+    }
+
+    // Keep the selected-time line primitive attached to the (possibly new) first series.
+    if (selectedHostRef.current !== markerHost) {
+      selectedHostRef.current?.detachPrimitive(selectedLineRef.current);
+      markerHost?.attachPrimitive(selectedLineRef.current);
+      selectedHostRef.current = markerHost;
     }
     applyView(chart);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -180,6 +250,11 @@ export function QuoteChart({
     if (chart) applyView(chart);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewStartTime, viewEndTime]);
+
+  // Move the selected-step vertical line.
+  useEffect(() => {
+    selectedLineRef.current.setTime(selectedTime != null ? toLocal(selectedTime) : null);
+  }, [selectedTime]);
 
   return <Box ref={containerRef} data-testid="quote-chart" sx={{ width: '100%', height }} />;
 }

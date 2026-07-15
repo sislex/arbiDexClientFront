@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Box, Card, CardContent, Stack, Button, TextField, Typography, CircularProgress, Divider, Alert,
 } from '@mui/material';
@@ -6,9 +6,9 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import type { Bot } from '../../domain/types';
 import { StatCard } from '../../components/StatCard';
 import { PnlValue } from '../../components/PnlValue';
-import { fmtMoney } from '../../components/format';
+import { fmtDuration, fmtMoney } from '../../components/format';
 import { useAppDispatch, useAppSelector } from '../../store';
-import { runBacktest } from '../../store/tradingSlice';
+import { runBacktest, clearBacktest } from '../../store/tradingSlice';
 import { fetchBot } from '../../store/botsSlice';
 import { api } from '../../api';
 import type { BotStepResult } from '../../api/types';
@@ -26,21 +26,66 @@ export function BacktestTab({ bot }: { bot: Bot }) {
   const [initialBalance, setInitialBalance] = useState(bot.initialBalance);
   const period = usePeriod(bot.id);
 
-  // Engine evaluation (processStep) of the clicked chart step → side panel.
+  // Changing the period invalidates the previous run: drop its stats/trades so
+  // the chart shows plain history without trade marks until the next run.
+  useEffect(() => {
+    dispatch(clearBacktest());
+  }, [dispatch, period.from, period.to]);
+
+  // Engine evaluation of the selected step → side panel.
   const [stepResult, setStepResult] = useState<BotStepResult | null>(null);
+  const [stepSource, setStepSource] = useState<'backtest' | 'api' | null>(null);
   const [stepLoading, setStepLoading] = useState(false);
   const [stepError, setStepError] = useState<string | null>(null);
-  const inspectStep = async (time: number) => {
+  const [inspectTime, setInspectTime] = useState<number | null>(null);
+
+  const inspectViaApi = async (time: number) => {
     setStepLoading(true);
     setStepError(null);
     try {
       setStepResult(await api.bots.stepResult(bot.id, { time }));
+      setStepSource('api');
     } catch (e) {
       setStepResult(null);
+      setStepSource(null);
       setStepError((e as Error).message);
     } finally {
       setStepLoading(false);
     }
+  };
+
+  // Selecting a step: when a backtest has run, its recorded per-step results
+  // already contain the breakdown — show it instantly instead of calling the
+  // API. Without a run (or a record miss) fall back to the API.
+  const inspectStep = (time: number) => {
+    setInspectTime(time);
+    const records = result?.stepResults;
+    if (records?.length) {
+      // Nearest recorded step at or before the clicked time.
+      let rec = records[0];
+      for (const r of records) {
+        if (r.time <= time && r.time >= rec.time) rec = r;
+      }
+      const quote = result!.quotes[rec.index] ?? result!.quotes[result!.quotes.length - 1];
+      setStepError(null);
+      setStepResult({
+        ...rec.result,
+        step: quote,
+        index: rec.index,
+        totalSteps: records.length,
+      });
+      setStepSource('backtest');
+      return;
+    }
+    void inspectViaApi(time);
+  };
+
+  // A trades-table row click selects the trade's step on the chart (same as a
+  // manual chart click) and inspects it.
+  const [selectRequest, setSelectRequest] = useState<{ time: number } | null>(null);
+  const selectTrade = (t: { time: number }) => {
+    setSelectRequest({ time: t.time });
+    inspectStep(t.time);
   };
 
   const run = async () => {
@@ -104,9 +149,16 @@ export function BacktestTab({ bot }: { bot: Bot }) {
             title={result ? 'График с транзакциями' : 'История котировок за период'}
             idPrefix="bt"
             onStepClick={inspectStep}
+            selectRequest={selectRequest}
           />
         </Box>
-        <StepResultPanel result={stepResult} loading={stepLoading} error={stepError} />
+        <StepResultPanel
+          result={stepResult}
+          loading={stepLoading}
+          error={stepError}
+          source={stepSource}
+          onRecalc={inspectTime != null ? () => void inspectViaApi(inspectTime) : undefined}
+        />
       </Stack>
 
       {!result && status === 'idle' && (
@@ -125,13 +177,19 @@ export function BacktestTab({ bot }: { bot: Bot }) {
             <StatCard label="Сделок" value={s.trades} />
             <StatCard label="Winrate" value={`${s.winRate}%`} />
             <StatCard label="Макс. просадка" value={`${s.maxDrawdownPct}%`} />
+            {result.tookMs != null && <StatCard label="Время расчёта" value={fmtDuration(result.tookMs)} />}
           </Stack>
 
           <Card>
             <CardContent>
               <Typography variant="subtitle1" sx={{ mb: 1 }}>Сделки ({result.trades.length})</Typography>
               <Divider sx={{ mb: 1 }} />
-              <TradesTable trades={result.trades} />
+              <TradesTable
+                trades={result.trades}
+                baseAsset={bot.baseAsset}
+                quoteAsset={bot.quoteAsset}
+                onRowClick={selectTrade}
+              />
             </CardContent>
           </Card>
         </Stack>
