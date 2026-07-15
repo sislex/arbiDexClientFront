@@ -116,6 +116,9 @@ export const liveApi: ApiClient = {
     update(id, patch) {
       return request<Bot>(`/bots/${id}`, { method: 'PATCH', body: patch });
     },
+    remove(id) {
+      return request<void>(`/bots/${id}`, { method: 'DELETE' });
+    },
     historyRange(id) {
       return request<{ historyFrom: number; historyTo: number }>(`/bots/${id}/history-range`);
     },

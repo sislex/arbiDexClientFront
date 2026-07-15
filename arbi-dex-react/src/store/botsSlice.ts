@@ -22,6 +22,10 @@ export const updateBot = createAsyncThunk(
   'bots/update',
   ({ id, patch }: { id: string; patch: Partial<Bot> }) => api.bots.update(id, patch),
 );
+export const removeBot = createAsyncThunk('bots/remove', async (id: string) => {
+  await api.bots.remove(id);
+  return id;
+});
 
 const botsSlice = createSlice({
   name: 'bots',
@@ -49,6 +53,10 @@ const botsSlice = createSlice({
       const i = s.items.findIndex((x) => x.id === a.payload.id);
       if (i >= 0) s.items[i] = a.payload;
       if (s.current?.id === a.payload.id) s.current = a.payload;
+    });
+    b.addCase(removeBot.fulfilled, (s, a) => {
+      s.items = s.items.filter((x) => x.id !== a.payload);
+      if (s.current?.id === a.payload) s.current = null;
     });
   },
 });

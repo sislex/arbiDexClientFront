@@ -1,17 +1,18 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Button, Card, CardContent, IconButton, Table, TableBody, TableCell, TableHead, TableRow,
-  Tooltip, Typography,
+  Tooltip, Typography, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
 } from '@mui/material';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
 import EditIcon from '@mui/icons-material/Edit';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { PageHeader } from '../../components/PageHeader';
 import { StatusBadge } from '../../components/StatusBadge';
 import { PnlValue } from '../../components/PnlValue';
 import { fmtMoney } from '../../components/format';
 import { useAppDispatch, useAppSelector } from '../../store';
-import { fetchBots } from '../../store/botsSlice';
+import { fetchBots, removeBot } from '../../store/botsSlice';
 import { fetchMarketConfigs } from '../../store/marketConfigsSlice';
 import { fetchStrategyConfigs } from '../../store/strategyConfigsSlice';
 
@@ -21,12 +22,19 @@ export function BotsPage() {
   const bots = useAppSelector((s) => s.bots.items);
   const marketConfigs = useAppSelector((s) => s.marketConfigs.items);
   const strategyConfigs = useAppSelector((s) => s.strategyConfigs.items);
+  /** Bot pending deletion (shows the confirm dialog); null when none. */
+  const [toDelete, setToDelete] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     dispatch(fetchBots());
     dispatch(fetchMarketConfigs());
     dispatch(fetchStrategyConfigs());
   }, [dispatch]);
+
+  const confirmDelete = () => {
+    if (toDelete) dispatch(removeBot(toDelete.id));
+    setToDelete(null);
+  };
 
   return (
     <Box>
@@ -70,7 +78,7 @@ export function BotsPage() {
                   <TableCell align="right"><PnlValue value={b.pnl} pct={b.pnlPct} /></TableCell>
                   <TableCell align="right">{b.tradesCount}</TableCell>
                   <TableCell align="right">{b.winRate}%</TableCell>
-                  <TableCell align="right">
+                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                     <Tooltip title="Изменить">
                       <IconButton
                         size="small"
@@ -82,6 +90,19 @@ export function BotsPage() {
                         }}
                       >
                         <EditIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Удалить">
+                      <IconButton
+                        size="small"
+                        aria-label={`Удалить бота ${b.name}`}
+                        data-testid={`bot-delete-${b.id}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setToDelete({ id: b.id, name: b.name });
+                        }}
+                      >
+                        <DeleteOutlineIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
                   </TableCell>
@@ -100,6 +121,22 @@ export function BotsPage() {
           </Table>
         </CardContent>
       </Card>
+
+      <Dialog open={!!toDelete} onClose={() => setToDelete(null)} data-testid="bot-delete-dialog">
+        <DialogTitle>Удалить бота?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Бот «{toDelete?.name}» будет удалён без возможности восстановления вместе с его демосчётом
+            и результатами. Конфигурация рынков и стратегия останутся.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setToDelete(null)} data-testid="bot-delete-cancel">Отмена</Button>
+          <Button onClick={confirmDelete} color="error" variant="contained" data-testid="bot-delete-confirm">
+            Удалить
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

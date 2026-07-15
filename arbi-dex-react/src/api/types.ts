@@ -82,6 +82,7 @@ export interface ApiClient {
     get(id: string): Promise<Bot | undefined>;
     create(input: Omit<Bot, 'id' | 'createdAt' | 'updatedAt'>): Promise<Bot>;
     update(id: string, patch: Partial<Bot>): Promise<Bot>;
+    remove(id: string): Promise<void>;
     /** Bounds of available quote history for the bot's market. */
     historyRange(id: string): Promise<HistoryRange>;
   };

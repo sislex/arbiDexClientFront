@@ -76,6 +76,10 @@ export const mockApi: ApiClient = {
       Object.assign(bot, patch, { updatedAt: new Date(NOW * 1000).toISOString() });
       return delay(clone(bot));
     },
+    remove: (id: string) => {
+      db.bots = db.bots.filter((b) => b.id !== id);
+      return delay(undefined);
+    },
     historyRange: (id: string) => {
       const bot = db.bots.find((b) => b.id === id);
       const full = series({ marketConfigId: bot?.marketConfigId, count: 800 });
