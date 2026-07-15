@@ -68,12 +68,15 @@ export function QuoteChartPanel({
         });
       });
     } else {
-      out.push({
-        id: 'weighted',
-        label: 'Средневзвешенная',
-        color: CHART.weighted,
-        data: quotes.map((q) => ({ time: toSec(q.time), value: q.avgObservedQuote })),
-      });
+      // avgObservedQuote ≤ 0 means «no observed data» (only observed markets
+      // form the weighted average) — such points are dropped, and without any
+      // valid point the weighted line is not drawn at all.
+      const weightedData = quotes
+        .filter((q) => q.avgObservedQuote > 0)
+        .map((q) => ({ time: toSec(q.time), value: q.avgObservedQuote }));
+      if (weightedData.length > 0) {
+        out.push({ id: 'weighted', label: 'Средневзвешенная', color: CHART.weighted, data: weightedData });
+      }
     }
     if (hasTradingMarket) {
       out.push({

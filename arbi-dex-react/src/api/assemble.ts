@@ -47,7 +47,9 @@ export function assembleMarketPreview(
     const time = baseTimes[i];
     const avg = weightedAt(weighted, time);
     const trade = trading[i];
-    const avgObservedQuote = avg ?? (trade ? (trade.bid + trade.ask) / 2 : 0);
+    // 0 = «нет данных наблюдаемых»: только наблюдаемые рынки формируют среднюю,
+    // торговый рынок в неё не подмешивается.
+    const avgObservedQuote = avg ?? 0;
     quotes.push({
       time,
       avgObservedQuote,

@@ -160,7 +160,9 @@ export class MarketConfigsService {
           weightSum += w;
         }
       });
-      const avgObservedQuote = weightSum > 0 ? acc / weightSum : tp.mid;
+      // 0 = «нет данных наблюдаемых»: торговый рынок НЕ участвует в средней —
+      // средневзвешенную формируют только наблюдаемые рынки.
+      const avgObservedQuote = weightSum > 0 ? acc / weightSum : 0;
       return {
         time: tp.time,
         buyQuote: tp.ask,
