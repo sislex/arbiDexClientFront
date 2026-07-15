@@ -170,7 +170,9 @@ export function MarketConfigEditorPage() {
     ? 'Сохраните конфигурацию, чтобы запустить анализ'
     : dirty
       ? 'Есть несохранённые изменения — сохраните конфигурацию'
-      : null;
+      : observedMarketIds.length === 0
+        ? 'Добавьте наблюдаемые рынки — только они формируют средневзвешенную'
+        : null;
 
   const addObserved = () => {
     if (pendingObserved && !observedMarketIds.includes(pendingObserved)) {

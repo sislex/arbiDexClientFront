@@ -123,6 +123,13 @@ export const mockApi: ApiClient = {
     },
     followAnalysis: (id: string, params: { movePct?: number; window?: number; from?: number; to?: number } = {}) => {
       const startedAt = Date.now();
+      const mc = db.marketConfigs.find((m) => m.id === id);
+      const observedIds = mc ? mc.observedMarketIds.filter((m) => m !== mc.tradingMarketId) : [];
+      if (observedIds.length === 0) {
+        return Promise.reject(
+          new Error('Нет наблюдаемых рынков — анализ следования невозможен. Добавьте хотя бы один наблюдаемый рынок.'),
+        );
+      }
       const full = series({ marketConfigId: id, count: 800 });
       const lo = params.from ?? full[0]?.time ?? 0;
       const hi = params.to ?? full[full.length - 1]?.time ?? 0;

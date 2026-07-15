@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MarketConfig } from './entities/market-config.entity';
@@ -210,6 +210,16 @@ export class MarketConfigsService {
   ): Promise<FollowAnalysisResult> {
     const startedAt = Date.now();
 
+    // Средневзвешенную формируют ТОЛЬКО наблюдаемые рынки (торговый исключается
+    // и в getQuotesRange) — без них событий не бывает и анализ бессмысленен.
+    const mc = await this.findOne(userId, id);
+    const observedIds = mc.observedMarketIds.filter((m) => m !== mc.tradingMarketId);
+    if (observedIds.length === 0) {
+      throw new BadRequestException(
+        'Нет наблюдаемых рынков — анализ следования невозможен. Добавьте хотя бы один наблюдаемый рынок.',
+      );
+    }
+
     const { historyFrom, historyTo } = await this.getHistoryRange(userId, id);
     const week = historyTo > 1e12 ? 7 * 24 * 3600 * 1000 : 7 * 24 * 3600;
     const to = clamp(opts.to ?? historyTo, historyFrom, historyTo);
@@ -232,7 +242,8 @@ export class MarketConfigsService {
       const prevObs = quotes[t - 1].avgObservedQuote;
       const curObs = quotes[t].avgObservedQuote;
       const base = mid(quotes[t - 1]);
-      if (!(prevObs > 0) || !(base > 0)) continue;
+      // avgObservedQuote ≤ 0 = «нет данных наблюдаемых» на этом шаге — пропускаем.
+      if (!(prevObs > 0) || !(curObs > 0) || !(base > 0)) continue;
 
       const movedPct = ((curObs - prevObs) / prevObs) * 100;
       if (Math.abs(movedPct) < movePct) continue;
