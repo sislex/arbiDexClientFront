@@ -95,6 +95,8 @@ export const mockApi: ApiClient = {
       const hi = params.to ?? full[full.length - 1]?.time ?? 0;
       return delay({ quotes: full.filter((q) => q.time >= lo && q.time <= hi) });
     },
+    stepResult: () =>
+      Promise.reject(new Error('Разбор шага доступен только в live-режиме (нужен движок стратегий на сервере)')),
   },
 
   marketConfigs: {

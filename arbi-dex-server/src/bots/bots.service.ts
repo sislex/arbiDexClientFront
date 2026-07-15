@@ -9,7 +9,7 @@ import { runAutotune } from '../demo/engine/autotune';
 import { findMarket } from '../demo/engine/markets';
 import { BacktestResult, AutotuneResult, Trade, QuotePoint } from '../demo/engine/types';
 import { toEngineStrategy } from '../demo/engine/strategy-engine.mapper';
-import { runBacktest, processStep } from '@sislex/arbi-conditions-libs';
+import { runBacktest, processStep, prepareSteps } from '@sislex/arbi-conditions-libs';
 import type {
   MarketStep,
   PositionState,
@@ -29,6 +29,8 @@ export interface BotStepResult extends TradingConditionsStepResult {
   index: number;
   /** Steps available up to the evaluated time (lookback window incl. the step). */
   totalSteps: number;
+  /** Steps actually fed into processStep (window sized by the bot's conditions). */
+  windowSteps: number;
   historyFrom: number;
   historyTo: number;
 }
@@ -260,19 +262,23 @@ export class BotsService {
           }
         : null;
 
-    const result = processStep({
+    // prepareSteps trims the history down to the minimal window the bot's
+    // conditions actually need (max over their WindowRequirements).
+    const params = prepareSteps({
       steps,
       strategy: engineStrategy,
       position,
       conditions: gates,
       triggerConditions: triggers,
     });
+    const result = processStep(params);
 
     return {
       ...result,
       step: quotes[quotes.length - 1],
       index: quotes.length - 1,
       totalSteps: quotes.length,
+      windowSteps: params.steps.length,
       historyFrom,
       historyTo,
     };

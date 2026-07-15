@@ -10,10 +10,13 @@ import { fmtMoney } from '../../components/format';
 import { useAppDispatch, useAppSelector } from '../../store';
 import { runBacktest } from '../../store/tradingSlice';
 import { fetchBot } from '../../store/botsSlice';
+import { api } from '../../api';
+import type { BotStepResult } from '../../api/types';
 import { TradesTable } from './TradesTable';
 import { usePeriod } from './usePeriod';
 import { PeriodPicker } from './PeriodPicker';
 import { PeriodHistoryChart } from './PeriodHistoryChart';
+import { StepResultPanel } from './StepResultPanel';
 
 export function BacktestTab({ bot }: { bot: Bot }) {
   const dispatch = useAppDispatch();
@@ -22,6 +25,23 @@ export function BacktestTab({ bot }: { bot: Bot }) {
   const error = useAppSelector((s) => s.trading.backtestError);
   const [initialBalance, setInitialBalance] = useState(bot.initialBalance);
   const period = usePeriod(bot.id);
+
+  // Engine evaluation (processStep) of the clicked chart step → side panel.
+  const [stepResult, setStepResult] = useState<BotStepResult | null>(null);
+  const [stepLoading, setStepLoading] = useState(false);
+  const [stepError, setStepError] = useState<string | null>(null);
+  const inspectStep = async (time: number) => {
+    setStepLoading(true);
+    setStepError(null);
+    try {
+      setStepResult(await api.bots.stepResult(bot.id, { time }));
+    } catch (e) {
+      setStepResult(null);
+      setStepError((e as Error).message);
+    } finally {
+      setStepLoading(false);
+    }
+  };
 
   const run = async () => {
     await dispatch(
@@ -74,7 +94,7 @@ export function BacktestTab({ bot }: { bot: Bot }) {
         <Alert severity="error" data-testid="bt-error" sx={{ mb: 2 }}>{error}</Alert>
       )}
 
-      {/* History chart for the period (2/3) + slot for an upcoming feature (1/3). */}
+      {/* History chart for the period (2/3) + engine step inspector (1/3). */}
       <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} alignItems="stretch" sx={{ mb: 2 }}>
         <Box sx={{ width: { xs: '100%', lg: '66.667%' }, flexShrink: 0 }}>
           <PeriodHistoryChart
@@ -83,13 +103,10 @@ export function BacktestTab({ bot }: { bot: Bot }) {
             trades={result?.trades ?? []}
             title={result ? 'График с транзакциями' : 'История котировок за период'}
             idPrefix="bt"
+            onStepClick={inspectStep}
           />
         </Box>
-        <Card sx={{ flexGrow: 1 }} data-testid="bt-side-panel">
-          <CardContent sx={{ height: '100%', display: 'grid', placeItems: 'center' }}>
-            <Typography color="text.secondary" variant="body2">Здесь появится новая функция</Typography>
-          </CardContent>
-        </Card>
+        <StepResultPanel result={stepResult} loading={stepLoading} error={stepError} />
       </Stack>
 
       {!result && status === 'idle' && (

@@ -19,6 +19,7 @@ export function PeriodHistoryChart({
   title = 'История котировок за период',
   idPrefix,
   height = 340,
+  onStepClick,
 }: {
   botId: string;
   period: PeriodState;
@@ -27,6 +28,8 @@ export function PeriodHistoryChart({
   title?: string;
   idPrefix: string;
   height?: number;
+  /** Chart click outside the pick-period mode — e.g. to inspect the step. */
+  onStepClick?: (time: number) => void;
 }) {
   const [quotes, setQuotes] = useState<QuotePoint[]>([]);
   const [loading, setLoading] = useState(false);
@@ -105,7 +108,7 @@ export function PeriodHistoryChart({
             height={height}
             defaultWeighted
             player
-            onTimeClick={pick === 'idle' ? undefined : onChartTimeClick}
+            onTimeClick={pick === 'idle' ? onStepClick : onChartTimeClick}
           />
         )}
       </CardContent>

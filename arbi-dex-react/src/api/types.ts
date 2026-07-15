@@ -39,6 +39,37 @@ export interface HistoryRange {
   historyTo: number;
 }
 
+/** Outcome of a single strategy condition on a step (engine ConditionOutcome). */
+export interface StepConditionOutcome {
+  passed: boolean;
+  actual?: number;
+  required?: number;
+}
+
+/** Engine evaluation of one step (TradingConditionsStepResult + step context). */
+export interface BotStepResult {
+  transaction: { buy: boolean; sell: boolean; forcedSell: boolean };
+  condition: {
+    buy: Record<string, StepConditionOutcome>;
+    sell: Record<string, StepConditionOutcome>;
+  };
+  meta: {
+    lastStepTime: number;
+    transactionInProgress: boolean;
+    lastFinishedTransactionTime: number | null;
+  };
+  /** The resolved (nearest ≤ time) step the strategy was evaluated on. */
+  step: QuotePoint;
+  /** Index of the evaluated step within the history (0-based). */
+  index: number;
+  /** Steps available up to the evaluated time. */
+  totalSteps: number;
+  /** Steps actually fed into processStep (window sized by the bot's conditions). */
+  windowSteps: number;
+  historyFrom: number;
+  historyTo: number;
+}
+
 /** One reference-market line for the market-config preview. */
 export interface PreviewSeries {
   id: string;
@@ -87,6 +118,8 @@ export interface ApiClient {
     historyRange(id: string): Promise<HistoryRange>;
     /** Real historical quotes of the bot's market over [from, to] (no backtest run). */
     quotes(id: string, params?: { from?: number; to?: number }): Promise<{ quotes: QuotePoint[] }>;
+    /** Engine evaluation of the bot's strategy on the step at `time` (processStep). */
+    stepResult(id: string, params: { time: number }): Promise<BotStepResult>;
   };
   marketConfigs: {
     list(): Promise<MarketConfig[]>;

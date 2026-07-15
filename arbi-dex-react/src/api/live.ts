@@ -125,6 +125,9 @@ export const liveApi: ApiClient = {
     quotes(id, params = {}) {
       return request(`/bots/${id}/quotes`, { query: { from: params.from, to: params.to } });
     },
+    stepResult(id, params) {
+      return request(`/bots/${id}/step-result`, { query: { time: params.time } });
+    },
   },
 
   marketConfigs: {
