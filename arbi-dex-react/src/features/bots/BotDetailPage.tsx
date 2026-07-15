@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Box, Card, Stack, Tabs, Tab, Button, ToggleButtonGroup, ToggleButton, CircularProgress,
 } from '@mui/material';
@@ -22,13 +22,18 @@ import { LiveTab } from './LiveTab';
 import { AutotuneTab } from './AutotuneTab';
 
 const TABS = ['Обзор', 'Бэктест', 'Реальное время', 'Авто-подбор'] as const;
+/** URL slugs for the tabs (`?tab=backtest`) — shareable and HMR/reload-proof. */
+const TAB_KEYS = ['overview', 'backtest', 'live', 'autotune'] as const;
 
 export function BotDetailPage() {
   const { id } = useParams();
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const bot = useAppSelector((s) => s.bots.items.find((b) => b.id === id) ?? s.bots.current);
-  const [tab, setTab] = useState(0);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = Math.max(0, TAB_KEYS.indexOf(searchParams.get('tab') as (typeof TAB_KEYS)[number]));
+  const setTab = (i: number) =>
+    setSearchParams(i === 0 ? {} : { tab: TAB_KEYS[i] }, { replace: true });
 
   useEffect(() => {
     if (id) dispatch(fetchBot(id));
