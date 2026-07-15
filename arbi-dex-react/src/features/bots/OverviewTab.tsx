@@ -11,6 +11,7 @@ import { api } from '../../api';
 import type { MarketPreview } from '../../api/types';
 import { findMarket, marketLabel } from '../marketConfigs/marketLabel';
 import { strategySummary } from '../strategies/summary';
+import { cashAsset } from './botAssets';
 
 function KeyVal({ k, v }: { k: string; v: React.ReactNode }) {
   return (
@@ -66,7 +67,7 @@ export function OverviewTab({ bot }: { bot: Bot }) {
     <Box>
       <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: 'wrap', gap: 2 }}>
         <StatCard label="PnL" value={<PnlValue value={bot.pnl} pct={bot.pnlPct} variant="h6" />} />
-        <StatCard label="Баланс" value={fmtMoney(bot.balance, bot.quoteAsset)} />
+        <StatCard label="Баланс" value={fmtMoney(bot.balance, cashAsset(bot))} />
         <StatCard label="Сделок" value={bot.tradesCount} />
         <StatCard label="Winrate" value={`${bot.winRate}%`} />
       </Stack>

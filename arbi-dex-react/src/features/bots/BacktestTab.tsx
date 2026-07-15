@@ -16,6 +16,7 @@ import { TradesTable } from './TradesTable';
 import { usePeriod } from './usePeriod';
 import { PeriodPicker } from './PeriodPicker';
 import { PeriodHistoryChart } from './PeriodHistoryChart';
+import { cashAsset, tokenAsset } from './botAssets';
 import { StepResultPanel } from './StepResultPanel';
 
 export function BacktestTab({ bot }: { bot: Bot }) {
@@ -54,23 +55,22 @@ export function BacktestTab({ bot }: { bot: Bot }) {
     }
   };
 
-  // Selecting a step: when a backtest has run, its recorded per-step results
-  // already contain the breakdown — show it instantly instead of calling the
-  // API. Without a run (or a record miss) fall back to the API.
+  // Selecting a step: when a backtest has run, we work with the engine's
+  // ProcessAllStepsAndRecordResultsOutput from its response — show the record
+  // instantly instead of calling the API. Without a run fall back to the API.
   const inspectStep = (time: number) => {
     setInspectTime(time);
-    const records = result?.stepResults;
+    const records = result?.stepResults?.records;
     if (records?.length) {
       // Nearest recorded step at or before the clicked time.
       let rec = records[0];
       for (const r of records) {
-        if (r.time <= time && r.time >= rec.time) rec = r;
+        if (r.step.time <= time && r.step.time >= rec.step.time) rec = r;
       }
-      const quote = result!.quotes[rec.index] ?? result!.quotes[result!.quotes.length - 1];
       setStepError(null);
       setStepResult({
         ...rec.result,
-        step: quote,
+        step: { time: rec.step.time, ...rec.step.quotes },
         index: rec.index,
         totalSteps: records.length,
       });
@@ -173,7 +173,7 @@ export function BacktestTab({ bot }: { bot: Bot }) {
         <Stack spacing={2} data-testid="bt-result">
           <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap', gap: 2 }}>
             <StatCard label="PnL" value={<PnlValue value={s.pnl} pct={s.pnlPct} variant="h6" />} />
-            <StatCard label="Итоговый баланс" value={fmtMoney(s.finalBalance, bot.quoteAsset)} />
+            <StatCard label="Итоговый баланс" value={fmtMoney(s.finalBalance, cashAsset(bot))} />
             <StatCard label="Сделок" value={s.trades} />
             <StatCard label="Winrate" value={`${s.winRate}%`} />
             <StatCard label="Макс. просадка" value={`${s.maxDrawdownPct}%`} />
@@ -186,8 +186,8 @@ export function BacktestTab({ bot }: { bot: Bot }) {
               <Divider sx={{ mb: 1 }} />
               <TradesTable
                 trades={result.trades}
-                baseAsset={bot.baseAsset}
-                quoteAsset={bot.quoteAsset}
+                tokenAsset={tokenAsset(bot)}
+                cashAsset={cashAsset(bot)}
                 onRowClick={selectTrade}
               />
             </CardContent>

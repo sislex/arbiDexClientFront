@@ -138,6 +138,18 @@ export interface StepEngineResult {
   };
 }
 
+/** One engine dry-run record (mirrors the library's StepRecord). */
+export interface StepRecord {
+  index: number;
+  step: { time: number; quotes: { buyQuote: number; sellQuote: number; avgObservedQuote: number } };
+  result: StepEngineResult;
+}
+
+/** Mirrors the library's ProcessAllStepsAndRecordResultsOutput. */
+export interface ProcessAllStepsAndRecordResultsOutput {
+  records: StepRecord[];
+}
+
 export interface BacktestResult {
   id: string;
   from: number;
@@ -145,8 +157,8 @@ export interface BacktestResult {
   quotes: QuotePoint[];
   trades: Trade[];
   stats: BacktestStats;
-  /** Per-step engine breakdowns recorded during the run (live backend only). */
-  stepResults?: { index: number; time: number; result: StepEngineResult }[];
+  /** Engine dry run over every step (live backend only). */
+  stepResults?: ProcessAllStepsAndRecordResultsOutput;
   /** Server-side computation time, ms (live backend only). */
   tookMs?: number;
 }

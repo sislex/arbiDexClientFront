@@ -9,26 +9,25 @@ import { runAutotune } from '../demo/engine/autotune';
 import { findMarket } from '../demo/engine/markets';
 import { BacktestResult, AutotuneResult, Trade, QuotePoint } from '../demo/engine/types';
 import { toEngineStrategy } from '../demo/engine/strategy-engine.mapper';
-import { runBacktest, processStep, prepareSteps } from '@sislex/arbi-conditions-libs';
+import {
+  runBacktest,
+  processStep,
+  prepareSteps,
+  processAllStepsAndRecordResults,
+} from '@sislex/arbi-conditions-libs';
 import type {
   MarketStep,
   PositionState,
+  ProcessAllStepsAndRecordResultsOutput,
   TradingConditionsStepResult,
 } from '@sislex/arbi-conditions-libs';
-/** Per-step engine breakdown recorded during a backtest run. */
-export interface BacktestStepRecord {
-  index: number;
-  time: number;
-  result: TradingConditionsStepResult;
-}
-
 /** Result of a bot backtest: the demo `BacktestResult` plus the resolved window. */
 export interface BotBacktestResult extends BacktestResult {
   historyFrom: number;
   historyTo: number;
-  /** Engine evaluation of every step (with the real position state) — lets the
-   * UI show the step breakdown without extra API calls. */
-  stepResults: BacktestStepRecord[];
+  /** Engine dry run over every step (processAllStepsAndRecordResults) — the
+   * frontend works with this output to show per-step condition breakdowns. */
+  stepResults: ProcessAllStepsAndRecordResultsOutput;
   /** Server-side computation time, ms (data load + engine run). */
   tookMs: number;
 }
@@ -190,13 +189,20 @@ export class BotsService {
       quotes: { buyQuote: q.buyQuote, sellQuote: q.sellQuote, avgObservedQuote: q.avgObservedQuote },
     }));
 
-    const stepResults: BacktestStepRecord[] = [];
     const engineResult = runBacktest(steps, engineStrategy, {
       initialBalance: bot.initialBalance,
       conditions: gates,
       triggerConditions: triggers,
       id: `bt_${bot.id}`,
-      onStepResult: (record) => stepResults.push(record),
+    });
+
+    // Canonical per-step breakdown for the UI: a positionless dry run of the
+    // engine over every step (ProcessAllStepsAndRecordResultsOutput).
+    const stepResults = processAllStepsAndRecordResults({
+      steps,
+      strategy: engineStrategy,
+      conditions: gates,
+      triggerConditions: triggers,
     });
 
     const trades: Trade[] = engineResult.trades.map((t) => ({

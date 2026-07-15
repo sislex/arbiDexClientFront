@@ -13,6 +13,7 @@ import { PnlValue } from '../../components/PnlValue';
 import { fmtMoney } from '../../components/format';
 import { useAppDispatch, useAppSelector } from '../../store';
 import { fetchBots, removeBot } from '../../store/botsSlice';
+import { cashAsset } from './botAssets';
 import { fetchMarketConfigs } from '../../store/marketConfigsSlice';
 import { fetchStrategyConfigs } from '../../store/strategyConfigsSlice';
 
@@ -74,7 +75,7 @@ export function BotsPage() {
                   <TableCell>{b.mode === 'real-live' ? 'Реальный' : b.mode === 'demo-live' ? 'Демо' : '—'}</TableCell>
                   <TableCell>{marketConfigs.find((m) => m.id === b.marketConfigId)?.name ?? '—'}</TableCell>
                   <TableCell>{strategyConfigs.find((s) => s.id === b.strategyConfigId)?.name ?? '—'}</TableCell>
-                  <TableCell align="right">{fmtMoney(b.balance, b.quoteAsset)}</TableCell>
+                  <TableCell align="right">{fmtMoney(b.balance, cashAsset(b))}</TableCell>
                   <TableCell align="right"><PnlValue value={b.pnl} pct={b.pnlPct} /></TableCell>
                   <TableCell align="right">{b.tradesCount}</TableCell>
                   <TableCell align="right">{b.winRate}%</TableCell>

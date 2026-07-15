@@ -110,13 +110,6 @@ export interface BacktestOptions {
   conditions?: ConditionDef[];
   /** Sell trigger set (OR-ed into forcedSell). Default the built-in `TRIGGER_CONDITIONS`. */
   triggerConditions?: ConditionDef[];
-  /**
-   * Called once per step, in order, with the engine result evaluated against the
-   * REAL position state at that step (unlike `processAllStepsAndRecordResults`,
-   * which is a positionless dry run). Lets callers record per-step condition
-   * breakdowns without re-running the engine.
-   */
-  onStepResult?: (record: { index: number; time: number; result: TradingConditionsStepResult }) => void;
 }
 
 const round = (n: number, dp = 2): number => {
@@ -185,7 +178,6 @@ export function runBacktest(
     }
 
     const result = processStep({ steps: window, strategy, position, conditions, triggerConditions });
-    opts.onStepResult?.({ index, time: step.time, result });
     if (result.transaction.buy) buySignals += 1;
     if (result.transaction.sell) sellSignals += 1;
     if (result.transaction.forcedSell) forcedSells += 1;

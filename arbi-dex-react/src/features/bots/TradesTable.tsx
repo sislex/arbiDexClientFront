@@ -12,23 +12,22 @@ const REASON_LABEL: Record<string, string> = {
 
 export function TradesTable({
   trades,
-  baseAsset,
-  quoteAsset,
+  tokenAsset,
+  cashAsset,
   onRowClick,
 }: {
   trades: Trade[];
-  /** Traded pair assets — «Получено» is shown in the received one per side. */
-  baseAsset?: string;
-  quoteAsset?: string;
+  /** The position asset (what buys receive) — see features/bots/botAssets. */
+  tokenAsset?: string;
+  /** The asset quotes/balances are denominated in (what sells receive). */
+  cashAsset?: string;
   /** Row click — e.g. to highlight the trade's step on the chart. */
   onRowClick?: (trade: Trade) => void;
 }) {
-  // What we RECEIVE in the trade: buy → tokens, sell → cash. The price feed is
-  // denominated «cash per token», which for these markets maps to the pair's
-  // quote asset being the token and the base asset being the cash.
+  // What we RECEIVE in the trade: buy → tokens, sell → cash.
   const received = (t: Trade): string => {
     const value = t.side === 'buy' ? t.amount : t.amount * t.price;
-    const asset = t.side === 'buy' ? quoteAsset : baseAsset;
+    const asset = t.side === 'buy' ? tokenAsset : cashAsset;
     return `${value.toFixed(4)}${asset ? ` ${asset}` : ''}`;
   };
   return (
