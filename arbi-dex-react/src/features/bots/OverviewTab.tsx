@@ -1,13 +1,14 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, Card, CardContent, Stack, Typography, Chip, Button, Divider } from '@mui/material';
+import { Box, Card, CardContent, CircularProgress, Stack, Typography, Chip, Button, Divider } from '@mui/material';
 import type { Bot } from '../../domain/types';
 import { StatCard } from '../../components/StatCard';
 import { PnlValue } from '../../components/PnlValue';
 import { fmtMoney, fmtPct } from '../../components/format';
 import { QuoteChartPanel } from '../../components/chart/QuoteChartPanel';
-import { useAppDispatch, useAppSelector } from '../../store';
-import { fetchQuotes } from '../../store/tradingSlice';
+import { useAppSelector } from '../../store';
+import { api } from '../../api';
+import type { MarketPreview } from '../../api/types';
 import { findMarket, marketLabel } from '../marketConfigs/marketLabel';
 import { strategySummary } from '../strategies/summary';
 
@@ -21,16 +22,42 @@ function KeyVal({ k, v }: { k: string; v: React.ReactNode }) {
 }
 
 export function OverviewTab({ bot }: { bot: Bot }) {
-  const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const markets = useAppSelector((s) => s.catalog.markets);
   const marketConfig = useAppSelector((s) => s.marketConfigs.items.find((m) => m.id === bot.marketConfigId));
   const strategy = useAppSelector((s) => s.strategyConfigs.items.find((x) => x.id === bot.strategyConfigId));
-  const quotes = useAppSelector((s) => s.trading.quotes);
 
+  // Real market chart (same data source as the market config editor preview).
+  const [preview, setPreview] = useState<MarketPreview>({ quotes: [], observed: [] });
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const observedKey = marketConfig?.observedMarketIds.join(',') ?? '';
   useEffect(() => {
-    dispatch(fetchQuotes({ marketConfigId: bot.marketConfigId, count: 180 }));
-  }, [dispatch, bot.marketConfigId]);
+    if (!marketConfig || (!marketConfig.tradingMarketId && marketConfig.observedMarketIds.length === 0)) {
+      setPreview({ quotes: [], observed: [] });
+      return;
+    }
+    let cancelled = false;
+    setLoadingPreview(true);
+    api.quotes
+      .marketPreview({
+        tradingMarketId: marketConfig.tradingMarketId || null,
+        observedMarketIds: marketConfig.observedMarketIds,
+        weights: marketConfig.weights ?? {},
+      })
+      .then((p) => {
+        if (!cancelled) setPreview(p);
+      })
+      .catch(() => {
+        if (!cancelled) setPreview({ quotes: [], observed: [] });
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPreview(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marketConfig?.id, marketConfig?.tradingMarketId, observedKey]);
 
   const trading = marketConfig ? findMarket(markets, marketConfig.tradingMarketId) : undefined;
   const sum = strategy ? strategySummary(strategy) : null;
@@ -97,8 +124,26 @@ export function OverviewTab({ bot }: { bot: Bot }) {
 
         <Card sx={{ flexGrow: 1, width: '100%' }}>
           <CardContent>
-            <Typography variant="subtitle1" sx={{ mb: 1 }}>Котировки (последние 3 часа)</Typography>
-            <QuoteChartPanel quotes={quotes} hasTradingMarket height={340} defaultWeighted />
+            <Typography variant="subtitle1" sx={{ mb: 1 }}>Рынок (реальные котировки)</Typography>
+            {loadingPreview && preview.quotes.length === 0 ? (
+              <Stack sx={{ height: 340 }} alignItems="center" justifyContent="center" spacing={1} data-testid="bot-chart-loading">
+                <CircularProgress />
+                <Typography variant="caption" color="text.secondary">Загрузка котировок…</Typography>
+              </Stack>
+            ) : preview.quotes.length === 0 ? (
+              <Box sx={{ height: 340, display: 'grid', placeItems: 'center' }}>
+                <Typography color="text.secondary">Нет данных котировок для рынков этой конфигурации</Typography>
+              </Box>
+            ) : (
+              <QuoteChartPanel
+                quotes={preview.quotes}
+                observed={preview.observed}
+                hasTradingMarket={!!marketConfig?.tradingMarketId}
+                height={340}
+                defaultWeighted={marketConfig?.useWeightedAverage ?? true}
+                player
+              />
+            )}
           </CardContent>
         </Card>
       </Stack>

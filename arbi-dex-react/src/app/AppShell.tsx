@@ -15,7 +15,7 @@ import {
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import TuneIcon from '@mui/icons-material/Tune';
-import AddCircleIcon from '@mui/icons-material/AddCircle';
+import SmartToyIcon from '@mui/icons-material/SmartToy';
 import LogoutIcon from '@mui/icons-material/Logout';
 import { useAppDispatch, useAppSelector } from '../store';
 import { logout } from '../store/authSlice';
@@ -26,7 +26,7 @@ const NAV = [
   { to: '/dashboard', label: 'Дашборд', icon: <DashboardIcon /> },
   { to: '/market-configs', label: 'Конфигурации рынков', icon: <ShowChartIcon /> },
   { to: '/strategies', label: 'Стратегии', icon: <TuneIcon /> },
-  { to: '/bots/new', label: 'Добавить бота', icon: <AddCircleIcon /> },
+  { to: '/bots', label: 'Боты', icon: <SmartToyIcon /> },
 ];
 
 /** Authenticated layout: fixed sidebar nav + topbar with wallet & logout. */

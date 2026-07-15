@@ -210,6 +210,7 @@ export function MarketConfigEditorPage() {
                   label="Добавить рынок"
                   testid="observed-picker"
                   exclude={[...observedMarketIds, ...(tradingMarketId ? [tradingMarketId] : [])]}
+                  showStoreKey
                 />
                 <IconButton color="primary" onClick={addObserved} disabled={!pendingObserved} data-testid="add-observed">
                   <AddIcon />
@@ -227,7 +228,10 @@ export function MarketConfigEditorPage() {
                         </IconButton>
                       }
                     >
-                      <ListItemText primary={m ? marketLabel(m) : mid} />
+                      <ListItemText
+                        primary={m ? m.storeKey ?? marketLabel(m) : mid}
+                        primaryTypographyProps={{ sx: { wordBreak: 'break-all' } }}
+                      />
                     </ListItem>
                   );
                 })}

@@ -7,6 +7,7 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PauseIcon from '@mui/icons-material/Pause';
 import StopIcon from '@mui/icons-material/Stop';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import EditIcon from '@mui/icons-material/Edit';
 import { PageHeader } from '../../components/PageHeader';
 import { StatusBadge } from '../../components/StatusBadge';
 import { useAppDispatch, useAppSelector } from '../../store';
@@ -50,8 +51,8 @@ export function BotDetailPage() {
 
   return (
     <Box>
-      <Button startIcon={<ArrowBackIcon />} size="small" onClick={() => navigate('/dashboard')} sx={{ mb: 1 }}>
-        К дашборду
+      <Button startIcon={<ArrowBackIcon />} size="small" onClick={() => navigate('/bots')} sx={{ mb: 1 }}>
+        К ботам
       </Button>
       <PageHeader
         title={bot.name}
@@ -59,6 +60,9 @@ export function BotDetailPage() {
         actions={
           <Stack direction="row" spacing={1} alignItems="center">
             <StatusBadge status={bot.status} />
+            <Button variant="outlined" startIcon={<EditIcon />} onClick={() => navigate(`/bots/${bot.id}/edit`)} data-testid="bot-edit">
+              Изменить
+            </Button>
             <ToggleButtonGroup
               size="small"
               exclusive
