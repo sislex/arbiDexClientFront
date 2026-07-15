@@ -81,6 +81,39 @@ export class BotsController {
     });
   }
 
+  @Get(':id/step-result')
+  @ApiOperation({
+    summary: 'Результат стратегии на одном шаге (сигналы + разбор условий)',
+    description:
+      'Прогоняет стратегию бота через движок (@sislex/arbi-conditions-libs) на одном ' +
+      'шаге — ближайшем к `time` (не позже него; по умолчанию последний шаг истории). ' +
+      'Более ранняя история подаётся в lookback-условия. Возвращает сигналы ' +
+      '`transaction.buy/sell/forcedSell` и разбор каждого условия ' +
+      '(`condition.buy/sell` c passed/actual/required). Демосчёт бота не меняет. ' +
+      'Sell-триггерам (stop-loss / trailing TP / max holding) нужна открытая позиция — ' +
+      'передайте `entryPrice` (и опционально `openedAt`), чтобы её смоделировать.',
+  })
+  @ApiParam({ name: 'id' })
+  @ApiQuery({ name: 'time', required: false, description: 'Метка времени шага (в единицах данных); по умолчанию — последний шаг' })
+  @ApiQuery({ name: 'entryPrice', required: false, description: 'Цена входа моделируемой позиции (для sell-триггеров)' })
+  @ApiQuery({ name: 'openedAt', required: false, description: 'Время открытия позиции; по умолчанию — первый шаг истории' })
+  @ApiQuery({ name: 'size', required: false, description: 'Размер позиции в токене (по умолчанию 0)' })
+  stepResult(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Query('time') time?: string,
+    @Query('entryPrice') entryPrice?: string,
+    @Query('openedAt') openedAt?: string,
+    @Query('size') size?: string,
+  ) {
+    return this.service.stepResult(user.id, id, {
+      time: time !== undefined ? Number(time) : undefined,
+      entryPrice: entryPrice !== undefined ? Number(entryPrice) : undefined,
+      openedAt: openedAt !== undefined ? Number(openedAt) : undefined,
+      size: size !== undefined ? Number(size) : undefined,
+    });
+  }
+
   @Post(':id/autotune')
   @ApiOperation({
     summary: 'Авто-подбор коэффициентов за период (движок стратегии)',

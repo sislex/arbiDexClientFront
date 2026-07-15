@@ -7,13 +7,28 @@ import { MarketConfigsService } from '../market-configs/market-configs.service';
 import { StrategyConfigsService } from '../strategy-configs/strategy-configs.service';
 import { runAutotune } from '../demo/engine/autotune';
 import { findMarket } from '../demo/engine/markets';
-import { BacktestResult, AutotuneResult, Trade } from '../demo/engine/types';
+import { BacktestResult, AutotuneResult, Trade, QuotePoint } from '../demo/engine/types';
 import { toEngineStrategy } from '../demo/engine/strategy-engine.mapper';
-import { runBacktest } from '@sislex/arbi-conditions-libs';
-import type { MarketStep } from '@sislex/arbi-conditions-libs';
-
+import { runBacktest, processStep } from '@sislex/arbi-conditions-libs';
+import type {
+  MarketStep,
+  PositionState,
+  TradingConditionsStepResult,
+} from '@sislex/arbi-conditions-libs';
 /** Result of a bot backtest: the demo `BacktestResult` plus the resolved window. */
 export interface BotBacktestResult extends BacktestResult {
+  historyFrom: number;
+  historyTo: number;
+}
+
+/** Engine evaluation of a single step: signals + per-condition breakdown. */
+export interface BotStepResult extends TradingConditionsStepResult {
+  /** The resolved (nearest ≤ time) step the strategy was evaluated on. */
+  step: QuotePoint;
+  /** Index of the evaluated step within the history (0-based). */
+  index: number;
+  /** Steps available up to the evaluated time (lookback window incl. the step). */
+  totalSteps: number;
   historyFrom: number;
   historyTo: number;
 }
@@ -171,6 +186,72 @@ export class BotsService {
     bot.openPosition = false;
     await this.repo.save(bot);
     return result;
+  }
+
+  /**
+   * Evaluate the bot's strategy on a SINGLE step: the step at (or nearest before)
+   * `time`, with all earlier history feeding the lookback conditions. Returns the
+   * engine's full per-condition breakdown (`condition.buy/sell` with
+   * actual/required) and the resulting signals (`transaction.buy/sell/forcedSell`).
+   *
+   * Read-only: does not touch the bot's demo account. Sell triggers (stop-loss /
+   * trailing TP / max holding) need an open position — pass `entryPrice` (and
+   * optionally `openedAt`, defaults to the first step) to simulate one; without
+   * it they report `passed: false`.
+   */
+  async stepResult(
+    userId: string,
+    id: string,
+    opts: { time?: number; entryPrice?: number; openedAt?: number; size?: number } = {},
+  ): Promise<BotStepResult> {
+    const bot = await this.findOne(userId, id);
+
+    const { historyFrom, historyTo } = await this.marketConfigs.getHistoryRange(
+      userId,
+      bot.marketConfigId,
+    );
+    const time = clamp(opts.time ?? historyTo, historyFrom, historyTo);
+
+    // All history up to the requested time: the last point is the evaluated
+    // step, everything before it is the lookback window.
+    const { quotes } = await this.marketConfigs.getQuotesRange(userId, bot.marketConfigId, historyFrom, time);
+    if (quotes.length === 0) {
+      throw new NotFoundException('Нет котировок до указанного времени');
+    }
+
+    const strategy = await this.loadStrategy(userId, bot);
+    const { strategy: engineStrategy, gates, triggers } = toEngineStrategy(strategy.buy, strategy.sell);
+
+    const steps: MarketStep[] = quotes.map((q) => ({
+      time: q.time,
+      quotes: { buyQuote: q.buyQuote, sellQuote: q.sellQuote, avgObservedQuote: q.avgObservedQuote },
+    }));
+
+    const position: PositionState | null =
+      opts.entryPrice != null
+        ? {
+            entryPrice: opts.entryPrice,
+            size: opts.size ?? 0,
+            openedAt: opts.openedAt ?? steps[0].time,
+          }
+        : null;
+
+    const result = processStep({
+      steps,
+      strategy: engineStrategy,
+      position,
+      conditions: gates,
+      triggerConditions: triggers,
+    });
+
+    return {
+      ...result,
+      step: quotes[quotes.length - 1],
+      index: quotes.length - 1,
+      totalSteps: quotes.length,
+      historyFrom,
+      historyTo,
+    };
   }
 
   /**
