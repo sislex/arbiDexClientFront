@@ -11,6 +11,7 @@ import type { FollowAnalysis, FollowEvent } from '../../api/types';
 import { usePeriod } from '../bots/usePeriod';
 import { PeriodPicker } from '../bots/PeriodPicker';
 import { StatCard } from '../../components/StatCard';
+import { FollowEventPanel } from './FollowEventPanel';
 import { fmtDuration, fmtTime } from '../../components/format';
 
 /**
@@ -36,10 +37,10 @@ export function FollowAnalysisCard({
   const [result, setResult] = useState<FollowAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedEvent, setSelectedEvent] = useState<number | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<FollowEvent | null>(null);
 
   const pickEvent = (e: FollowEvent) => {
-    setSelectedEvent(e.time);
+    setSelectedEvent(e);
     onEventClick?.(e);
   };
 
@@ -49,6 +50,7 @@ export function FollowAnalysisCard({
     if (!configId) return;
     setLoading(true);
     setError(null);
+    setSelectedEvent(null);
     try {
       setResult(
         await api.marketConfigs.followAnalysis(configId, {
@@ -147,54 +149,63 @@ export function FollowAnalysisCard({
                 <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
                   События ({result.eventList.length}) — клик выделяет шаг на графике
                 </Typography>
-                <Box sx={{ maxHeight: 280, overflow: 'auto' }} data-testid="fa-events">
-                  <Table size="small" stickyHeader>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Время</TableCell>
-                        <TableCell>Направление</TableCell>
-                        <TableCell align="right">Движение</TableCell>
-                        <TableCell>Следование</TableCell>
-                        <TableCell align="right">Задержка</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {result.eventList.map((e) => (
-                        <TableRow
-                          key={e.time}
-                          hover
-                          selected={selectedEvent === e.time}
-                          onClick={() => pickEvent(e)}
-                          sx={{ cursor: 'pointer' }}
-                          data-testid={`fa-event-${e.time}`}
-                        >
-                          <TableCell>{fmtTime(e.time > 1e12 ? e.time / 1000 : e.time)}</TableCell>
-                          <TableCell>
-                            {e.direction === 'up' ? (
-                              <Chip size="small" variant="outlined" color="success" icon={<ArrowUpwardIcon />} label="вверх" />
-                            ) : (
-                              <Chip size="small" variant="outlined" color="error" icon={<ArrowDownwardIcon />} label="вниз" />
-                            )}
-                          </TableCell>
-                          <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {e.movedPct > 0 ? '+' : ''}{e.movedPct}%
-                          </TableCell>
-                          <TableCell>
-                            <Chip
-                              size="small"
-                              label={e.followed ? 'последовал' : 'нет'}
-                              color={e.followed ? 'success' : 'default'}
-                              variant={e.followed ? 'filled' : 'outlined'}
-                            />
-                          </TableCell>
-                          <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {e.lagSteps != null ? `${e.lagSteps} шаг(ов)` : '—'}
-                          </TableCell>
+                {/* Events table (2/3) + event breakdown panel (1/3), like the backtest. */}
+                <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} alignItems="stretch">
+                  <Box sx={{ width: { xs: '100%', lg: '66.667%' }, flexShrink: 0, maxHeight: 320, overflow: 'auto' }} data-testid="fa-events">
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Время</TableCell>
+                          <TableCell>Направление</TableCell>
+                          <TableCell align="right">Движение</TableCell>
+                          <TableCell>Следование</TableCell>
+                          <TableCell align="right">Задержка</TableCell>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </Box>
+                      </TableHead>
+                      <TableBody>
+                        {result.eventList.map((e) => (
+                          <TableRow
+                            key={e.time}
+                            hover
+                            selected={selectedEvent?.time === e.time}
+                            onClick={() => pickEvent(e)}
+                            sx={{ cursor: 'pointer' }}
+                            data-testid={`fa-event-${e.time}`}
+                          >
+                            <TableCell>{fmtTime(e.time > 1e12 ? e.time / 1000 : e.time)}</TableCell>
+                            <TableCell>
+                              {e.direction === 'up' ? (
+                                <Chip size="small" variant="outlined" color="success" icon={<ArrowUpwardIcon />} label="вверх" />
+                              ) : (
+                                <Chip size="small" variant="outlined" color="error" icon={<ArrowDownwardIcon />} label="вниз" />
+                              )}
+                            </TableCell>
+                            <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                              {e.movedPct > 0 ? '+' : ''}{e.movedPct}%
+                            </TableCell>
+                            <TableCell>
+                              <Chip
+                                size="small"
+                                label={e.followed ? 'последовал' : 'нет'}
+                                color={e.followed ? 'success' : 'default'}
+                                variant={e.followed ? 'filled' : 'outlined'}
+                              />
+                            </TableCell>
+                            <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                              {e.lagSteps != null ? `${e.lagSteps} шаг(ов)` : '—'}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </Box>
+                  <FollowEventPanel
+                    event={selectedEvent}
+                    movePct={result.movePct}
+                    windowSteps={result.windowSteps}
+                    unitMs={(result.historyTo ?? 0) > 1e12}
+                  />
+                </Stack>
               </Box>
             )}
           </Box>

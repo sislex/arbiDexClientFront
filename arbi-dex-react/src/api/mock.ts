@@ -154,11 +154,14 @@ export const mockApi: ApiClient = {
         const bucket = dir > 0 ? stats.up : stats.down;
         bucket.events += 1;
         let followedAt = -1;
+        let bestChgPct = 0;
         const last = Math.min(t + windowSteps, quotes.length - 1);
         for (let j = t; j <= last; j++) {
           const chgPct = ((mid(quotes[j]) - base) / base) * 100;
-          if (dir > 0 ? chgPct >= movePct : chgPct <= -movePct) {
+          if (dir > 0 ? chgPct > bestChgPct : chgPct < bestChgPct) bestChgPct = chgPct;
+          if (followedAt < 0 && (dir > 0 ? chgPct >= movePct : chgPct <= -movePct)) {
             followedAt = j;
+            bestChgPct = chgPct;
             break;
           }
         }
@@ -174,6 +177,12 @@ export const mockApi: ApiClient = {
           followed: followedAt >= 0,
           followedAt: followedAt >= 0 ? quotes[followedAt].time : null,
           lagSteps: followedAt >= 0 ? followedAt - t : null,
+          index: t,
+          observedBefore: prevObs,
+          observedAfter: curObs,
+          baseMid: base,
+          midAtFollow: followedAt >= 0 ? mid(quotes[followedAt]) : null,
+          tradingMovePct: +bestChgPct.toFixed(4),
         });
       }
       const events = stats.up.events + stats.down.events;

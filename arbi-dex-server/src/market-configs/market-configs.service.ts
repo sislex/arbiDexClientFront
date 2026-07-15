@@ -41,6 +41,18 @@ export interface FollowEvent {
   /** Time when the trading market caught up (data units), null if it didn't. */
   followedAt: number | null;
   lagSteps: number | null;
+  /** Step index within the analyzed period (0-based). */
+  index: number;
+  /** Weighted observed price before/at the event step. */
+  observedBefore: number;
+  observedAfter: number;
+  /** Trading mid before the event (the follow baseline). */
+  baseMid: number;
+  /** Trading mid at the catch-up step; null if it didn't follow. */
+  midAtFollow: number | null;
+  /** The trading market's strongest same-direction move within the window, %
+   * (signed; equals the move at the catch-up step when followed). */
+  tradingMovePct: number;
 }
 
 /** «Как часто торговый рынок следует за наблюдаемыми» over a period. */
@@ -268,13 +280,17 @@ export class MarketConfigsService {
       const bucket = dir > 0 ? stats.up : stats.down;
       bucket.events += 1;
 
-      // Did the trading mid move ≥ movePct% in the same direction within the window?
+      // Did the trading mid move ≥ movePct% in the same direction within the
+      // window? Track the strongest same-direction move for the breakdown.
       let followedAt = -1;
+      let bestChgPct = 0;
       const last = Math.min(t + windowSteps, quotes.length - 1);
       for (let j = t; j <= last; j++) {
         const chgPct = ((mid(quotes[j]) - base) / base) * 100;
-        if (dir > 0 ? chgPct >= movePct : chgPct <= -movePct) {
+        if (dir > 0 ? chgPct > bestChgPct : chgPct < bestChgPct) bestChgPct = chgPct;
+        if (followedAt < 0 && (dir > 0 ? chgPct >= movePct : chgPct <= -movePct)) {
           followedAt = j;
+          bestChgPct = chgPct;
           break;
         }
       }
@@ -290,6 +306,12 @@ export class MarketConfigsService {
         followed: followedAt >= 0,
         followedAt: followedAt >= 0 ? quotes[followedAt].time : null,
         lagSteps: followedAt >= 0 ? followedAt - t : null,
+        index: t,
+        observedBefore: prevObs,
+        observedAfter: curObs,
+        baseMid: base,
+        midAtFollow: followedAt >= 0 ? mid(quotes[followedAt]) : null,
+        tradingMovePct: +bestChgPct.toFixed(4),
       });
     }
 

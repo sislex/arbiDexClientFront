@@ -87,6 +87,15 @@ export interface FollowEvent {
   followed: boolean;
   followedAt: number | null;
   lagSteps: number | null;
+  /** Step index within the analyzed period (0-based). */
+  index: number;
+  observedBefore: number;
+  observedAfter: number;
+  /** Trading mid before the event (the follow baseline). */
+  baseMid: number;
+  midAtFollow: number | null;
+  /** Strongest same-direction trading move within the window, % (signed). */
+  tradingMovePct: number;
 }
 
 /** «Как часто торговый рынок следует за наблюдаемыми» over a period. */
