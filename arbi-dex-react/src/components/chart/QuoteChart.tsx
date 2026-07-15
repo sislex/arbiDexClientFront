@@ -27,6 +27,14 @@ export interface ChartMarker {
   text?: string;
 }
 
+/** lightweight-charts renders the time scale in UTC and has no timezone
+ * support; the documented workaround is shifting epoch seconds by the local
+ * offset. Per-timestamp offset keeps DST transitions correct. Callers keep
+ * passing real (UTC) epoch seconds — the shift stays inside this component. */
+function toLocal(unixSec: number): UTCTimestamp {
+  return (unixSec - new Date(unixSec * 1000).getTimezoneOffset() * 60) as UTCTimestamp;
+}
+
 /**
  * Thin wrapper around lightweight-charts. Renders any number of line series
  * plus optional buy/sell markers. Purely presentational — legend & toggles
@@ -53,7 +61,7 @@ export function QuoteChart({
   const applyView = (chart: IChartApi) => {
     if (viewStartTime != null && viewEndTime != null && viewEndTime > viewStartTime) {
       try {
-        chart.timeScale().setVisibleRange({ from: viewStartTime as UTCTimestamp, to: viewEndTime as UTCTimestamp });
+        chart.timeScale().setVisibleRange({ from: toLocal(viewStartTime), to: toLocal(viewEndTime) });
       } catch {
         /* range outside data — ignore */
       }
@@ -128,14 +136,14 @@ export function QuoteChart({
       } else {
         s.applyOptions({ color: def.color, lineStyle: def.dashed ? LineStyle.Dashed : LineStyle.Solid });
       }
-      s.setData(def.data.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+      s.setData(def.data.map((p) => ({ time: toLocal(p.time), value: p.value })));
       if (!markerHost) markerHost = s;
     }
 
     // Attach markers to the first series.
     if (markerHost) {
       const ms: SeriesMarker<Time>[] = markers.map((m) => ({
-        time: m.time as UTCTimestamp,
+        time: toLocal(m.time),
         position: m.side === 'buy' ? 'belowBar' : 'aboveBar',
         color: m.side === 'buy' ? CHART.buy : CHART.sell,
         shape: m.side === 'buy' ? 'arrowUp' : 'arrowDown',
