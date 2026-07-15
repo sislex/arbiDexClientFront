@@ -14,6 +14,7 @@ import { updateStrategyConfig } from '../../store/strategyConfigsSlice';
 import { tuneKeyLabel, applyComboToStrategy } from './autotuneLabels';
 import { usePeriod } from './usePeriod';
 import { PeriodPicker } from './PeriodPicker';
+import { PeriodHistoryChart } from './PeriodHistoryChart';
 
 export function AutotuneTab({ bot }: { bot: Bot }) {
   const dispatch = useAppDispatch();
@@ -102,6 +103,10 @@ export function AutotuneTab({ bot }: { bot: Bot }) {
       {status === 'failed' && error && (
         <Alert severity="error" data-testid="at-error" sx={{ mb: 2 }}>{error}</Alert>
       )}
+
+      <Box sx={{ mb: 2 }}>
+        <PeriodHistoryChart botId={bot.id} period={period} idPrefix="at" />
+      </Box>
 
       {status === 'loading' && !result && <Stack alignItems="center" sx={{ py: 6 }}><CircularProgress /></Stack>}
 
