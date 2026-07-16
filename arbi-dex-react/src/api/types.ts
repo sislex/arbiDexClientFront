@@ -2,12 +2,17 @@ import type {
   AutotuneResult,
   BacktestResult,
   Bot,
+  ExecutorBalances,
+  LiveTrade,
   Market,
   MarketConfig,
   QuotePoint,
+  Side,
   StepEngineResult,
   StrategyConfig,
+  TradingContract,
   User,
+  UserToken,
 } from '../domain/types';
 
 export type { StepConditionOutcome } from '../domain/types';
@@ -141,6 +146,8 @@ export interface AutotuneParams {
   /** End of the tuning window (timestamp in the data's own unit). */
   to?: number;
   botId?: string;
+  /** Starting balance of each run (quote asset); defaults to the bot's. */
+  initialBalance?: number;
 }
 
 /** The API facade implemented by both the mock and the live backend clients. */
@@ -159,10 +166,40 @@ export interface ApiClient {
     remove(id: string): Promise<void>;
     /** Bounds of available quote history for the bot's market. */
     historyRange(id: string): Promise<HistoryRange>;
-    /** Real historical quotes of the bot's market over [from, to] (no backtest run). */
-    quotes(id: string, params?: { from?: number; to?: number }): Promise<{ quotes: QuotePoint[] }>;
+    /** Real historical quotes of the bot's market over [from, to] (no backtest run).
+     * `refresh` — re-fetch the config's markets bypassing the server quotes cache.
+     * The live backend also returns the (possibly extended) history bounds. */
+    quotes(
+      id: string,
+      params?: { from?: number; to?: number; refresh?: boolean },
+    ): Promise<{ quotes: QuotePoint[]; historyFrom?: number; historyTo?: number }>;
     /** Engine evaluation of the bot's strategy on the step at `time` (processStep). */
     stepResult(id: string, params: { time: number }): Promise<BotStepResult>;
+    /** Manual live trade (buy/sell button). Demo mode quotes through the executor
+     * contract (staticCall), real mode executes on-chain. Live backend only. */
+    trade(
+      id: string,
+      params: { side: Side; expectedPrice?: number; amount?: number },
+    ): Promise<{ trade: LiveTrade; bot: Bot }>;
+    /** Live-trade log of the bot (successful and failed). */
+    trades(id: string): Promise<LiveTrade[]>;
+    /** Executor contract balances for the bot's pair tokens (real mode). */
+    executorBalance(id: string): Promise<ExecutorBalances>;
+    /** Reset the demo account: balance → initial, position/PnL/counters → 0,
+     * demo-trade log cleared. Returns the updated bot. */
+    resetAccount(id: string): Promise<Bot>;
+  };
+  settings: {
+    /** Quoter/executor contract entries (many per network; the active one trades). */
+    contracts(kind?: 'quoter' | 'executor'): Promise<TradingContract[]>;
+    createContract(input: Omit<TradingContract, 'id' | 'isActive'> & { isActive?: boolean }): Promise<TradingContract>;
+    updateContract(id: string, patch: Partial<Omit<TradingContract, 'id' | 'kind'>>): Promise<TradingContract>;
+    removeContract(id: string): Promise<void>;
+    /** Token mapping: network, contract address, display symbol, decimals. */
+    tokens(): Promise<UserToken[]>;
+    createToken(input: Omit<UserToken, 'id'>): Promise<UserToken>;
+    updateToken(id: string, patch: Partial<Omit<UserToken, 'id'>>): Promise<UserToken>;
+    removeToken(id: string): Promise<void>;
   };
   marketConfigs: {
     list(): Promise<MarketConfig[]>;

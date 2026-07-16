@@ -27,6 +27,15 @@ export interface ChartMarker {
   time: number;
   side: 'buy' | 'sell';
   text?: string;
+  /** Failed live trade — drawn as a warning circle instead of an arrow. */
+  failed?: boolean;
+  /** Trade price — shown in the hover tooltip («куплено/продано по …»). */
+  price?: number | null;
+  /** Realised PnL of a closing sell — shown in the tooltip. */
+  pnl?: number | null;
+  /** Custom tooltip line (e.g. a follow-analysis event) — replaces the default
+   * bought/sold wording. */
+  tooltip?: string;
 }
 
 /** Series primitive drawing a dashed vertical line at the selected step. */
@@ -95,6 +104,25 @@ function fromLocal(localSec: number): number {
   return localSec + new Date(localSec * 1000).getTimezoneOffset() * 60;
 }
 
+/** Tooltip time with seconds — series can tick multiple times a minute. */
+function fmtTipTime(unixSec: number): string {
+  return new Date(unixSec * 1000).toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+/** Tooltip price: 2 decimals for big values, significant digits for tiny ones. */
+function fmtVal(v: number): string {
+  return Math.abs(v) >= 1 ? v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : v.toPrecision(4);
+}
+
+const escapeHtml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 /**
  * Thin wrapper around lightweight-charts. Renders any number of line series
  * plus optional buy/sell markers. Purely presentational — legend & toggles
@@ -125,6 +153,14 @@ export function QuoteChart({
   const seriesRef = useRef<Map<string, ISeriesApi<'Line'>>>(new Map());
   const selectedLineRef = useRef<SelectedTimeLine>(new SelectedTimeLine());
   const selectedHostRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const tooltipRef = useRef<HTMLDivElement | null>(null);
+
+  // Latest series defs / markers for the crosshair tooltip (the subscription
+  // is created once with the chart, so it reads through refs).
+  const defsRef = useRef<ChartSeries[]>([]);
+  defsRef.current = series;
+  const markersRef = useRef<ChartMarker[]>([]);
+  markersRef.current = markers;
 
   // Keep the latest handler in a ref so the click subscription (created once
   // with the chart) always calls the current callback.
@@ -167,6 +203,72 @@ export function QuoteChart({
 
     chart.subscribeClick((param) => {
       if (typeof param.time === 'number') onTimeClickRef.current?.(fromLocal(param.time));
+    });
+
+    // Hover tooltip: every series value at the crosshair time plus trade
+    // events (bought/sold at which price) that happened on that step.
+    chart.subscribeCrosshairMove((param) => {
+      const tip = tooltipRef.current;
+      const host = containerRef.current;
+      if (!tip || !host) return;
+      if (typeof param.time !== 'number' || !param.point) {
+        tip.style.display = 'none';
+        return;
+      }
+
+      const rows: string[] = [
+        `<div style="color:${CHART.text};margin-bottom:4px">${fmtTipTime(fromLocal(param.time))}</div>`,
+      ];
+      for (const def of defsRef.current) {
+        const s = seriesRef.current.get(def.id);
+        const d = s ? (param.seriesData.get(s) as { value?: number } | undefined) : undefined;
+        if (d?.value == null) continue;
+        rows.push(
+          `<div style="display:flex;gap:6px;align-items:center">` +
+            `<span style="width:8px;height:8px;border-radius:50%;background:${def.color};flex-shrink:0"></span>` +
+            `<span style="color:${CHART.text}">${escapeHtml(def.label)}:</span>` +
+            `<span style="margin-left:auto;font-variant-numeric:tabular-nums">${fmtVal(d.value)}</span>` +
+          `</div>`,
+        );
+      }
+      // Events on this step: trades (bought/sold at price) or custom-tooltip
+      // markers (e.g. follow-analysis events).
+      for (const m of markersRef.current) {
+        if (toLocal(m.time) !== param.time) continue;
+        const color = m.failed ? CHART.failed : m.side === 'buy' ? CHART.buy : CHART.sell;
+        const icon = m.failed ? '✕ ' : m.side === 'buy' ? '▲ ' : '▼ ';
+        let line: string;
+        if (m.tooltip) {
+          line = escapeHtml(m.tooltip);
+        } else {
+          const action = m.side === 'buy' ? (m.failed ? 'Покупка не прошла' : 'Куплено') : m.failed ? 'Продажа не прошла' : 'Продано';
+          const price = m.price != null ? ` по ${fmtVal(m.price)}` : '';
+          const pnl = !m.failed && m.side === 'sell' && m.pnl != null
+            ? ` · PnL ${m.pnl >= 0 ? '+' : ''}${fmtVal(m.pnl)}`
+            : '';
+          line = `${action}${price}${pnl}`;
+        }
+        rows.push(`<div style="color:${color};margin-top:4px">${icon}${line}</div>`);
+      }
+
+      if (rows.length <= 1) {
+        tip.style.display = 'none';
+        return;
+      }
+      tip.innerHTML = rows.join('');
+      tip.style.display = 'block';
+      // Flip near the right/bottom edges so the tooltip stays inside the chart.
+      const pad = 12;
+      const w = tip.offsetWidth;
+      const h = tip.offsetHeight;
+      const hostW = host.clientWidth;
+      const hostH = host.clientHeight;
+      let x = param.point.x + pad;
+      if (x + w > hostW) x = Math.max(0, param.point.x - w - pad);
+      let y = param.point.y + pad;
+      if (y + h > hostH) y = Math.max(0, param.point.y - h - pad);
+      tip.style.left = `${x}px`;
+      tip.style.top = `${y}px`;
     });
 
     const ro = new ResizeObserver((entries) => {
@@ -226,10 +328,10 @@ export function QuoteChart({
         .sort((a, b) => a.time - b.time)
         .map((m) => ({
           time: toLocal(m.time),
-          position: m.side === 'buy' ? 'belowBar' : 'aboveBar',
-          color: m.side === 'buy' ? CHART.buy : CHART.sell,
-          shape: m.side === 'buy' ? 'arrowUp' : 'arrowDown',
-          text: m.text ?? (m.side === 'buy' ? 'B' : 'S'),
+          position: m.side === 'buy' ? ('belowBar' as const) : ('aboveBar' as const),
+          color: m.failed ? CHART.failed : m.side === 'buy' ? CHART.buy : CHART.sell,
+          shape: m.failed ? ('circle' as const) : m.side === 'buy' ? ('arrowUp' as const) : ('arrowDown' as const),
+          text: m.text ?? `${m.failed ? '✕' : ''}${m.side === 'buy' ? 'B' : 'S'}`,
         }));
       markerHost.setMarkers(ms);
     }
@@ -256,5 +358,30 @@ export function QuoteChart({
     selectedLineRef.current.setTime(selectedTime != null ? toLocal(selectedTime) : null);
   }, [selectedTime]);
 
-  return <Box ref={containerRef} data-testid="quote-chart" sx={{ width: '100%', height }} />;
+  return (
+    <Box sx={{ position: 'relative', width: '100%', height }}>
+      <Box ref={containerRef} data-testid="quote-chart" sx={{ width: '100%', height }} />
+      {/* Crosshair tooltip (populated imperatively from subscribeCrosshairMove). */}
+      <Box
+        ref={tooltipRef}
+        data-testid="chart-tooltip"
+        sx={{
+          display: 'none',
+          position: 'absolute',
+          zIndex: 3,
+          pointerEvents: 'none',
+          minWidth: 170,
+          maxWidth: 300,
+          px: 1.25,
+          py: 1,
+          fontSize: 12,
+          lineHeight: 1.5,
+          borderRadius: 1,
+          border: '1px solid rgba(255,255,255,0.12)',
+          background: 'rgba(16,20,28,0.94)',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+        }}
+      />
+    </Box>
+  );
 }

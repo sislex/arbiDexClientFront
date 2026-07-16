@@ -80,6 +80,12 @@ export interface Bot {
   tradesCount: number;
   winRate: number;
   openPosition: boolean;
+  /** Allowed slippage for live buy/sell, % (live backend; default 0.5). */
+  slippagePct?: number;
+  /** Open position size in the base asset (manual live trading). */
+  positionSize?: number;
+  /** Entry price of the open position (quote per base). */
+  entryPrice?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -106,6 +112,32 @@ export interface Trade {
   pnl?: number;
   /** Reason a sell was forced (trigger id), if any. */
   reason?: string;
+  /** Manual live trades only: failed ones are drawn differently on the chart. */
+  status?: 'success' | 'failed';
+}
+
+/** One manual live trade of a bot (buy/sell button), successful or failed.
+ * Mirrors the server's BotTrade entity. */
+export interface LiveTrade {
+  id: string;
+  botId: string;
+  /** Trade time, unix ms. */
+  time: number;
+  side: Side;
+  status: 'success' | 'failed';
+  mode: 'demo' | 'real';
+  /** Executed (quoted) price, quote per base; null when quoting failed. */
+  price: number | null;
+  /** The quote the user saw when clicking — the slippage baseline. */
+  expectedPrice: number | null;
+  /** Amount in: quote asset for buys, base asset for sells. */
+  amountIn: number;
+  amountOut: number | null;
+  pnl: number | null;
+  /** Failure reason (slippage exceeded / execution error). */
+  error: string | null;
+  txHash: string;
+  txUrl: string;
 }
 
 export interface BacktestStats {
@@ -174,9 +206,46 @@ export interface AutotuneCombo {
 
 export interface AutotuneResult {
   id: string;
+  /** How many combos were actually run (≤ gridTotal, limited by the run limit). */
   totalCombos: number;
+  /** Full size of the combination grid (live backend / mock). */
+  gridTotal?: number;
   combos: AutotuneCombo[];
   best: AutotuneCombo | null;
+  /** Server-side computation time, ms (live backend only). */
+  tookMs?: number;
+}
+
+// ── Trading settings (per-network contracts + token mapping) ─────────────────
+
+/** A user quoter/executor contract entry: network + RPC URL + address. Any
+ * number of entries per network; trading uses the network's active one, and
+ * with no entries at all the server's .env fallback applies. */
+export interface TradingContract {
+  id: string;
+  kind: 'quoter' | 'executor';
+  /** Network prefix: ARBITRUM | OPTIMISM | BASE. */
+  network: string;
+  name: string;
+  rpcUrl: string;
+  address: string;
+  isActive: boolean;
+}
+
+/** User token mapping: network + contract address + display symbol. */
+export interface UserToken {
+  id: string;
+  network: string;
+  address: string;
+  symbol: string;
+  decimals: number;
+}
+
+/** Executor contract balances for the bot's pair tokens. */
+export interface ExecutorBalances {
+  network: string;
+  executorAddress: string;
+  balances: { symbol: string; address: string; decimals: number; balance: number }[];
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────

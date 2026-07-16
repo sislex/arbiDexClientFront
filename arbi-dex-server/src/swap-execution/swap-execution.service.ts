@@ -133,20 +133,57 @@ export class SwapExecutionService {
 
   constructor(private readonly configService: ConfigService) {}
 
-  async execute(dto: ExecuteSwapDto) {
+  /** Серверный .env RPC сети (fallback, когда настройки пользователя пусты). */
+  envRpcUrl(prefix: NetworkPrefix): string {
+    return this.configService.get<string>(`swapNetworks.networks.${prefix}.rpcUrl`) ?? '';
+  }
+
+  /** Серверный .env адрес executor-контракта сети (fallback). */
+  envExecutorAddress(prefix: NetworkPrefix): string {
+    return this.configService.get<string>(`swapNetworks.networks.${prefix}.executorAddress`) ?? '';
+  }
+
+  async execute(
+    dto: ExecuteSwapDto,
+    overrides?: { rpcUrl?: string; executorAddress?: string },
+  ) {
+    const shouldExecute = dto.execute ?? true;
     const privateKey = this.configService.get<string>('swapNetworks.privateKey') ?? '';
-    if (!privateKey) {
+    // Ключ обязателен только для on-chain исполнения. Preview (квотер) работает
+    // и без него: executeSwaps.staticCall симулируется от имени owner контракта
+    // через overrides `{ from: owner }` — eth_call это позволяет.
+    if (!privateKey && shouldExecute) {
       throw new BadRequestException('Не задан PRIVATE_KEY в конфигурации сервера');
     }
 
     const networkCfg = this.getNetworkConfig(dto.networkPrefix);
+    // Настройки пользователя (БД) приоритетнее серверного .env.
+    if (overrides?.rpcUrl) networkCfg.rpcUrl = overrides.rpcUrl;
+    if (overrides?.executorAddress) {
+      if (!ethers.isAddress(overrides.executorAddress)) {
+        throw new BadRequestException('Некорректный адрес executor-контракта в настройках');
+      }
+      networkCfg.executorAddress = overrides.executorAddress;
+    }
+    if (!networkCfg.rpcUrl) {
+      throw new BadRequestException(`Не задан ${dto.networkPrefix}_RPC (и нет RPC в настройках)`);
+    }
+    if (!ethers.isAddress(networkCfg.executorAddress)) {
+      throw new BadRequestException(
+        `Не задан адрес executor-контракта — укажите его в настройках или ${dto.networkPrefix}_EXECUTOR_ADDRESS в .env`,
+      );
+    }
 
     const provider = new ethers.JsonRpcProvider(networkCfg.rpcUrl);
-    const wallet = new ethers.Wallet(privateKey, provider);
-    const executor = new ethers.Contract(networkCfg.executorAddress, arbExecutorAbi, wallet);
+    const wallet = privateKey ? new ethers.Wallet(privateKey, provider) : null;
+    const executor = new ethers.Contract(
+      networkCfg.executorAddress,
+      arbExecutorAbi,
+      wallet ?? provider,
+    );
 
     const owner = await executor.owner();
-    if (owner.toLowerCase() !== wallet.address.toLowerCase()) {
+    if (wallet && owner.toLowerCase() !== wallet.address.toLowerCase()) {
       throw new BadRequestException(
         `Кошелёк ${wallet.address} не является owner executor-контракта ${owner}`,
       );
@@ -155,7 +192,6 @@ export class SwapExecutionService {
     const slippageBps = dto.slippageBps ?? 50;
     const revertIfLoss = dto.revertIfLoss ?? false;
     const emitEvents = dto.emitEvents ?? true;
-    const shouldExecute = dto.execute ?? true;
 
     dto.steps.forEach((step, idx) => {
       const validationError = getRouterValidationError(step.kind, step.router, networkCfg.routers);
@@ -174,6 +210,8 @@ export class SwapExecutionService {
         dto.profitToken,
         revertIfLoss,
         false,
+        // Без кошелька симулируем вызов от owner — executeSwaps onlyOwner.
+        ...(wallet ? [] : [{ from: owner }]),
       );
       previewSummary = preview[0] as ContractSummary;
       previewLogs = preview[1] as ContractStepLog[];
@@ -377,13 +415,9 @@ export class SwapExecutionService {
     const sushiV2 = this.configService.get<string>(`${basePath}.routers.sushiV2`) ?? '';
     const camelotV2 = this.configService.get<string>(`${basePath}.routers.camelotV2`) ?? '';
 
-    if (!rpcUrl) {
-      throw new BadRequestException(`Не задан ${prefix}_RPC`);
-    }
-    if (!executorAddress) {
-      throw new BadRequestException(`Не задан ${prefix}_EXECUTOR_ADDRESS`);
-    }
-    if (!ethers.isAddress(executorAddress)) {
+    // rpcUrl/executorAddress могут быть пустыми в .env и заданы настройками
+    // пользователя — валидируются в execute() после мержа overrides.
+    if (executorAddress && !ethers.isAddress(executorAddress)) {
       throw new BadRequestException(`Некорректный ${prefix}_EXECUTOR_ADDRESS`);
     }
 

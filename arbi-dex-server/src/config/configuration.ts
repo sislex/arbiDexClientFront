@@ -29,6 +29,8 @@ function buildNetworkConfig(prefix: SupportedNetworkPrefix) {
     rpcUrl: process.env[`${prefix}_RPC`] ?? '',
     executorAddress: process.env[`${prefix}_EXECUTOR_ADDRESS`] ?? '',
     txUrl: process.env[`${prefix}_TX_URL`] ?? '',
+    /** ArbQuoter — котировки через контракт без исполнения (демо-торговля ботов). */
+    quoterAddress: process.env[`${prefix}_QUOTER_ADDRESS`] ?? '',
     routers: {
       uniswapV2: process.env[`${prefix}_UNISWAP_V2_ROUTER`] ?? '',
       sushiV2: process.env[`${prefix}_SUSHI_V2_ROUTER`] ?? '',

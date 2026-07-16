@@ -1,9 +1,24 @@
-import { useEffect, useRef, useState } from 'react';
-import { Box, Card, CardContent, Stack, Typography, Alert, Chip } from '@mui/material';
-import type { Bot, QuotePoint } from '../../domain/types';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CircularProgress,
+  Stack,
+  Typography,
+  Alert,
+  Chip,
+} from '@mui/material';
+import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
+import SellIcon from '@mui/icons-material/Sell';
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
+import { Tooltip, IconButton } from '@mui/material';
+import type { Bot, ExecutorBalances, LiveTrade, QuotePoint, Side, Trade } from '../../domain/types';
 import { StatCard } from '../../components/StatCard';
 import { QuoteChartPanel } from '../../components/chart/QuoteChartPanel';
-import { useAppSelector } from '../../store';
+import { useAppDispatch, useAppSelector } from '../../store';
+import { fetchBot } from '../../store/botsSlice';
 import { api, IS_LIVE } from '../../api';
 import type { BotStepResult } from '../../api/types';
 import { subscribeMarket, type MarketTick } from '../../api/liveSocket';
@@ -19,7 +34,30 @@ const FLUSH_MS = 500;
 /** Do not call the step-result API more often than this. */
 const INSPECT_MIN_MS = 3000;
 
+/** Human amount: 2 decimals for big values, significant digits for tiny ones
+ * (0.001 WBTC must not collapse to «0.00»). */
+function fmtAmount(v: number): string {
+  if (!isFinite(v)) return '—';
+  return Math.abs(v) >= 1 ? v.toFixed(2) : v === 0 ? '0' : v.toPrecision(4);
+}
+
+/** Pull the human message out of an API error (`POST … 400 … {"message":…}`). */
+function apiErrorMessage(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  const json = raw.match(/\{.*\}\s*$/s);
+  if (json) {
+    try {
+      const parsed = JSON.parse(json[0]) as { message?: string | string[] };
+      if (parsed.message) return Array.isArray(parsed.message) ? parsed.message.join('; ') : parsed.message;
+    } catch {
+      /* not JSON — fall through to the raw message */
+    }
+  }
+  return raw;
+}
+
 export function LiveTab({ bot }: { bot: Bot }) {
+  const dispatch = useAppDispatch();
   const marketConfig = useAppSelector((s) => s.marketConfigs.items.find((m) => m.id === bot.marketConfigId));
   const isReal = bot.mode === 'real-live';
 
@@ -73,11 +111,21 @@ export function LiveTab({ bot }: { bot: Bot }) {
     const timer = window.setInterval(() => {
       if (!dirty) return;
       dirty = false;
-      // Trim everything older than the 30-minute window.
+      // Trim everything older than the 30-minute window, but keep the last
+      // pre-window value clamped to the window edge: rare DEX ticks must keep
+      // forward-filling the buy/sell lines instead of vanishing.
       const cutoff = Math.floor(Date.now() / 1000) - WINDOW_SEC;
-      tradingData = tradingData.filter((p) => p.time >= cutoff);
+      const trim = <T extends { time: number }>(arr: T[]): T[] => {
+        const kept = arr.filter((p) => p.time >= cutoff);
+        if (kept.length < arr.length && (kept.length === 0 || kept[0].time > cutoff)) {
+          const lastOld = arr.filter((p) => p.time < cutoff).pop();
+          if (lastOld) kept.unshift({ ...lastOld, time: cutoff });
+        }
+        return kept;
+      };
+      tradingData = trim(tradingData);
       for (const [id, arr] of observedData) {
-        observedData.set(id, arr.filter((p) => p.time >= cutoff));
+        observedData.set(id, trim(arr));
       }
       const observedSeries: PreviewSeries[] = observedIds.map((id) => ({
         id,
@@ -131,6 +179,122 @@ export function LiveTab({ bot }: { bot: Bot }) {
 
   const last = quotes[quotes.length - 1];
 
+  // ── Manual trading (buy/sell buttons) ─────────────────────────────────────
+  const [liveTrades, setLiveTrades] = useState<LiveTrade[]>([]);
+  const [tradePending, setTradePending] = useState(false);
+  const [lastTrade, setLastTrade] = useState<LiveTrade | null>(null);
+  const [tradeError, setTradeError] = useState<string | null>(null);
+
+  // Existing trade log → chart markers survive a page reload.
+  useEffect(() => {
+    if (!IS_LIVE) return;
+    let alive = true;
+    api.bots
+      .trades(bot.id)
+      .then((ts) => {
+        if (alive) setLiveTrades(ts);
+      })
+      .catch(() => {
+        /* журнал недоступен — маркеры появятся по мере сделок */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [bot.id]);
+
+  // Real mode: executor contract balances — fetched on every visit to the tab
+  // and refreshed after each trade (real trades spend the executor's tokens).
+  const [executor, setExecutor] = useState<ExecutorBalances | null>(null);
+  const [executorError, setExecutorError] = useState<string | null>(null);
+  const loadExecutor = () => {
+    if (!IS_LIVE || !isReal) return;
+    api.bots
+      .executorBalance(bot.id)
+      .then((r) => {
+        setExecutor(r);
+        setExecutorError(null);
+      })
+      .catch((e) => setExecutorError(apiErrorMessage(e)));
+  };
+  useEffect(() => {
+    setExecutor(null);
+    loadExecutor();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bot.id, isReal]);
+
+  // «Обнулить демосчёт»: баланс → начальный, позиция/PnL — в ноль, журнал
+  // демо-сделок (и его маркеры на графике) очищается.
+  const [resetting, setResetting] = useState(false);
+  const resetAccount = async () => {
+    setResetting(true);
+    setTradeError(null);
+    setLastTrade(null);
+    try {
+      await api.bots.resetAccount(bot.id);
+      setLiveTrades((ts) => ts.filter((t) => t.mode !== 'demo'));
+      dispatch(fetchBot(bot.id));
+    } catch (e) {
+      setTradeError(apiErrorMessage(e));
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  const doTrade = async (side: Side) => {
+    if (!last || tradePending) return;
+    setTradePending(true);
+    setTradeError(null);
+    setLastTrade(null);
+    try {
+      const expectedPrice = side === 'buy' ? last.buyQuote : last.sellQuote;
+      const r = await api.bots.trade(bot.id, { side, expectedPrice });
+      setLiveTrades((ts) => [...ts, r.trade]);
+      setLastTrade(r.trade);
+      // Balance / position / PnL changed — refresh the bot in the store.
+      dispatch(fetchBot(bot.id));
+      if (isReal) loadExecutor();
+    } catch (e) {
+      setTradeError(apiErrorMessage(e));
+    } finally {
+      setTradePending(false);
+    }
+  };
+
+  // Trades → chart markers: snap each trade to the nearest visible step so the
+  // marker lands on an existing series point (markers bind to bar times).
+  const chartTrades = useMemo<Trade[]>(() => {
+    if (quotes.length === 0 || liveTrades.length === 0) return [];
+    const times = quotes.map((q) => q.time);
+    return liveTrades
+      .map((t) => {
+        const sec = Math.round(t.time / 1000);
+        if (sec < times[0] - 60) return null; // до окна графика — не показываем
+        let nearest = times[0];
+        let bestD = Math.abs(times[0] - sec);
+        for (const ts of times) {
+          const d = Math.abs(ts - sec);
+          if (d < bestD) {
+            bestD = d;
+            nearest = ts;
+          }
+        }
+        const trade: Trade = {
+          id: t.id,
+          time: nearest,
+          side: t.side,
+          price: t.price ?? t.expectedPrice ?? 0,
+          amount: t.amountIn,
+          pnl: t.pnl ?? undefined,
+          status: t.status,
+        };
+        return trade;
+      })
+      .filter((t): t is Trade => t !== null);
+  }, [quotes, liveTrades]);
+
+  const positionSize = bot.positionSize ?? 0;
+  const canTrade = IS_LIVE && bot.mode !== 'idle' && !!last;
+
   return (
     <Box>
       {isReal && (
@@ -163,6 +327,145 @@ export function LiveTab({ bot }: { bot: Bot }) {
         />
       </Stack>
 
+      {/* Manual trading: quote via the executor contract (demo) / on-chain swap (real). */}
+      {IS_LIVE && (
+        <Card sx={{ mb: 2 }} data-testid="live-trading">
+          <CardContent>
+            <Stack direction="row" spacing={2} alignItems="center" sx={{ flexWrap: 'wrap', gap: 1.5 }}>
+              <Typography variant="subtitle1">
+                Торговля {isReal ? '(реальная, через экзекутор)' : '(демо, котировка через квотер)'}
+              </Typography>
+              <Chip
+                size="small"
+                variant="outlined"
+                label={`Проскальзывание ≤ ${bot.slippagePct ?? 0.5}%`}
+                data-testid="trade-slippage"
+              />
+              <Box sx={{ flexGrow: 1 }} />
+              <Typography variant="body2" color="text.secondary" data-testid="trade-balance">
+                Баланс: {fmtAmount(bot.balance)} {bot.quoteAsset}
+              </Typography>
+              {bot.openPosition && positionSize > 0 && (
+                <Typography variant="body2" color="text.secondary" data-testid="trade-position">
+                  Позиция: {fmtAmount(positionSize)} {bot.baseAsset} @ {fmtAmount(bot.entryPrice ?? 0)}
+                </Typography>
+              )}
+              <Tooltip title={`Обнулить демосчёт: баланс → ${fmtAmount(bot.initialBalance)} ${bot.quoteAsset}, позиция и PnL — в ноль, журнал демо-сделок очищается`}>
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={resetAccount}
+                    disabled={resetting || tradePending}
+                    data-testid="reset-account"
+                  >
+                    <RestartAltIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </Stack>
+
+            {/* Real mode: executor address + its token balances (funds real trades). */}
+            {isReal && (
+              <Stack
+                direction="row"
+                spacing={1.5}
+                alignItems="center"
+                sx={{ mt: 1, flexWrap: 'wrap', gap: 1 }}
+                data-testid="executor-info"
+              >
+                <Typography variant="body2" color="text.secondary">
+                  Executor:{' '}
+                  {executor
+                    ? `${executor.executorAddress.slice(0, 8)}…${executor.executorAddress.slice(-6)}`
+                    : 'загрузка…'}
+                </Typography>
+                {executor?.balances.map((b) => (
+                  <Chip
+                    key={b.address}
+                    size="small"
+                    variant="outlined"
+                    label={`${b.symbol}: ${b.balance.toFixed(6)}`}
+                    data-testid={`executor-balance-${b.symbol}`}
+                  />
+                ))}
+                <Typography variant="caption" color="text.secondary">
+                  Реальные сделки — тестовые (эквивалент 1 USDC) и тратят токены executor-контракта.
+                </Typography>
+                {executorError && (
+                  <Typography variant="caption" color="error.main" data-testid="executor-error">
+                    {executorError}
+                  </Typography>
+                )}
+              </Stack>
+            )}
+
+            <Stack direction="row" spacing={2} alignItems="center" sx={{ mt: 1.5, flexWrap: 'wrap', gap: 1.5 }}>
+              <Button
+                variant="contained"
+                color="success"
+                startIcon={<ShoppingCartIcon />}
+                disabled={!canTrade || tradePending || (!isReal && bot.openPosition)}
+                onClick={() => doTrade('buy')}
+                data-testid="trade-buy"
+              >
+                Купить{last ? ` по ${last.buyQuote.toFixed(2)}` : ''}
+              </Button>
+              <Button
+                variant="contained"
+                color="error"
+                startIcon={<SellIcon />}
+                disabled={!canTrade || tradePending || (!isReal && !bot.openPosition)}
+                onClick={() => doTrade('sell')}
+                data-testid="trade-sell"
+              >
+                Продать{last ? ` по ${last.sellQuote.toFixed(2)}` : ''}
+              </Button>
+              {tradePending && (
+                <Stack direction="row" spacing={1} alignItems="center" data-testid="trade-pending">
+                  <CircularProgress size={18} />
+                  <Typography variant="body2" color="text.secondary">
+                    Идёт транзакция…
+                  </Typography>
+                </Stack>
+              )}
+              {bot.mode === 'idle' && (
+                <Typography variant="body2" color="text.secondary">
+                  Бот выключен — включите демо или реальный режим в настройках.
+                </Typography>
+              )}
+            </Stack>
+
+            {tradeError && (
+              <Alert severity="error" sx={{ mt: 1.5 }} data-testid="trade-error">
+                {tradeError}
+              </Alert>
+            )}
+            {lastTrade && (
+              <Alert
+                severity={lastTrade.status === 'success' ? 'success' : 'error'}
+                sx={{ mt: 1.5 }}
+                data-testid="trade-result"
+              >
+                {lastTrade.status === 'success' ? (
+                  <>
+                    {lastTrade.side === 'buy' ? 'Куплено' : 'Продано'} по{' '}
+                    {(lastTrade.price ?? 0).toFixed(4)}
+                    {lastTrade.side === 'sell' && lastTrade.pnl != null && (
+                      <> · PnL {lastTrade.pnl >= 0 ? '+' : ''}{lastTrade.pnl.toFixed(2)} {bot.quoteAsset}</>
+                    )}
+                    {lastTrade.txUrl && (
+                      <> · <a href={lastTrade.txUrl} target="_blank" rel="noreferrer">транзакция</a></>
+                    )}
+                  </>
+                ) : (
+                  <>Сделка не прошла: {lastTrade.error ?? 'неизвестная ошибка'}</>
+                )}
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Live chart (2/3) + latest-step breakdown (1/3), like the backtest tab. */}
       <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} alignItems="stretch">
         <Box sx={{ width: { xs: '100%', lg: '66.667%' }, flexShrink: 0 }}>
@@ -185,6 +488,7 @@ export function LiveTab({ bot }: { bot: Bot }) {
               ) : (
                 <QuoteChartPanel
                   quotes={quotes}
+                  trades={chartTrades}
                   hasTradingMarket={!!marketConfig?.tradingMarketId}
                   height={340}
                   defaultWeighted

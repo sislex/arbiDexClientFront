@@ -23,6 +23,17 @@ const MIN_VISIBLE = 12;
 /** Normalize a timestamp to unix seconds — backend series come in ms. */
 const toSec = (t: number): number => (t > 1e12 ? Math.round(t / 1000) : t);
 
+/** Collapse points sharing a second (ms ticks can be sub-second) — the chart
+ * asserts strictly ascending times. The last value of the second wins. */
+function dedupeByTime<T extends { time: number }>(arr: T[]): T[] {
+  const out: T[] = [];
+  for (const p of arr) {
+    if (out.length && out[out.length - 1].time === p.time) out[out.length - 1] = p;
+    else out.push(p);
+  }
+  return out;
+}
+
 /**
  * Full quote panel: reference (observed) lines that can be collapsed to a
  * single weighted-average line, optional trading buy/sell lines, trade markers,
@@ -33,6 +44,7 @@ export function QuoteChartPanel({
   observed,
   hasTradingMarket = true,
   trades = [],
+  extraMarkers = [],
   height = 360,
   defaultWeighted = false,
   player = false,
@@ -43,6 +55,8 @@ export function QuoteChartPanel({
   observed?: ObservedSeries[];
   hasTradingMarket?: boolean;
   trades?: Trade[];
+  /** Extra chart markers (times in seconds) — e.g. follow-analysis events. */
+  extraMarkers?: ChartMarker[];
   height?: number;
   defaultWeighted?: boolean;
   /** Show the history playback player (scrubber + play/pause). */
@@ -64,16 +78,18 @@ export function QuoteChartPanel({
           id: o.id,
           label: o.label,
           color: CATEGORICAL[i % CATEGORICAL.length],
-          data: o.data.map((p) => ({ time: toSec(p.time), value: p.value })),
+          data: dedupeByTime(o.data.map((p) => ({ time: toSec(p.time), value: p.value }))),
         });
       });
     } else {
       // avgObservedQuote ≤ 0 means «no observed data» (only observed markets
       // form the weighted average) — such points are dropped, and without any
       // valid point the weighted line is not drawn at all.
-      const weightedData = quotes
-        .filter((q) => q.avgObservedQuote > 0)
-        .map((q) => ({ time: toSec(q.time), value: q.avgObservedQuote }));
+      const weightedData = dedupeByTime(
+        quotes
+          .filter((q) => q.avgObservedQuote > 0)
+          .map((q) => ({ time: toSec(q.time), value: q.avgObservedQuote })),
+      );
       if (weightedData.length > 0) {
         out.push({ id: 'weighted', label: 'Средневзвешенная', color: CHART.weighted, data: weightedData });
       }
@@ -84,23 +100,31 @@ export function QuoteChartPanel({
         label: 'Цена покупки',
         color: CHART.buy,
         dashed: true,
-        data: quotes.map((q) => ({ time: toSec(q.time), value: q.buyQuote })),
+        data: dedupeByTime(quotes.map((q) => ({ time: toSec(q.time), value: q.buyQuote }))),
       });
       out.push({
         id: 'sell',
         label: 'Цена продажи',
         color: CHART.sell,
         dashed: true,
-        data: quotes.map((q) => ({ time: toSec(q.time), value: q.sellQuote })),
+        data: dedupeByTime(quotes.map((q) => ({ time: toSec(q.time), value: q.sellQuote }))),
       });
     }
     return out;
   }, [quotes, observed, canWeight, effectiveWeighted, hasTradingMarket]);
 
-  const markers = useMemo<ChartMarker[]>(
-    () => (hasTradingMarket ? trades.map((t) => ({ time: toSec(t.time), side: t.side })) : []),
-    [trades, hasTradingMarket],
-  );
+  const markers = useMemo<ChartMarker[]>(() => {
+    const tradeMarkers = hasTradingMarket
+      ? trades.map((t) => ({
+          time: toSec(t.time),
+          side: t.side,
+          failed: t.status === 'failed',
+          price: t.price,
+          pnl: t.pnl ?? null,
+        }))
+      : [];
+    return [...tradeMarkers, ...extraMarkers];
+  }, [trades, hasTradingMarket, extraMarkers]);
 
   // Timeline of steps — union of all series' times, sorted & unique.
   const steps = useMemo<number[]>(() => {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Box, Card, CardContent, Stack, Button, TextField, Typography, CircularProgress, Divider, Alert,
+  InputAdornment,
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import type { Bot } from '../../domain/types';
@@ -119,7 +120,9 @@ export function BacktestTab({ bot }: { bot: Bot }) {
               <TextField
                 label="Начальный баланс" size="small" type="number" value={initialBalance}
                 onChange={(e) => setInitialBalance(Number(e.target.value))}
-                sx={{ width: 160 }} inputProps={{ 'data-testid': 'bt-balance' }}
+                sx={{ width: 200 }} inputProps={{ 'data-testid': 'bt-balance' }}
+                // Валюта баланса бота (quoteAsset) — её тратит покупка.
+                InputProps={{ endAdornment: <InputAdornment position="end">{bot.quoteAsset}</InputAdornment> }}
               />
               <Button
                 variant="contained"

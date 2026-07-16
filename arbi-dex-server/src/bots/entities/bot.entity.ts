@@ -67,6 +67,18 @@ export class Bot {
   @Column({ default: false })
   openPosition: boolean;
 
+  /** Allowed slippage for live buy/sell, % (quote moved further → trade fails). */
+  @Column({ type: 'double precision', default: 0.5 })
+  slippagePct: number;
+
+  /** Open position size in the base asset (manual live trading). */
+  @Column({ type: 'double precision', default: 0 })
+  positionSize: number;
+
+  /** Entry price of the open position (quote per base). */
+  @Column({ type: 'double precision', default: 0 })
+  entryPrice: number;
+
   @CreateDateColumn()
   createdAt: Date;
 

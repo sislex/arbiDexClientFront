@@ -11,6 +11,8 @@ import { BotDetailPage } from '../features/bots/BotDetailPage';
 import { AddBotPage } from '../features/bots/AddBotPage';
 import { BotsPage } from '../features/bots/BotsPage';
 import { EditBotPage } from '../features/bots/EditBotPage';
+import { ContractsPage } from '../features/settings/ContractsPage';
+import { TokensPage } from '../features/settings/TokensPage';
 
 export function AppRoutes() {
   return (
@@ -34,6 +36,10 @@ export function AppRoutes() {
         <Route path="/bots/new" element={<AddBotPage />} />
         <Route path="/bots/:id" element={<BotDetailPage />} />
         <Route path="/bots/:id/edit" element={<EditBotPage />} />
+        <Route path="/settings" element={<Navigate to="/settings/quoters" replace />} />
+        <Route path="/settings/quoters" element={<ContractsPage kind="quoter" />} />
+        <Route path="/settings/executors" element={<ContractsPage kind="executor" />} />
+        <Route path="/settings/tokens" element={<TokensPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

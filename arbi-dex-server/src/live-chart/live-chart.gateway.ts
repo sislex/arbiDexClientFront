@@ -134,6 +134,10 @@ export class LiveChartGateway
     this.socketRooms.set(client.id, roomId);
     this.logger.log(`Клиент ${client.id} вошёл в комнату ${roomId}`);
 
+    // Снапшот последних точек — DEX-цены тикают только при изменении пула
+    // (иногда раз в минуты), без затравки график пуст до первого тика.
+    void this.sendSnapshot(client, streamSource, streamPair);
+
     // Один upstream на комнату; резервируем pending синхронно до await (защита от гонки)
     if (!this.rooms.has(roomId) && !this.pendingRooms.has(roomId)) {
       this.pendingRooms.add(roomId);
@@ -157,6 +161,42 @@ export class LiveChartGateway
     const room = this.server.adapter.rooms?.get(roomId);
     if (!room || room.size === 0) {
       this.stopRoom(roomId);
+    }
+  }
+
+  /**
+   * Отправляет клиенту последние точки bid/ask из REST-стора как обычные
+   * priceUpdate (хронологически), чтобы график был заполнен сразу при входе.
+   */
+  private async sendSnapshot(client: Socket, sourceId: string, pairId: string): Promise<void> {
+    try {
+      let format: 'pipe' | 'concat' = 'concat';
+      try {
+        const resp = await fetch(`${this.marketDataUrl}/store/keys`);
+        const allKeys: string[] = await resp.json();
+        format = detectKeyFormat(allKeys);
+      } catch { /* по умолчанию concat */ }
+      const keys = buildStoreKeys(sourceId, pairId, format);
+      if (!keys) return;
+
+      const resp = await fetch(`${this.marketDataUrl}/store/keys`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keys: [keys.bidKey, keys.askKey], limit: 200 }),
+      });
+      const data: Record<string, { points?: { t: number; v: number }[] }> = await resp.json();
+
+      // Точки обоих ключей в хронологическом порядке — как живые тики.
+      const updates: { key: string; point: { t: number; v: number } }[] = [];
+      for (const key of [keys.bidKey, keys.askKey]) {
+        for (const point of data[key]?.points ?? []) updates.push({ key, point });
+      }
+      updates.sort((a, b) => a.point.t - b.point.t);
+      for (const u of updates) client.emit('priceUpdate', u);
+    } catch (error) {
+      this.logger.warn(
+        `Снапшот для ${sourceId}|${pairId} не отправлен: ${(error as Error).message}`,
+      );
     }
   }
 

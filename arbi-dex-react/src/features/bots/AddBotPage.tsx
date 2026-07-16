@@ -109,7 +109,7 @@ export function AddBotPage() {
             <Stack spacing={1} sx={{ maxWidth: 480 }} data-testid="wizard-review">
               <Row k="Название" v={name} />
               <Row k="Режим" v={mode === 'real-live' ? 'Реальный' : 'Демо'} />
-              <Row k="Начальный баланс" v={`${initialBalance}`} />
+              <Row k="Начальный баланс" v={`${initialBalance} ${trading?.quote ?? ''}`.trim()} />
               <Divider />
               <Row k="Конфигурация рынков" v={marketConfig?.name ?? '—'} />
               <Row k="Торговый рынок" v={trading ? marketLabel(trading) : '—'} />

@@ -74,6 +74,7 @@ export class PricesService {
 
   /**
    * Ценовые данные по подписке (с проверкой владельца — anti-IDOR).
+   * Прорежены до ~800 точек — это график подписки, не торговые данные.
    */
   async getPricesBySubscription(
     subscriptionId: string,
@@ -82,15 +83,28 @@ export class PricesService {
   ): Promise<SubscriptionPriceData> {
     const sub = await this.subsRepo.findOne({ where: { id: subscriptionId, userId } });
     if (!sub) throw new NotFoundException('Подписка не найдена');
-    return this.fetchByPair(sub.sourceId, sub.pairId, noCache);
+    const full = await this.fetchByPair(sub.sourceId, sub.pairId, noCache);
+    return this.downsampled(full, 800);
   }
 
   /**
    * Реальные ценовые данные по рынку (source + pair) без подписки.
-   * Используется страницей конфигурации рынков нового фронта.
+   * Без `maxPoints` отдаёт ПОЛНУЮ серию — бэктест/live-торговля ботов должны
+   * видеть каждый шаг (прореживание ломало среднюю и давало шаг в минуты).
    */
-  getPricesByMarket(sourceId: string, pairId: string, noCache = false): Promise<SubscriptionPriceData> {
-    return this.fetchByPair(sourceId, pairId, noCache);
+  async getPricesByMarket(
+    sourceId: string,
+    pairId: string,
+    noCache = false,
+    maxPoints?: number,
+  ): Promise<SubscriptionPriceData> {
+    const full = await this.fetchByPair(sourceId, pairId, noCache);
+    return maxPoints ? this.downsampled(full, maxPoints) : full;
+  }
+
+  /** Копия с прореженными данными (первая/последняя точки сохраняются). */
+  private downsampled(d: SubscriptionPriceData, max: number): SubscriptionPriceData {
+    return d.data.length <= max ? d : { series: d.series, data: downsample(d.data, max) };
   }
 
   /**
@@ -166,9 +180,9 @@ export class PricesService {
       lastAsk = point.askPrice;
     }
 
-    // Прореживаем историю до ~800 точек (сервис отдаёт десятки тысяч) — чтобы
-    // график грузился быстро; первая и последняя точки сохраняются.
-    const sorted = downsample(merged, 800);
+    // Кэшируем ПОЛНУЮ серию — прореживание (если нужно) делается на выдаче,
+    // иначе бэктест/торговля видят шаг в минуты вместо реальных тиков.
+    const sorted = merged;
 
     const sourceName = SOURCE_META[sourceId]?.displayName ?? sourceId;
     let result: SubscriptionPriceData;

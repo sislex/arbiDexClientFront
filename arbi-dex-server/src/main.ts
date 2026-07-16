@@ -21,7 +21,7 @@ async function bootstrap() {
   const allowsWildcard = allowlist.includes('*');
   app.enableCors({
     origin: allowsWildcard ? true : allowlist,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     // credentials только для явного allowlist; при wildcard отключаем (иначе дыра)
     credentials: !allowsWildcard,

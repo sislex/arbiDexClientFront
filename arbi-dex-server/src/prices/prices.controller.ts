@@ -42,13 +42,18 @@ export class PricesController {
   @ApiQuery({ name: 'sourceId', example: 'binance' })
   @ApiQuery({ name: 'pairId', example: 'BTC_USDT' })
   @ApiQuery({ name: 'noCache', required: false, type: Boolean })
+  @ApiQuery({ name: 'maxPoints', required: false, description: 'Проредить до N точек (по умолчанию 2000 для превью)' })
   @ApiResponse({ status: 200, description: 'Серии + ценовые точки' })
   getPricesByMarket(
     @Query('sourceId') sourceId: string,
     @Query('pairId') pairId: string,
     @Query('noCache') noCache?: string,
+    @Query('maxPoints') maxPoints?: string,
   ) {
-    return this.service.getPricesByMarket(sourceId, pairId, noCache === 'true');
+    // Превью на фронте прорежено (полная серия — сотни тысяч точек JSON);
+    // серверная торговля ботов ходит в PricesService напрямую без лимита.
+    const max = maxPoints !== undefined ? Number(maxPoints) : 2000;
+    return this.service.getPricesByMarket(sourceId, pairId, noCache === 'true', max > 0 ? max : undefined);
   }
 }
 

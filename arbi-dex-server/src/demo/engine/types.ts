@@ -70,7 +70,11 @@ export interface AutotuneCombo {
 
 export interface AutotuneResult {
   id: string;
+  /** How many combos were actually run (≤ gridTotal, limited by maxCombos). */
   totalCombos: number;
+  /** Full size of the combination grid produced by the enabled tune ranges. */
+  gridTotal: number;
+  /** Ranked by PnL; only the top of the ranking is returned for huge runs. */
   combos: AutotuneCombo[];
   best: AutotuneCombo | null;
 }

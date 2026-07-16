@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Box, Button, Card, CardContent, Stack, TextField, Typography, FormControlLabel, Switch, Divider,
+  Box, Button, Card, CardContent, Chip, Stack, TextField, Tooltip, Typography, FormControlLabel, Switch, Divider,
 } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
@@ -12,6 +12,7 @@ import { fetchStrategyConfigs, createStrategyConfig, updateStrategyConfig } from
 import { getCatalogEntry, defaultStrategySides } from '../../domain/conditionsCatalog';
 import type { StrategyConditionValue } from '../../domain/types';
 import { ConditionEditor } from './ConditionEditor';
+import { tuneRangeValueCount } from './RangeField';
 
 function Section({
   title,
@@ -73,6 +74,23 @@ export function StrategyEditorPage() {
   const [sell, setSell] = useState<StrategyConditionValue[]>(defaults.sell);
   const [showTuning, setShowTuning] = useState(false);
 
+  // Total autotune runs = the product of value counts of every enabled range on
+  // enabled conditions across both sides (the combination grid size).
+  const totalRuns = useMemo(() => {
+    let total = 1;
+    for (const side of [buy, sell]) {
+      for (const c of side) {
+        if (!c.enabled) continue;
+        for (const r of Object.values(c.tuneRanges)) {
+          if (!r.enabled) continue;
+          const n = tuneRangeValueCount(r);
+          if (n != null) total *= n;
+        }
+      }
+    }
+    return total;
+  }, [buy, sell]);
+
   useEffect(() => {
     dispatch(fetchStrategyConfigs());
   }, [dispatch]);
@@ -122,6 +140,17 @@ export function StrategyEditorPage() {
               control={<Switch checked={showTuning} onChange={(e) => setShowTuning(e.target.checked)} inputProps={{ 'data-testid': 'toggle-tuning' } as never} />}
               label="Показать диапазоны авто-подбора"
             />
+            {totalRuns > 1 && (
+              <Tooltip title="Произведение значений всех включённых диапазонов. Авто-подбор прогоняет бэктест для каждой комбинации (не более лимита за запуск).">
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  color={totalRuns > 500 ? 'warning' : 'info'}
+                  label={`Всего прогонов: ${totalRuns.toLocaleString('ru-RU')}`}
+                  data-testid="total-runs"
+                />
+              </Tooltip>
+            )}
           </Stack>
         </CardContent>
       </Card>

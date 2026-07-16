@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Box, Button, Card, CardContent, Stack, TextField, Typography, Chip, IconButton,
@@ -9,6 +9,8 @@ import AddIcon from '@mui/icons-material/Add';
 import SaveIcon from '@mui/icons-material/Save';
 import { PageHeader } from '../../components/PageHeader';
 import { QuoteChartPanel } from '../../components/chart/QuoteChartPanel';
+import type { ChartMarker } from '../../components/chart/QuoteChart';
+import type { FollowAnalysis } from '../../api/types';
 import { useAppDispatch, useAppSelector } from '../../store';
 import { fetchMarketConfigs, createMarketConfig, updateMarketConfig } from '../../store/marketConfigsSlice';
 import { fetchMarkets } from '../../store/catalogSlice';
@@ -68,6 +70,37 @@ export function MarketConfigEditorPage() {
     }
     setSelectedEventTime(best ?? sec);
   };
+
+  // Follow-analysis events → chart markers (arrow = followed, circle = not),
+  // each with a tooltip line. Snapped to the nearest preview point — the
+  // preview timeline is downsampled, markers bind to existing series times.
+  const [followResult, setFollowResult] = useState<FollowAnalysis | null>(null);
+  const followMarkers = useMemo<ChartMarker[]>(() => {
+    if (!followResult || preview.quotes.length === 0) return [];
+    const times = preview.quotes.map((q) => q.time);
+    return followResult.eventList.map((e) => {
+      const sec = Math.round(e.time > 1e12 ? e.time / 1000 : e.time);
+      let nearest = times[0];
+      let bestD = Math.abs(times[0] - sec);
+      for (const t of times) {
+        const d = Math.abs(t - sec);
+        if (d < bestD) {
+          bestD = d;
+          nearest = t;
+        }
+      }
+      const move = `${e.movedPct > 0 ? '+' : ''}${e.movedPct}%`;
+      return {
+        time: nearest,
+        side: e.direction === 'up' ? ('buy' as const) : ('sell' as const),
+        failed: !e.followed,
+        text: '',
+        tooltip: e.followed
+          ? `Событие ${move} — последовал через ${e.lagSteps ?? 0} шаг(ов)`
+          : `Событие ${move} — не последовал`,
+      };
+    });
+  }, [followResult, preview.quotes]);
 
   // Load the chart preview (mock → generated; live → real market-data) whenever
   // the selected markets change. `mode` is part of the deps so the historical/
@@ -339,6 +372,7 @@ export function MarketConfigEditorPage() {
                   observed={observed}
                   hasTradingMarket={!!tradingMarketId}
                   defaultWeighted={useWeightedAverage}
+                  extraMarkers={followMarkers}
                   height={360}
                   player={mode === 'historical'}
                   selectedTime={selectedEventTime}
@@ -355,6 +389,7 @@ export function MarketConfigEditorPage() {
           configId={id}
           disabledReason={followDisabledReason}
           onEventClick={(e) => selectEventOnChart(e.time)}
+          onResult={setFollowResult}
         />
         </Stack>
       </Stack>

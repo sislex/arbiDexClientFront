@@ -38,21 +38,28 @@ export function assembleMarketPreview(
 ): MarketPreview {
   const weighted = observed.map((s) => ({ data: s.data, weight: weights[s.id] ?? 1, cursor: 0 }));
 
-  const baseTimes = trading.length
-    ? trading.map((p) => p.time)
-    : (observed.slice().sort((a, b) => b.data.length - a.data.length)[0]?.data.map((p) => p.time) ?? []);
+  // Timeline = union of ALL series' times. DEX prices only tick when the pool
+  // moves — sometimes minutes apart — so a trading-only timeline would collapse
+  // the live chart to a couple of points (or none, hiding the buy/sell lines).
+  const timeSet = new Set<number>();
+  for (const p of trading) timeSet.add(p.time);
+  for (const s of observed) for (const p of s.data) timeSet.add(p.time);
+  const baseTimes = [...timeSet].sort((a, b) => a - b);
 
   const quotes: QuotePoint[] = [];
-  for (let i = 0; i < baseTimes.length; i++) {
-    const time = baseTimes[i];
+  let tc = -1; // forward-fill cursor over the trading series
+  for (const time of baseTimes) {
     const avg = weightedAt(weighted, time);
-    const trade = trading[i];
+    while (tc + 1 < trading.length && trading[tc + 1].time <= time) tc++;
+    const trade = tc >= 0 ? trading[tc] : null;
     // 0 = «нет данных наблюдаемых»: только наблюдаемые рынки формируют среднюю,
     // торговый рынок в неё не подмешивается.
     const avgObservedQuote = avg ?? 0;
     quotes.push({
       time,
       avgObservedQuote,
+      // Rare trading ticks stretch as steps (last known bid/ask); only with no
+      // trading data at all do the buy/sell lines fall back to the average.
       buyQuote: trade ? trade.ask : avgObservedQuote,
       sellQuote: trade ? trade.bid : avgObservedQuote,
     });

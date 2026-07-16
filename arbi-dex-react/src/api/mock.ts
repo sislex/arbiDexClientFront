@@ -1,4 +1,4 @@
-import type { Bot, Market, MarketConfig, QuotePoint, StrategyConfig, User } from '../domain/types';
+import type { Bot, Market, MarketConfig, QuotePoint, StrategyConfig, TradingContract, User, UserToken } from '../domain/types';
 import { MARKETS, NOW, PAIR_BASE_PRICE } from '../mocks/seed';
 import { generateQuoteSeries } from '../mocks/quotes';
 import { simulateBacktest } from '../mocks/simulate';
@@ -24,6 +24,10 @@ function clone<T>(v: T): T {
 function marketById(id: string): Market | undefined {
   return MARKETS.find((m) => m.id === id);
 }
+
+/** In-memory торговые настройки мок-режима (живут до перезагрузки вкладки). */
+const mockContracts: TradingContract[] = [];
+const mockUserTokens: UserToken[] = [];
 
 function pairForConfig(mc: MarketConfig): string {
   return marketById(mc.tradingMarketId)?.pairId ?? 'ETH_USDT';
@@ -88,7 +92,8 @@ export const mockApi: ApiClient = {
         historyTo: full[full.length - 1]?.time ?? 0,
       });
     },
-    quotes: (id: string, params: { from?: number; to?: number } = {}) => {
+    // `refresh` is a live-only concept (server quotes cache) — the mock ignores it.
+    quotes: (id: string, params: { from?: number; to?: number; refresh?: boolean } = {}) => {
       const bot = db.bots.find((b) => b.id === id);
       const full = series({ marketConfigId: bot?.marketConfigId, count: 800 });
       const lo = params.from ?? full[0]?.time ?? 0;
@@ -97,6 +102,73 @@ export const mockApi: ApiClient = {
     },
     stepResult: () =>
       Promise.reject(new Error('Разбор шага доступен только в live-режиме (нужен движок стратегий на сервере)')),
+    trade: () =>
+      Promise.reject(new Error('Торговля доступна только в live-режиме (нужен квотер/экзекутор на сервере)')),
+    trades: () => delay([]),
+    executorBalance: () =>
+      Promise.reject(new Error('Балансы executor доступны только в live-режиме')),
+    resetAccount: (id: string) => {
+      const bot = db.bots.find((b) => b.id === id);
+      if (!bot) return Promise.reject(new Error('Бот не найден'));
+      Object.assign(bot, {
+        balance: bot.initialBalance,
+        positionSize: 0,
+        entryPrice: 0,
+        openPosition: false,
+        pnl: 0,
+        pnlPct: 0,
+        tradesCount: 0,
+        winRate: 0,
+      });
+      return delay(clone(bot));
+    },
+  },
+
+  // Торговые настройки: в мок-режиме живут в памяти вкладки (без персиста).
+  settings: {
+    contracts: (kind?: 'quoter' | 'executor') =>
+      delay(clone(kind ? mockContracts.filter((c) => c.kind === kind) : mockContracts)),
+    createContract: (input) => {
+      const siblings = mockContracts.filter((c) => c.kind === input.kind && c.network === input.network);
+      const isActive = input.isActive ?? siblings.length === 0;
+      if (isActive) siblings.forEach((c) => (c.isActive = false));
+      const row = { isActive, ...input, id: `tc_${Math.random().toString(36).slice(2, 9)}` };
+      mockContracts.push(row);
+      return delay(clone(row));
+    },
+    updateContract: (id, patch) => {
+      const row = mockContracts.find((c) => c.id === id);
+      if (!row) return Promise.reject(new Error('Контракт не найден'));
+      if (patch.isActive === true) {
+        mockContracts
+          .filter((c) => c.kind === row.kind && c.network === (patch.network ?? row.network))
+          .forEach((c) => (c.isActive = false));
+      }
+      Object.assign(row, patch);
+      return delay(clone(row));
+    },
+    removeContract: (id) => {
+      const i = mockContracts.findIndex((c) => c.id === id);
+      if (i >= 0) mockContracts.splice(i, 1);
+      return delay(undefined);
+    },
+    tokens: () => delay(clone(mockUserTokens)),
+    createToken: (input) => {
+      const row = { id: `tok_${Math.random().toString(36).slice(2, 9)}`, decimals: 18, ...input };
+      mockUserTokens.push(row);
+      return delay(clone(row));
+    },
+    updateToken: (id, patch) => {
+      const row = mockUserTokens.find((t) => t.id === id);
+      if (!row) return Promise.reject(new Error('Токен не найден'));
+      Object.assign(row, patch);
+      return delay(clone(row));
+    },
+    removeToken: (id) => {
+      const i = mockUserTokens.findIndex((t) => t.id === id);
+      if (i >= 0) mockUserTokens.splice(i, 1);
+      return delay(undefined);
+    },
   },
 
   marketConfigs: {
@@ -256,11 +328,13 @@ export const mockApi: ApiClient = {
       const lo = params.from ?? full[0]?.time ?? 0;
       const hi = params.to ?? full[full.length - 1]?.time ?? 0;
       const quotes = full.filter((q) => q.time >= lo && q.time <= hi);
+      const startedAt = Date.now();
       const result = runAutotune(quotes, strategy, {
         maxCombos: params.maxCombos ?? 48,
+        initialBalance: params.initialBalance,
         id: nextId('at'),
       });
-      return delay(result);
+      return delay({ ...result, tookMs: Date.now() - startedAt });
     },
   },
 };

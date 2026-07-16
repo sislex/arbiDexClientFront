@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { IsBoolean, IsIn, IsNumber, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
+import { IsBoolean, IsIn, IsNumber, IsOptional, IsString, IsUUID, Max, Min, MinLength } from 'class-validator';
 import type { BotStatus, TradingMode } from '../../demo/engine/types';
 
 const STATUSES: BotStatus[] = ['running', 'paused', 'stopped', 'error'];
@@ -43,6 +43,16 @@ export class CreateBotDto {
   @IsOptional()
   @IsNumber()
   initialBalance?: number;
+
+  @ApiPropertyOptional({
+    default: 0.5,
+    description: 'Допустимое проскальзывание live-сделок, % (0.5 = 0.5%)',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(50)
+  slippagePct?: number;
 }
 
 export class UpdateBotDto extends PartialType(CreateBotDto) {
@@ -50,4 +60,20 @@ export class UpdateBotDto extends PartialType(CreateBotDto) {
   @IsOptional()
   @IsBoolean()
   openPosition?: boolean;
+
+  // Ручная правка демосчёта (сброс после экспериментов с live-торговлей).
+  @ApiPropertyOptional({ description: 'Демо-баланс (quote-актив)' })
+  @IsOptional()
+  @IsNumber()
+  balance?: number;
+
+  @ApiPropertyOptional({ description: 'Размер открытой позиции (base-актив)' })
+  @IsOptional()
+  @IsNumber()
+  positionSize?: number;
+
+  @ApiPropertyOptional({ description: 'Цена входа открытой позиции' })
+  @IsOptional()
+  @IsNumber()
+  entryPrice?: number;
 }

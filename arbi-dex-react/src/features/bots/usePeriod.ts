@@ -39,6 +39,15 @@ export function usePeriod(id: string | undefined, source: 'bot' | 'marketConfig'
   const WEEK = unitMs ? 7 * 24 * 3600 * 1000 : 7 * 24 * 3600;
   const MONTH = Math.round(WEEK * (30 / 7));
 
+  /** Apply freshly loaded history bounds (e.g. after a quotes-cache refresh):
+   * moves `to` to the new end of history so the just-arrived data becomes
+   * visible, keeps `from` (clamped into the new bounds). */
+  const applyRange = (r: { historyFrom: number; historyTo: number }): void => {
+    setRange(r);
+    setTo(r.historyTo);
+    setFrom((f) => (f == null ? null : Math.min(Math.max(f, r.historyFrom), r.historyTo)));
+  };
+
   const setPreset = (span: number | 'all'): void => {
     if (!range) return;
     if (span === 'all') {
@@ -70,7 +79,7 @@ export function usePeriod(id: string | undefined, source: 'bot' | 'marketConfig'
     return Math.min(Math.max(t, range.historyFrom), range.historyTo);
   };
 
-  return { range, from, to, setFrom, setTo, setPreset, dateStr, parseDate, WEEK, MONTH };
+  return { range, from, to, setFrom, setTo, setPreset, applyRange, dateStr, parseDate, WEEK, MONTH };
 }
 
 export type PeriodState = ReturnType<typeof usePeriod>;

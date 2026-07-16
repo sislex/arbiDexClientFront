@@ -123,10 +123,54 @@ export const liveApi: ApiClient = {
       return request<{ historyFrom: number; historyTo: number }>(`/bots/${id}/history-range`);
     },
     quotes(id, params = {}) {
-      return request(`/bots/${id}/quotes`, { query: { from: params.from, to: params.to } });
+      return request(`/bots/${id}/quotes`, {
+        query: { from: params.from, to: params.to, refresh: params.refresh ? 1 : undefined },
+      });
     },
     stepResult(id, params) {
       return request(`/bots/${id}/step-result`, { query: { time: params.time } });
+    },
+    trade(id, params) {
+      return request(`/bots/${id}/trade`, {
+        method: 'POST',
+        body: { side: params.side, expectedPrice: params.expectedPrice, amount: params.amount },
+      });
+    },
+    trades(id) {
+      return request(`/bots/${id}/trades`);
+    },
+    executorBalance(id) {
+      return request(`/bots/${id}/executor-balance`);
+    },
+    resetAccount(id) {
+      return request(`/bots/${id}/reset-account`, { method: 'POST' });
+    },
+  },
+
+  settings: {
+    contracts(kind) {
+      return request('/settings/contracts', { query: { kind } });
+    },
+    createContract(input) {
+      return request('/settings/contracts', { method: 'POST', body: input });
+    },
+    updateContract(id, patch) {
+      return request(`/settings/contracts/${id}`, { method: 'PATCH', body: patch });
+    },
+    removeContract(id) {
+      return request<void>(`/settings/contracts/${id}`, { method: 'DELETE' });
+    },
+    tokens() {
+      return request('/settings/tokens');
+    },
+    createToken(input) {
+      return request('/settings/tokens', { method: 'POST', body: input });
+    },
+    updateToken(id, patch) {
+      return request(`/settings/tokens/${id}`, { method: 'PATCH', body: patch });
+    },
+    removeToken(id) {
+      return request<void>(`/settings/tokens/${id}`, { method: 'DELETE' });
     },
   },
 
@@ -232,7 +276,12 @@ export const liveApi: ApiClient = {
       }
       return request(`/bots/${params.botId}/autotune`, {
         method: 'POST',
-        query: { from: params.from, to: params.to, maxCombos: params.maxCombos },
+        query: {
+          from: params.from,
+          to: params.to,
+          maxCombos: params.maxCombos,
+          initialBalance: params.initialBalance,
+        },
       });
     },
   },

@@ -23,6 +23,7 @@ export function FollowAnalysisCard({
   configId,
   disabledReason,
   onEventClick,
+  onResult,
 }: {
   /** Saved config id; undefined for a new (unsaved) config. */
   configId?: string;
@@ -30,6 +31,8 @@ export function FollowAnalysisCard({
   disabledReason?: string | null;
   /** Event row click — e.g. to highlight the event's step on the preview chart. */
   onEventClick?: (event: FollowEvent) => void;
+  /** Fresh analysis result (null on error) — e.g. to mark events on the chart. */
+  onResult?: (result: FollowAnalysis | null) => void;
 }) {
   const period = usePeriod(configId, 'marketConfig');
   const [movePct, setMovePct] = useState(0.05);
@@ -52,16 +55,17 @@ export function FollowAnalysisCard({
     setError(null);
     setSelectedEvent(null);
     try {
-      setResult(
-        await api.marketConfigs.followAnalysis(configId, {
-          movePct,
-          window: windowSteps,
-          from: period.from ?? undefined,
-          to: period.to ?? undefined,
-        }),
-      );
+      const r = await api.marketConfigs.followAnalysis(configId, {
+        movePct,
+        window: windowSteps,
+        from: period.from ?? undefined,
+        to: period.to ?? undefined,
+      });
+      setResult(r);
+      onResult?.(r);
     } catch (e) {
       setResult(null);
+      onResult?.(null);
       setError((e as Error).message);
     } finally {
       setLoading(false);

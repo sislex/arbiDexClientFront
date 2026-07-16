@@ -1,6 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import { Box, Button, Card, CardContent, CircularProgress, Stack, Typography } from '@mui/material';
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CircularProgress,
+  IconButton,
+  Stack,
+  Tooltip,
+  Typography,
+} from '@mui/material';
 import HighlightAltIcon from '@mui/icons-material/HighlightAlt';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import type { QuotePoint, Trade } from '../../domain/types';
 import { QuoteChartPanel } from '../../components/chart/QuoteChartPanel';
 import { api } from '../../api';
@@ -45,13 +56,25 @@ export function PeriodHistoryChart({
   const onStepClickRef = useRef(onStepClick);
   onStepClickRef.current = onStepClick;
 
+  // «Обновить кэш котировок»: bump reloadKey with the flag armed — the next
+  // fetch passes refresh=true (the server re-pulls the config's markets from
+  // market-data); ordinary period changes keep hitting the server cache.
+  const [reloadKey, setReloadKey] = useState(0);
+  const refreshRef = useRef(false);
+  const refreshCache = () => {
+    refreshRef.current = true;
+    setReloadKey((k) => k + 1);
+  };
+
   useEffect(() => {
     // Wait until usePeriod resolves the default period so we don't fetch twice.
     if (period.from == null || period.to == null) return;
+    const refresh = refreshRef.current;
+    refreshRef.current = false;
     let cancelled = false;
     setLoading(true);
     api.bots
-      .quotes(botId, { from: period.from, to: period.to })
+      .quotes(botId, { from: period.from, to: period.to, refresh })
       .then((r) => {
         if (cancelled) return;
         setQuotes(r.quotes);
@@ -59,6 +82,12 @@ export function PeriodHistoryChart({
         setSelectedTime(null);
         const last = r.quotes[r.quotes.length - 1];
         if (last) onStepClickRef.current?.(last.time);
+        // Cache refresh may extend the available history — move the period to
+        // the new end so the fresh data actually shows up (triggers a refetch
+        // of the extended window from the now-fresh cache).
+        if (refresh && r.historyFrom != null && r.historyTo != null) {
+          period.applyRange({ historyFrom: r.historyFrom, historyTo: r.historyTo });
+        }
       })
       .catch(() => {
         if (!cancelled) setQuotes([]);
@@ -69,7 +98,7 @@ export function PeriodHistoryChart({
     return () => {
       cancelled = true;
     };
-  }, [botId, period.from, period.to]);
+  }, [botId, period.from, period.to, reloadKey]);
 
   const effectiveSelected = selectedTime ?? quotes[quotes.length - 1]?.time ?? null;
   const handleStepClick = (time: number) => {
@@ -108,6 +137,18 @@ export function PeriodHistoryChart({
           <Typography variant="subtitle1">{title}</Typography>
           {loading && <CircularProgress size={16} />}
           <Box sx={{ flexGrow: 1 }} />
+          <Tooltip title="Обновить кэш котировок по конфигурации рынка">
+            <span>
+              <IconButton
+                size="small"
+                onClick={refreshCache}
+                disabled={loading}
+                data-testid={`${idPrefix}-refresh-quotes`}
+              >
+                <RefreshIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
           <Button
             size="small"
             variant={pick === 'idle' ? 'outlined' : 'contained'}

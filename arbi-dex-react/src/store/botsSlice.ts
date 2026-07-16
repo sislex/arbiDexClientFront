@@ -45,6 +45,11 @@ const botsSlice = createSlice({
     });
     b.addCase(fetchBot.fulfilled, (s, a) => {
       s.current = a.payload ?? null;
+      // Keep the list entry in sync — pages prefer `items` over `current`.
+      if (a.payload) {
+        const i = s.items.findIndex((x) => x.id === a.payload!.id);
+        if (i >= 0) s.items[i] = a.payload;
+      }
     });
     b.addCase(createBot.fulfilled, (s, a) => {
       s.items.unshift(a.payload);

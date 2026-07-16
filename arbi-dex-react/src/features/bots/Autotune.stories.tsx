@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { expect, userEvent, within } from '@storybook/test';
+import { expect, userEvent, within, screen } from '@storybook/test';
 import { AppRoutes } from '../../app/AppRoutes';
 import type { PreloadedState } from '../../store';
 
@@ -41,8 +41,9 @@ export const RunAutotune: Story = {
     const pnls = grid.getAllByText(/^[+-]/).map((el) => parseFloat(el.textContent!.replace('+', '')));
     await expect(pnls[0]).toBeGreaterThanOrEqual(pnls[pnls.length - 1]);
 
-    // Apply the best combo → confirmation snackbar.
+    // Apply the best combo → choice dialog (portal) → apply to the current strategy.
     await userEvent.click(canvas.getByTestId('apply-best'));
-    await expect(await canvas.findByText('Коэффициенты применены к стратегии')).toBeInTheDocument();
+    await userEvent.click(await screen.findByTestId('apply-current'));
+    await expect(await screen.findByText('Коэффициенты применены к текущей стратегии')).toBeInTheDocument();
   },
 };

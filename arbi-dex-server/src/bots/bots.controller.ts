@@ -3,7 +3,9 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { BotsService } from './bots.service';
+import { LiveTradingService } from './live-trading.service';
 import { CreateBotDto, UpdateBotDto } from './dto/bot.dto';
+import { TradeRequestDto } from './dto/trade.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
@@ -13,7 +15,10 @@ import { User } from '../users/entities/user.entity';
 @UseGuards(JwtAuthGuard)
 @Controller('bots')
 export class BotsController {
-  constructor(private readonly service: BotsService) {}
+  constructor(
+    private readonly service: BotsService,
+    private readonly liveTrading: LiveTradingService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Список ботов пользователя' })
@@ -63,21 +68,70 @@ export class BotsController {
     description:
       'История котировок рынка бота за [from, to] для предпросмотра периода на графике. ' +
       'Семантика окна как у бэктеста: по умолчанию последняя неделя, границы зажимаются ' +
-      'в пределы доступной истории. Демосчёт не трогает.',
+      'в пределы доступной истории. Демосчёт не трогает. refresh=1 — обновить кэш ' +
+      'котировок по всем рынкам конфигурации перед чтением.',
   })
   @ApiParam({ name: 'id' })
   @ApiQuery({ name: 'from', required: false, description: 'Начало периода (метка времени)' })
   @ApiQuery({ name: 'to', required: false, description: 'Конец периода (метка времени)' })
+  @ApiQuery({ name: 'refresh', required: false, description: '1 — обновить кэш котировок конфигурации рынка' })
   quotes(
     @CurrentUser() user: User,
     @Param('id') id: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('refresh') refresh?: string,
   ) {
     return this.service.quotesRange(user.id, id, {
       from: from !== undefined ? Number(from) : undefined,
       to: to !== undefined ? Number(to) : undefined,
+      refresh: refresh === '1' || refresh === 'true',
     });
+  }
+
+  @Post(':id/trade')
+  @ApiOperation({
+    summary: 'Ручная live-сделка (купить/продать)',
+    description:
+      'Демо-режим: котировка через квотер (preview executeSwaps.staticCall executor-контракта), ' +
+      'проверка допустимого проскальзывания bot.slippagePct против expectedPrice; при превышении ' +
+      'сделка записывается как зафейленная и счёт не меняется. Реальный режим: своп исполняется ' +
+      'on-chain через executor, защита от проскальзывания — on-chain amountOutMin.',
+  })
+  @ApiParam({ name: 'id' })
+  trade(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: TradeRequestDto) {
+    return this.liveTrading.trade(user.id, id, dto);
+  }
+
+  @Get(':id/trades')
+  @ApiOperation({ summary: 'Журнал live-сделок бота (успешные и зафейленные)' })
+  @ApiParam({ name: 'id' })
+  trades(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.liveTrading.listTrades(user.id, id);
+  }
+
+  @Post(':id/reset-account')
+  @ApiOperation({
+    summary: 'Обнулить демосчёт бота',
+    description:
+      'Баланс возвращается к начальному, позиция/PnL/счётчики сбрасываются, журнал ' +
+      'демо-сделок очищается (реальные сделки остаются). Возвращает обновлённого бота.',
+  })
+  @ApiParam({ name: 'id' })
+  resetAccount(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.liveTrading.resetAccount(user.id, id);
+  }
+
+  @Get(':id/executor-balance')
+  @ApiOperation({
+    summary: 'Балансы executor-контракта по токенам пары бота',
+    description:
+      'Текущие балансы токенов торговой пары на executor-контракте (адрес из настроек ' +
+      'пользователя, fallback — .env). Фронт запрашивает при каждом заходе на реальную торговлю.',
+  })
+  @ApiParam({ name: 'id' })
+  executorBalance(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.liveTrading.executorBalances(user.id, id);
   }
 
   @Post(':id/backtest')
@@ -149,17 +203,23 @@ export class BotsController {
   @ApiQuery({ name: 'from', required: false, description: 'Начало периода (метка времени)' })
   @ApiQuery({ name: 'to', required: false, description: 'Конец периода (метка времени)' })
   @ApiQuery({ name: 'maxCombos', required: false })
+  @ApiQuery({ name: 'threads', required: false, description: 'Потоков перебора (по умолчанию min(6, ядра−1))' })
+  @ApiQuery({ name: 'initialBalance', required: false, description: 'Начальный баланс прогонов (по умолчанию — баланс бота)' })
   autotune(
     @CurrentUser() user: User,
     @Param('id') id: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('maxCombos') maxCombos?: string,
+    @Query('threads') threads?: string,
+    @Query('initialBalance') initialBalance?: string,
   ) {
     return this.service.autotune(user.id, id, {
       from: from !== undefined ? Number(from) : undefined,
       to: to !== undefined ? Number(to) : undefined,
       maxCombos: maxCombos !== undefined ? Number(maxCombos) : undefined,
+      threads: threads !== undefined ? Number(threads) : undefined,
+      initialBalance: initialBalance !== undefined ? Number(initialBalance) : undefined,
     });
   }
 }

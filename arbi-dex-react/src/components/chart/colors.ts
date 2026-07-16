@@ -8,6 +8,8 @@ export const CHART = {
   text: 'rgba(255,255,255,0.55)',
   /** Persistent selected-step marker. */
   selected: '#ffd166',
+  /** Failed live-trade marker. */
+  failed: '#f2a33c',
 };
 
 /** Distinct colors for individual observed-market lines. */

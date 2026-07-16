@@ -340,13 +340,26 @@ export class MarketConfigsService {
     };
   }
 
+  /**
+   * Force-refresh the quotes cache for every market of the config (trading +
+   * observed): each market is re-fetched from market-data bypassing the cache,
+   * and the fresh series replaces the cached one.
+   */
+  async refreshQuotesCache(userId: string, id: string): Promise<void> {
+    const mc = await this.findOne(userId, id);
+    const ids = new Set(
+      [mc.tradingMarketId, ...mc.observedMarketIds].filter((m): m is string => !!m),
+    );
+    await Promise.all([...ids].map((m) => this.fetchNorm(m, true)));
+  }
+
   /** Fetch a market's real data and normalise each point to bid/ask/mid. */
-  private async fetchNorm(marketId: string): Promise<NormPoint[]> {
+  private async fetchNorm(marketId: string, noCache = false): Promise<NormPoint[]> {
     const [sourceId, pairId] = this.splitMarketId(marketId);
     if (!sourceId || !pairId) return [];
     let data: ChartPricePoint[];
     try {
-      const res = await this.prices.getPricesByMarket(sourceId, pairId);
+      const res = await this.prices.getPricesByMarket(sourceId, pairId, noCache);
       data = res.data;
     } catch {
       return [];

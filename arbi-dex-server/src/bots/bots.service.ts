@@ -5,7 +5,7 @@ import { Bot } from './entities/bot.entity';
 import { CreateBotDto, UpdateBotDto } from './dto/bot.dto';
 import { MarketConfigsService } from '../market-configs/market-configs.service';
 import { StrategyConfigsService } from '../strategy-configs/strategy-configs.service';
-import { runAutotune } from '../demo/engine/autotune';
+import { runAutotuneParallel } from '../demo/engine/autotune';
 import { findMarket } from '../demo/engine/markets';
 import { BacktestResult, AutotuneResult, Trade, QuotePoint } from '../demo/engine/types';
 import { toEngineStrategy } from '../demo/engine/strategy-engine.mapper';
@@ -90,6 +90,7 @@ export class BotsService {
       baseAsset,
       quoteAsset,
       initialBalance,
+      slippagePct: dto.slippagePct ?? 0.5,
       balance: initialBalance,
       pnl: 0,
       pnlPct: 0,
@@ -102,7 +103,24 @@ export class BotsService {
 
   async update(userId: string, id: string, dto: UpdateBotDto): Promise<Bot> {
     const bot = await this.findOne(userId, id);
-    Object.assign(bot, dto);
+    // Смена начального баланса или валюты баланса (quoteAsset) перезапускает
+    // демосчёт: старые balance/позиция выражены в прежней валюте.
+    const resetAccount =
+      (dto.initialBalance !== undefined && dto.initialBalance !== bot.initialBalance) ||
+      (dto.quoteAsset !== undefined && dto.quoteAsset !== bot.quoteAsset);
+    // ValidationPipe(transform) создаёт DTO со ВСЕМИ объявленными полями —
+    // непереданные равны undefined и затирали бота (balance и т.п. пропадали
+    // из ответа, фронт падал). Копируем только реально переданные значения.
+    const patch = Object.fromEntries(Object.entries(dto).filter(([, v]) => v !== undefined));
+    Object.assign(bot, patch);
+    if (resetAccount && dto.balance === undefined) {
+      bot.balance = bot.initialBalance;
+      bot.positionSize = 0;
+      bot.entryPrice = 0;
+      bot.openPosition = false;
+      bot.pnl = 0;
+      bot.pnlPct = 0;
+    }
     return this.repo.save(bot);
   }
 
@@ -121,13 +139,16 @@ export class BotsService {
    * Real historical quotes of the bot's market over `[from, to]` WITHOUT running
    * a backtest — for previewing the period on a chart. Same window semantics as
    * `backtest` (defaults to the last week, clamped to the available history).
+   * `refresh` re-fetches every market of the config from market-data, bypassing
+   * the server-side quotes cache, before reading.
    */
   async quotesRange(
     userId: string,
     id: string,
-    opts: { from?: number; to?: number } = {},
+    opts: { from?: number; to?: number; refresh?: boolean } = {},
   ): Promise<{ quotes: QuotePoint[]; from: number; to: number; historyFrom: number; historyTo: number }> {
     const bot = await this.findOne(userId, id);
+    if (opts.refresh) await this.marketConfigs.refreshQuotesCache(userId, bot.marketConfigId);
 
     const { historyFrom, historyTo } = await this.marketConfigs.getHistoryRange(
       userId,
@@ -318,8 +339,9 @@ export class BotsService {
   async autotune(
     userId: string,
     id: string,
-    opts: { from?: number; to?: number; maxCombos?: number } = {},
-  ): Promise<AutotuneResult> {
+    opts: { from?: number; to?: number; maxCombos?: number; threads?: number; initialBalance?: number } = {},
+  ): Promise<AutotuneResult & { tookMs: number }> {
+    const startedAt = Date.now();
     const bot = await this.findOne(userId, id);
 
     const { historyFrom, historyTo } = await this.marketConfigs.getHistoryRange(
@@ -332,10 +354,12 @@ export class BotsService {
 
     const { quotes } = await this.marketConfigs.getQuotesRange(userId, bot.marketConfigId, from, to);
     const strategy = await this.loadStrategy(userId, bot);
-    return runAutotune(quotes, { buy: strategy.buy, sell: strategy.sell }, {
-      maxCombos: opts.maxCombos ?? 48,
-      initialBalance: bot.initialBalance,
+    const result = await runAutotuneParallel(quotes, { buy: strategy.buy, sell: strategy.sell }, {
+      maxCombos: opts.maxCombos ?? 1000,
+      initialBalance: opts.initialBalance ?? bot.initialBalance,
       id: `at_${bot.id}`,
+      threads: opts.threads,
     });
+    return { ...result, tookMs: Date.now() - startedAt };
   }
 }
