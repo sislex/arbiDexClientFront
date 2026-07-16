@@ -20,6 +20,12 @@ import { PageHeader, PageContent } from '../components/layout/PageHeader'
 import { Card, CardHeader, CardTitle } from '../components/ui/Card'
 import { Tabs } from '../components/ui/Tabs'
 import { SortableTableHead } from '../components/ui/SortableTableHead'
+import {
+  ResizableTable,
+  TABLE_CELL,
+  TABLE_HEAD,
+  type ResizableColumnConfig,
+} from '../components/ui/ResizableTable'
 import { StrategyMatrix } from '../components/StrategyMatrix'
 import {
   generateEquityCurve,
@@ -45,6 +51,30 @@ type PairComparisonRow = {
 type PairComparisonSortKey = 'pair' | 'bots' | 'profit' | 'avgRoi' | 'avgWin'
 
 type BotRankSortKey = 'rank' | 'name' | 'profit' | 'roi' | 'winRate' | 'drawdown'
+
+const ANALYTICS_STRATEGIES_COLUMNS: ResizableColumnConfig[] = [
+  { id: 'name', defaultPercent: 40, minPercent: 20 },
+  { id: 'roi', defaultPercent: 20, minPercent: 12 },
+  { id: 'winRate', defaultPercent: 20, minPercent: 12 },
+  { id: 'sharpe', defaultPercent: 20, minPercent: 12 },
+]
+
+const ANALYTICS_PAIRS_COLUMNS: ResizableColumnConfig[] = [
+  { id: 'pair', defaultPercent: 20, minPercent: 12 },
+  { id: 'bots', defaultPercent: 15, minPercent: 10 },
+  { id: 'profit', defaultPercent: 22, minPercent: 14 },
+  { id: 'avgRoi', defaultPercent: 22, minPercent: 14 },
+  { id: 'avgWin', defaultPercent: 21, minPercent: 14 },
+]
+
+const ANALYTICS_BOTS_COLUMNS: ResizableColumnConfig[] = [
+  { id: 'rank', defaultPercent: 8, minPercent: 5 },
+  { id: 'name', defaultPercent: 30, minPercent: 16 },
+  { id: 'profit', defaultPercent: 18, minPercent: 12 },
+  { id: 'roi', defaultPercent: 15, minPercent: 10 },
+  { id: 'winRate', defaultPercent: 15, minPercent: 10 },
+  { id: 'drawdown', defaultPercent: 14, minPercent: 10 },
+]
 
 function getStrategyAnalyticsSortValue(
   s: (typeof STRATEGY_DATA)[number],
@@ -227,26 +257,28 @@ export function AnalyticsPage() {
             </Card>
             <Card className="overflow-hidden p-0">
               <div className="px-5 py-4 border-b border-border"><CardTitle>Strategy Comparison</CardTitle></div>
-              <table className="w-full text-sm">
+              <div className="overflow-x-hidden">
+              <ResizableTable tableId="analytics-strategies" columns={ANALYTICS_STRATEGIES_COLUMNS} className="text-xs">
                 <thead className="sticky top-0 bg-card">
                   <tr className="text-muted border-b border-border">
-                    <SortableTableHead label="Strategy" column="name" sortKey={strategySort.sortKey} direction={strategySort.direction} onSort={(col) => strategySort.toggleSort(col as StrategyAnalyticsSortKey)} className="px-5 py-3" />
-                    <SortableTableHead label="ROI" column="roi" sortKey={strategySort.sortKey} direction={strategySort.direction} onSort={(col) => strategySort.toggleSort(col as StrategyAnalyticsSortKey)} className="px-5 py-3" align="right" />
-                    <SortableTableHead label="Win Rate" column="winRate" sortKey={strategySort.sortKey} direction={strategySort.direction} onSort={(col) => strategySort.toggleSort(col as StrategyAnalyticsSortKey)} className="px-5 py-3" align="right" />
-                    <SortableTableHead label="Sharpe" column="sharpe" sortKey={strategySort.sortKey} direction={strategySort.direction} onSort={(col) => strategySort.toggleSort(col as StrategyAnalyticsSortKey)} className="px-5 py-3" align="right" />
+                    <SortableTableHead label="Strategy" column="name" columnId="name" sortKey={strategySort.sortKey} direction={strategySort.direction} onSort={(col) => strategySort.toggleSort(col as StrategyAnalyticsSortKey)} className={TABLE_HEAD} />
+                    <SortableTableHead label="ROI" column="roi" columnId="roi" sortKey={strategySort.sortKey} direction={strategySort.direction} onSort={(col) => strategySort.toggleSort(col as StrategyAnalyticsSortKey)} className={TABLE_HEAD} align="right" />
+                    <SortableTableHead label="Win Rate" column="winRate" columnId="winRate" sortKey={strategySort.sortKey} direction={strategySort.direction} onSort={(col) => strategySort.toggleSort(col as StrategyAnalyticsSortKey)} className={TABLE_HEAD} align="right" />
+                    <SortableTableHead label="Sharpe" column="sharpe" columnId="sharpe" sortKey={strategySort.sortKey} direction={strategySort.direction} onSort={(col) => strategySort.toggleSort(col as StrategyAnalyticsSortKey)} className={TABLE_HEAD} align="right" />
                   </tr>
                 </thead>
                 <tbody>
                   {sortedStrategies.map((s) => (
                     <tr key={s.id} className="border-b border-border/50 hover:bg-white/[0.02]">
-                      <td className="px-5 py-3 font-medium text-white">{s.name}</td>
-                      <td className={cn('px-5 py-3 text-right', s.roi >= 0 ? 'text-success' : 'text-error')}>{formatPercent(s.roi)}</td>
-                      <td className="px-5 py-3 text-right text-white">{s.winRate}%</td>
-                      <td className="px-5 py-3 text-right text-white">{s.sharpe}</td>
+                      <td className={cn(TABLE_CELL, 'font-medium text-white truncate')}>{s.name}</td>
+                      <td className={cn(TABLE_CELL, 'text-right', s.roi >= 0 ? 'text-success' : 'text-error')}>{formatPercent(s.roi)}</td>
+                      <td className={cn(TABLE_CELL, 'text-right text-white')}>{s.winRate}%</td>
+                      <td className={cn(TABLE_CELL, 'text-right text-white')}>{s.sharpe}</td>
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </ResizableTable>
+              </div>
             </Card>
           </div>
         )}
@@ -254,58 +286,62 @@ export function AnalyticsPage() {
         {tab === 'pairs' && (
           <Card className="overflow-hidden p-0">
             <div className="px-5 py-4 border-b border-border"><CardTitle>Pair Comparison</CardTitle></div>
-            <table className="w-full text-sm">
+            <div className="overflow-x-hidden">
+            <ResizableTable tableId="analytics-pairs" columns={ANALYTICS_PAIRS_COLUMNS} className="text-xs">
               <thead className="sticky top-0 bg-card">
                 <tr className="text-muted border-b border-border">
-                  <SortableTableHead label="Pair" column="pair" sortKey={pairSort.sortKey} direction={pairSort.direction} onSort={(col) => pairSort.toggleSort(col as PairComparisonSortKey)} className="px-5 py-3" />
-                  <SortableTableHead label="Bots" column="bots" sortKey={pairSort.sortKey} direction={pairSort.direction} onSort={(col) => pairSort.toggleSort(col as PairComparisonSortKey)} className="px-5 py-3" align="right" />
-                  <SortableTableHead label="Total Profit" column="profit" sortKey={pairSort.sortKey} direction={pairSort.direction} onSort={(col) => pairSort.toggleSort(col as PairComparisonSortKey)} className="px-5 py-3" align="right" />
-                  <SortableTableHead label="Avg ROI" column="avgRoi" sortKey={pairSort.sortKey} direction={pairSort.direction} onSort={(col) => pairSort.toggleSort(col as PairComparisonSortKey)} className="px-5 py-3" align="right" />
-                  <SortableTableHead label="Win Rate" column="avgWin" sortKey={pairSort.sortKey} direction={pairSort.direction} onSort={(col) => pairSort.toggleSort(col as PairComparisonSortKey)} className="px-5 py-3" align="right" />
+                  <SortableTableHead label="Pair" column="pair" columnId="pair" sortKey={pairSort.sortKey} direction={pairSort.direction} onSort={(col) => pairSort.toggleSort(col as PairComparisonSortKey)} className={TABLE_HEAD} />
+                  <SortableTableHead label="Bots" column="bots" columnId="bots" sortKey={pairSort.sortKey} direction={pairSort.direction} onSort={(col) => pairSort.toggleSort(col as PairComparisonSortKey)} className={TABLE_HEAD} align="right" />
+                  <SortableTableHead label="Total Profit" column="profit" columnId="profit" sortKey={pairSort.sortKey} direction={pairSort.direction} onSort={(col) => pairSort.toggleSort(col as PairComparisonSortKey)} className={TABLE_HEAD} align="right" />
+                  <SortableTableHead label="Avg ROI" column="avgRoi" columnId="avgRoi" sortKey={pairSort.sortKey} direction={pairSort.direction} onSort={(col) => pairSort.toggleSort(col as PairComparisonSortKey)} className={TABLE_HEAD} align="right" />
+                  <SortableTableHead label="Win Rate" column="avgWin" columnId="avgWin" sortKey={pairSort.sortKey} direction={pairSort.direction} onSort={(col) => pairSort.toggleSort(col as PairComparisonSortKey)} className={TABLE_HEAD} align="right" />
                 </tr>
               </thead>
               <tbody>
                 {sortedPairRows.map((row) => (
                   <tr key={row.pair} className="border-b border-border/50 hover:bg-white/[0.02]">
-                    <td className="px-5 py-3 font-medium text-white">{row.pair}</td>
-                    <td className="px-5 py-3 text-right text-white">{row.bots}</td>
-                    <td className={cn('px-5 py-3 text-right font-medium', row.profit >= 0 ? 'text-success' : 'text-error')}>{formatCurrency(row.profit)}</td>
-                    <td className={cn('px-5 py-3 text-right', row.avgRoi >= 0 ? 'text-success' : 'text-error')}>{formatPercent(row.avgRoi)}</td>
-                    <td className="px-5 py-3 text-right text-white">{row.avgWin.toFixed(0)}%</td>
+                    <td className={cn(TABLE_CELL, 'font-medium text-white truncate')}>{row.pair}</td>
+                    <td className={cn(TABLE_CELL, 'text-right text-white')}>{row.bots}</td>
+                    <td className={cn(TABLE_CELL, 'text-right font-medium', row.profit >= 0 ? 'text-success' : 'text-error')}>{formatCurrency(row.profit)}</td>
+                    <td className={cn(TABLE_CELL, 'text-right', row.avgRoi >= 0 ? 'text-success' : 'text-error')}>{formatPercent(row.avgRoi)}</td>
+                    <td className={cn(TABLE_CELL, 'text-right text-white')}>{row.avgWin.toFixed(0)}%</td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ResizableTable>
+            </div>
           </Card>
         )}
 
         {tab === 'bots' && (
           <Card className="overflow-hidden p-0">
             <div className="px-5 py-4 border-b border-border"><CardTitle>Bot Ranking</CardTitle></div>
-            <table className="w-full text-sm">
+            <div className="overflow-x-hidden">
+            <ResizableTable tableId="analytics-bots" columns={ANALYTICS_BOTS_COLUMNS} className="text-xs">
               <thead className="sticky top-0 bg-card">
                 <tr className="text-muted border-b border-border">
-                  <SortableTableHead label="#" column="rank" sortKey={botRankSort.sortKey} direction={botRankSort.direction} onSort={(col) => botRankSort.toggleSort(col as BotRankSortKey)} className="px-5 py-3" />
-                  <SortableTableHead label="Bot" column="name" sortKey={botRankSort.sortKey} direction={botRankSort.direction} onSort={(col) => botRankSort.toggleSort(col as BotRankSortKey)} className="px-5 py-3" />
-                  <SortableTableHead label="Profit" column="profit" sortKey={botRankSort.sortKey} direction={botRankSort.direction} onSort={(col) => botRankSort.toggleSort(col as BotRankSortKey)} className="px-5 py-3" align="right" />
-                  <SortableTableHead label="ROI" column="roi" sortKey={botRankSort.sortKey} direction={botRankSort.direction} onSort={(col) => botRankSort.toggleSort(col as BotRankSortKey)} className="px-5 py-3" align="right" />
-                  <SortableTableHead label="Win Rate" column="winRate" sortKey={botRankSort.sortKey} direction={botRankSort.direction} onSort={(col) => botRankSort.toggleSort(col as BotRankSortKey)} className="px-5 py-3" align="right" />
-                  <SortableTableHead label="Drawdown" column="drawdown" sortKey={botRankSort.sortKey} direction={botRankSort.direction} onSort={(col) => botRankSort.toggleSort(col as BotRankSortKey)} className="px-5 py-3" align="right" />
+                  <SortableTableHead label="#" column="rank" columnId="rank" sortKey={botRankSort.sortKey} direction={botRankSort.direction} onSort={(col) => botRankSort.toggleSort(col as BotRankSortKey)} className={TABLE_HEAD} />
+                  <SortableTableHead label="Bot" column="name" columnId="name" sortKey={botRankSort.sortKey} direction={botRankSort.direction} onSort={(col) => botRankSort.toggleSort(col as BotRankSortKey)} className={TABLE_HEAD} />
+                  <SortableTableHead label="Profit" column="profit" columnId="profit" sortKey={botRankSort.sortKey} direction={botRankSort.direction} onSort={(col) => botRankSort.toggleSort(col as BotRankSortKey)} className={TABLE_HEAD} align="right" />
+                  <SortableTableHead label="ROI" column="roi" columnId="roi" sortKey={botRankSort.sortKey} direction={botRankSort.direction} onSort={(col) => botRankSort.toggleSort(col as BotRankSortKey)} className={TABLE_HEAD} align="right" />
+                  <SortableTableHead label="Win Rate" column="winRate" columnId="winRate" sortKey={botRankSort.sortKey} direction={botRankSort.direction} onSort={(col) => botRankSort.toggleSort(col as BotRankSortKey)} className={TABLE_HEAD} align="right" />
+                  <SortableTableHead label="Drawdown" column="drawdown" columnId="drawdown" sortKey={botRankSort.sortKey} direction={botRankSort.direction} onSort={(col) => botRankSort.toggleSort(col as BotRankSortKey)} className={TABLE_HEAD} align="right" />
                 </tr>
               </thead>
               <tbody>
                 {sortedBots.map((bot, i) => (
                   <tr key={bot.id} className="border-b border-border/50 hover:bg-white/[0.02]">
-                    <td className="px-5 py-3 text-muted">{i + 1}</td>
-                    <td className="px-5 py-3 font-medium text-white">{bot.name}</td>
-                    <td className={cn('px-5 py-3 text-right font-medium', bot.profit >= 0 ? 'text-success' : 'text-error')}>{formatCurrency(bot.profit)}</td>
-                    <td className={cn('px-5 py-3 text-right', bot.roi >= 0 ? 'text-success' : 'text-error')}>{formatPercent(bot.roi)}</td>
-                    <td className="px-5 py-3 text-right text-white">{bot.winRate}%</td>
-                    <td className="px-5 py-3 text-right text-warning">{bot.drawdown}%</td>
+                    <td className={cn(TABLE_CELL, 'text-muted')}>{i + 1}</td>
+                    <td className={cn(TABLE_CELL, 'font-medium text-white truncate')}>{bot.name}</td>
+                    <td className={cn(TABLE_CELL, 'text-right font-medium', bot.profit >= 0 ? 'text-success' : 'text-error')}>{formatCurrency(bot.profit)}</td>
+                    <td className={cn(TABLE_CELL, 'text-right', bot.roi >= 0 ? 'text-success' : 'text-error')}>{formatPercent(bot.roi)}</td>
+                    <td className={cn(TABLE_CELL, 'text-right text-white')}>{bot.winRate}%</td>
+                    <td className={cn(TABLE_CELL, 'text-right text-warning')}>{bot.drawdown}%</td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ResizableTable>
+            </div>
           </Card>
         )}
 

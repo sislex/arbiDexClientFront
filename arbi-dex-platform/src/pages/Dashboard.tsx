@@ -29,9 +29,24 @@ import {
 import { cn, formatCurrency, formatPercent } from '../lib/utils'
 import { Link } from 'react-router-dom'
 import { SortableTableHead } from '../components/ui/SortableTableHead'
+import {
+  ResizableTable,
+  TABLE_CELL,
+  TABLE_HEAD,
+  type ResizableColumnConfig,
+} from '../components/ui/ResizableTable'
 import { useTableSort } from '../hooks/useTableSort'
 
 type DashboardBotSortKey = 'name' | 'pair' | 'strategy' | 'profit' | 'roi' | 'status'
+
+const DASHBOARD_BOTS_COLUMNS: ResizableColumnConfig[] = [
+  { id: 'name', defaultPercent: 22, minPercent: 12 },
+  { id: 'pair', defaultPercent: 14, minPercent: 10 },
+  { id: 'strategy', defaultPercent: 18, minPercent: 12 },
+  { id: 'profit', defaultPercent: 14, minPercent: 10 },
+  { id: 'roi', defaultPercent: 12, minPercent: 9 },
+  { id: 'status', defaultPercent: 12, minPercent: 9 },
+]
 
 function getDashboardBotSortValue(bot: BotRecord, key: DashboardBotSortKey) {
   switch (key) {
@@ -193,35 +208,35 @@ export function DashboardPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Card>
             <CardHeader><CardTitle>Top Bots</CardTitle></CardHeader>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <div className="overflow-x-hidden">
+              <ResizableTable tableId="dashboard-bots" columns={DASHBOARD_BOTS_COLUMNS} className="text-xs">
                 <thead>
                   <tr className="text-muted text-left border-b border-border">
-                    <SortableTableHead label="Bot" column="name" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as DashboardBotSortKey)} className="pb-3" />
-                    <SortableTableHead label="Pair" column="pair" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as DashboardBotSortKey)} className="pb-3" />
-                    <SortableTableHead label="Strategy" column="strategy" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as DashboardBotSortKey)} className="pb-3" />
-                    <SortableTableHead label="Profit" column="profit" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as DashboardBotSortKey)} className="pb-3" align="right" />
-                    <SortableTableHead label="ROI" column="roi" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as DashboardBotSortKey)} className="pb-3" align="right" />
-                    <SortableTableHead label="Status" column="status" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as DashboardBotSortKey)} className="pb-3" />
+                    <SortableTableHead label="Bot" column="name" columnId="name" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as DashboardBotSortKey)} className={TABLE_HEAD} />
+                    <SortableTableHead label="Pair" column="pair" columnId="pair" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as DashboardBotSortKey)} className={TABLE_HEAD} />
+                    <SortableTableHead label="Strategy" column="strategy" columnId="strategy" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as DashboardBotSortKey)} className={TABLE_HEAD} />
+                    <SortableTableHead label="Profit" column="profit" columnId="profit" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as DashboardBotSortKey)} className={TABLE_HEAD} align="right" />
+                    <SortableTableHead label="ROI" column="roi" columnId="roi" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as DashboardBotSortKey)} className={TABLE_HEAD} align="right" />
+                    <SortableTableHead label="Status" column="status" columnId="status" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as DashboardBotSortKey)} className={TABLE_HEAD} />
                   </tr>
                 </thead>
                 <tbody>
                   {topBots.map((bot) => (
                     <tr key={bot.id} className="border-b border-border/50 hover:bg-white/[0.02] transition-colors">
-                      <td className="py-3 font-medium text-white">{bot.name}</td>
-                      <td className="py-3 text-muted">{bot.pair}</td>
-                      <td className="py-3 text-muted">{bot.strategy}</td>
-                      <td className={cn('py-3 text-right font-medium', bot.profit >= 0 ? 'text-success' : 'text-error')}>
+                      <td className={cn(TABLE_CELL, 'font-medium text-white truncate')}>{bot.name}</td>
+                      <td className={cn(TABLE_CELL, 'text-muted truncate')}>{bot.pair}</td>
+                      <td className={cn(TABLE_CELL, 'text-muted truncate')}>{bot.strategy}</td>
+                      <td className={cn(TABLE_CELL, 'text-right font-medium', bot.profit >= 0 ? 'text-success' : 'text-error')}>
                         {formatCurrency(bot.profit)}
                       </td>
-                      <td className={cn('py-3 text-right', bot.roi >= 0 ? 'text-success' : 'text-error')}>
+                      <td className={cn(TABLE_CELL, 'text-right', bot.roi >= 0 ? 'text-success' : 'text-error')}>
                         {formatPercent(bot.roi)}
                       </td>
-                      <td className="py-3"><StatusBadge status={bot.status} /></td>
+                      <td className={TABLE_CELL}><StatusBadge status={bot.status} /></td>
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </ResizableTable>
             </div>
           </Card>
 

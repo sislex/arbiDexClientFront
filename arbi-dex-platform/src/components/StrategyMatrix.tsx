@@ -3,12 +3,32 @@ import { MATRIX_DATA, PAIRS } from '../data/mockData'
 import { getHeatmapColor, formatPercent, formatCurrency } from '../lib/utils'
 import { Card, CardHeader, CardTitle } from './ui/Card'
 import { SortableTableHead } from './ui/SortableTableHead'
+import {
+  ResizableTable,
+  TABLE_CELL,
+  TABLE_HEAD,
+  type ResizableColumnConfig,
+} from './ui/ResizableTable'
 import { useTableSort } from '../hooks/useTableSort'
 import { cn } from '../lib/utils'
 
 const strategies = Object.keys(MATRIX_DATA)
 
 type MatrixSortKey = 'strategy' | (typeof PAIRS)[number]
+
+function buildMatrixColumns(): ResizableColumnConfig[] {
+  const pairPercent = Math.floor(82 / PAIRS.length)
+  return [
+    { id: 'strategy', defaultPercent: 18, minPercent: 12 },
+    ...PAIRS.map((pair) => ({
+      id: pair,
+      defaultPercent: pairPercent,
+      minPercent: 8,
+    })),
+  ]
+}
+
+const MATRIX_COLUMNS = buildMatrixColumns()
 
 function getMatrixRowSortValue(strategy: string, key: MatrixSortKey) {
   if (key === 'strategy') return strategy
@@ -57,27 +77,29 @@ export function StrategyMatrix() {
           <CardTitle>Strategy Effectiveness Matrix</CardTitle>
           <p className="text-xs text-muted">Строки — стратегии, столбцы — торговые пары. Цвет = ROI</p>
         </CardHeader>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        <div className="overflow-x-hidden px-1 pb-1">
+          <ResizableTable tableId="strategy-matrix" columns={MATRIX_COLUMNS} className="text-xs">
             <thead>
               <tr className="border-b border-border">
                 <SortableTableHead
                   label="Strategy / Pair"
                   column="strategy"
+                  columnId="strategy"
                   sortKey={sortKey}
                   direction={direction}
                   onSort={(col) => toggleSort(col as MatrixSortKey)}
-                  className="px-4 py-3 sticky left-0 bg-card z-10 min-w-[140px]"
+                  className={cn(TABLE_HEAD, 'sticky left-0 bg-card z-10')}
                 />
                 {PAIRS.map((pair) => (
                   <SortableTableHead
                     key={pair}
                     label={pair.split('/')[0]}
                     column={pair}
+                    columnId={pair}
                     sortKey={sortKey}
                     direction={direction}
                     onSort={(col) => toggleSort(col as MatrixSortKey)}
-                    className="px-3 py-3 min-w-[100px]"
+                    className={TABLE_HEAD}
                     align="center"
                   />
                 ))}
@@ -86,26 +108,32 @@ export function StrategyMatrix() {
             <tbody>
               {sortedStrategies.map((strategy) => (
                 <tr key={strategy} className="border-b border-border/50">
-                  <td className="px-4 py-3 font-medium text-white sticky left-0 bg-card z-10">
+                  <td className={cn(TABLE_CELL, 'font-medium text-white sticky left-0 bg-card z-10 truncate')}>
                     {strategy}
                   </td>
                   {PAIRS.map((pair) => {
                     const cell = MATRIX_DATA[strategy]?.[pair]
-                    if (!cell) return <td key={pair} className="px-3 py-3 text-center text-muted">—</td>
+                    if (!cell) {
+                      return (
+                        <td key={pair} className={cn(TABLE_CELL, 'text-center text-muted')}>
+                          —
+                        </td>
+                      )
+                    }
                     const isBest = strategy === best.strategy && pair === best.pair
                     return (
-                      <td key={pair} className="px-2 py-2">
+                      <td key={pair} className={cn(TABLE_CELL, 'p-1')}>
                         <div
                           className={cn(
-                            'rounded-xl p-2.5 text-center transition-all cursor-default',
+                            'rounded-lg p-1.5 text-center transition-all cursor-default min-w-0',
                             getHeatmapColor(cell.roi),
                             isBest && 'ring-2 ring-accent-purple ring-offset-1 ring-offset-card',
                           )}
                           title={`Win Rate: ${cell.winRate}% · Profit: ${formatCurrency(cell.profit)}`}
                         >
-                          <p className="font-bold text-sm">{formatPercent(cell.roi)}</p>
-                          <p className="text-[10px] opacity-70 mt-0.5">{cell.winRate}% WR</p>
-                          {isBest && <p className="text-[10px] text-accent-purple font-bold mt-0.5">BEST</p>}
+                          <p className="font-bold text-[11px] truncate">{formatPercent(cell.roi)}</p>
+                          <p className="text-[9px] opacity-70 mt-0.5 truncate">{cell.winRate}% WR</p>
+                          {isBest && <p className="text-[9px] text-accent-purple font-bold mt-0.5">BEST</p>}
                         </div>
                       </td>
                     )
@@ -113,7 +141,7 @@ export function StrategyMatrix() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </ResizableTable>
         </div>
       </Card>
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Save } from 'lucide-react'
 import { PageHeader, PageContent } from '../components/layout/PageHeader'
@@ -9,7 +9,6 @@ import { Select } from '../components/ui/SearchInput'
 import {
   getBotById,
   getStrategies,
-  getTradingPairById,
   type Bot,
 } from '../data/mockData'
 import { loadTradingPairs } from '../lib/tradingPairsStorage'
@@ -21,6 +20,11 @@ import {
   DEFAULT_BOT_LAUNCH,
   type BotDraft,
 } from '../lib/botUrlParams'
+import {
+  hasBotDraftChanged,
+  isBotDraftComplete,
+  isBotLaunchValid,
+} from '../lib/editorFormState'
 import { generateSelectionId } from '../types/chart'
 import { cn, formatCurrency, formatPercent } from '../lib/utils'
 
@@ -54,7 +58,7 @@ function resolveBotName(baseName: string, pair: string, strategyName: string, mu
 
 export function BotEditorPage() {
   const { id } = useParams<{ id: string }>()
-  const isNew = id === 'new'
+  const isNew = !id
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -69,12 +73,15 @@ export function BotEditorPage() {
     const base = existingBot ? botToDraft(existingBot) : createEmptyDraft()
     return botDraftFromSearchParams(searchParams, base)
   })
-  const [saved, setSaved] = useState(false)
+  const baselineDraftRef = useRef<BotDraft>(
+    existingBot ? botToDraft(existingBot) : createEmptyDraft(),
+  )
 
   useEffect(() => {
     const base = isNew ? createEmptyDraft() : existingBot ? botToDraft(existingBot) : createEmptyDraft()
-    setDraft(botDraftFromSearchParams(searchParams, base))
-    setSaved(false)
+    const merged = botDraftFromSearchParams(searchParams, base)
+    setDraft(merged)
+    baselineDraftRef.current = merged
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, isNew, existingBot?.id])
 
@@ -90,32 +97,16 @@ export function BotEditorPage() {
       setDraft((prev) => {
         const next = typeof patch === 'function' ? patch(prev) : { ...prev, ...patch }
         syncUrl(next)
-        setSaved(false)
         return next
       })
     },
     [syncUrl],
   )
 
-  const selectedPairSet = getTradingPairById(draft.pairSetId)
-  const startingBudget = Number(draft.launch.startingBudget)
-  const maxTurnover = Number(draft.launch.maxTurnover)
-  const minStopBudget = Number(draft.launch.minStopBudget)
-  const peakStopPercent = Number(draft.launch.peakStopPercent)
-
-  const launchValid =
-    startingBudget > 0 &&
-    maxTurnover >= startingBudget &&
-    minStopBudget > 0 &&
-    minStopBudget < startingBudget &&
-    peakStopPercent > 0 &&
-    peakStopPercent <= 100
-
-  const canSave =
-    draft.name.trim().length > 0 &&
-    draft.pairSetId.length > 0 &&
-    draft.strategyIds.length > 0 &&
-    launchValid
+  const launchValid = isBotLaunchValid(draft)
+  const canCreate = isBotDraftComplete(draft)
+  const isDirty = hasBotDraftChanged(draft, baselineDraftRef.current)
+  const submitEnabled = isNew ? canCreate : isDirty && canCreate
 
   const toggleStrategy = (strategyId: string) => {
     updateDraft((prev) => ({
@@ -127,7 +118,12 @@ export function BotEditorPage() {
   }
 
   const handleSave = () => {
-    if (!canSave) return
+    if (!submitEnabled) return
+
+    const startingBudget = Number(draft.launch.startingBudget)
+    const maxTurnover = Number(draft.launch.maxTurnover)
+    const minStopBudget = Number(draft.launch.minStopBudget)
+    const peakStopPercent = Number(draft.launch.peakStopPercent)
 
     if (isNew) {
       const selectedItems = strategies.filter((s) => draft.strategyIds.includes(s.id))
@@ -156,14 +152,7 @@ export function BotEditorPage() {
       }))
       const all = [...loadBots(), ...newBots]
       saveBots(all)
-      const first = newBots[0]
-      if (first && newBots.length === 1) {
-        navigate(`/bots/${first.id}/edit?${new URLSearchParams(botDraftToSearchParams(botToDraft(first))).toString()}`, {
-          replace: true,
-        })
-      } else {
-        navigate('/bots')
-      }
+      navigate('/bots')
       return
     }
 
@@ -184,7 +173,7 @@ export function BotEditorPage() {
       profitCurrency: draft.launch.profitCurrency,
     }
     saveBots(loadBots().map((b) => (b.id === existingBot.id ? updated : b)))
-    setSaved(true)
+    navigate('/bots')
   }
 
   if (!isNew && id && !existingBot) {
@@ -217,9 +206,9 @@ export function BotEditorPage() {
                 <Button variant="outline">Открыть бота</Button>
               </Link>
             )}
-            <Button onClick={handleSave} disabled={!canSave}>
+            <Button onClick={handleSave} disabled={!submitEnabled}>
               <Save size={14} />
-              {isNew ? 'Создать' : saved ? 'Сохранено' : 'Сохранить'}
+              {isNew ? 'Создать' : 'Сохранить'}
             </Button>
           </div>
         }
@@ -418,19 +407,6 @@ export function BotEditorPage() {
           </div>
           {!launchValid && (
             <p className="text-xs text-warning">Проверьте параметры запуска</p>
-          )}
-        </Card>
-
-        <Card className="p-5 space-y-3">
-          <h2 className="text-sm font-bold text-white uppercase tracking-wider">Параметры в URL</h2>
-          <div className="rounded-xl bg-surface border border-border p-3 font-mono text-xs text-muted break-all">
-            /bots/{isNew ? 'new' : `${existingBot?.id}/edit`}
-            {searchParams.toString() ? `?${searchParams.toString()}` : ''}
-          </div>
-          {selectedPairSet && (
-            <p className="text-xs text-muted">
-              Набор: {selectedPairSet.name} · {selectedPairSet.pair}
-            </p>
           )}
         </Card>
       </PageContent>

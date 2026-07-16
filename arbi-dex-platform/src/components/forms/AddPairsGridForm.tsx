@@ -8,6 +8,14 @@ import {
   migrateDexData,
 } from '../../data/mockData'
 import { useCatalogPairs } from '../../hooks/useCatalogPairs'
+import { filterStandardCexPairSymbols, isStandardCexPairSymbol } from '../../lib/pairSymbols'
+import {
+  defaultDexAddresses,
+  dexPoolPresetValue,
+  findDexPoolPreset,
+  formatDexPoolOptionLabel,
+  getDexPoolPresets,
+} from '../../lib/dexStoreKeys'
 import type { ExchangeSource } from '../../data/mockData'
 import type { ChartPairSelection, DexEntry, DexTokenAddresses, PairPurpose } from '../../types/chart'
 import {
@@ -126,7 +134,7 @@ function DexEntryCard({
   onToggle,
   onSetTrading,
   onNetworkChange,
-  onAddressChange,
+  onPoolChange,
   onRemove,
 }: {
   entry: DexEntry
@@ -139,11 +147,21 @@ function DexEntryCard({
   onToggle: () => void
   onSetTrading: () => void
   onNetworkChange: (network: string) => void
-  onAddressChange: (field: keyof DexTokenAddresses, value: string) => void
+  onPoolChange: (base: string, quote: string) => void
   onRemove: () => void
 }) {
-  const [baseSymbol, quoteSymbol] = pair.split('/')
   const label = getDexEntryLabel(entry, entries)
+  const poolPresets = useMemo(
+    () => getDexPoolPresets(entry.network, pair),
+    [entry.network, pair],
+  )
+  const selectedPool = useMemo(
+    () => findDexPoolPreset(entry.network, pair, addresses),
+    [entry.network, pair, addresses],
+  )
+  const poolSelectValue = selectedPool
+    ? dexPoolPresetValue(selectedPool)
+    : dexPoolPresetValue(addresses)
 
   return (
     <div
@@ -189,26 +207,25 @@ function DexEntryCard({
           />
         </div>
         <div>
-          <label className="text-[10px] text-muted block mb-1">{baseSymbol} address</label>
-          <input
-            type="text"
-            value={addresses.base}
-            disabled={!active}
-            onChange={(e) => onAddressChange('base', e.target.value)}
-            placeholder="0x..."
-            className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-lg text-white text-xs font-mono focus:outline-none focus:border-accent-purple/50 disabled:opacity-50"
-          />
-        </div>
-        <div>
-          <label className="text-[10px] text-muted block mb-1">{quoteSymbol} address</label>
-          <input
-            type="text"
-            value={addresses.quote}
-            disabled={!active}
-            onChange={(e) => onAddressChange('quote', e.target.value)}
-            placeholder="0x..."
-            className="w-full px-2.5 py-1.5 bg-surface border border-border rounded-lg text-white text-xs font-mono focus:outline-none focus:border-accent-purple/50 disabled:opacity-50"
-          />
+          <label className="text-[10px] text-muted block mb-1">Пул</label>
+          {poolPresets.length > 0 ? (
+            <Select
+              value={poolSelectValue}
+              onChange={(value) => {
+                const [base, quote] = value.split('|')
+                if (base && quote) onPoolChange(base, quote)
+              }}
+              options={poolPresets.map((preset) => ({
+                value: dexPoolPresetValue(preset),
+                label: formatDexPoolOptionLabel(preset),
+              }))}
+              className="w-full text-sm"
+            />
+          ) : (
+            <p className="text-[11px] text-muted py-2">
+              Нет доступных пулов для {pair} в этой сети
+            </p>
+          )}
         </div>
       </div>
 
@@ -268,7 +285,7 @@ function PairSection({
   onPairChange,
   onToggleExchange,
   onSetTradingExchange,
-  onDexAddressChange,
+  onDexPoolChange,
   onAddDex,
   onRemoveDex,
   onDexNetworkChange,
@@ -284,7 +301,7 @@ function PairSection({
   onPairChange: (pair: string) => void
   onToggleExchange: (exchange: string) => void
   onSetTradingExchange: (exchange: string) => void
-  onDexAddressChange: (entryId: string, field: keyof DexTokenAddresses, value: string) => void
+  onDexPoolChange: (entryId: string, base: string, quote: string) => void
   onAddDex: () => void
   onRemoveDex: (entryId: string) => void
   onDexNetworkChange: (entryId: string, network: string) => void
@@ -306,19 +323,6 @@ function PairSection({
               onChange={(e) => onNameChange(e.target.value)}
               placeholder={monitoring ? 'Например: ETH Market Watch' : 'Например: BTC Binance Main'}
               className="w-full px-4 py-2.5 bg-surface border border-border rounded-xl text-white text-sm focus:outline-none focus:border-accent-purple/50"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-muted block mb-1.5">Торговая пара</label>
-            <Select
-              value={selection.pair}
-              onChange={onPairChange}
-              options={
-                pairsLoading && pairOptions.length === 0
-                  ? [{ value: selection.pair, label: 'Загрузка пар…' }]
-                  : pairOptions
-              }
-              className="w-full text-sm"
             />
           </div>
           <p className="text-[10px] text-muted font-mono">ID: {selection.id}</p>
@@ -346,6 +350,19 @@ function PairSection({
         <div className="space-y-5">
           <div>
             <h4 className="text-xs font-bold text-accent-cyan uppercase tracking-wider mb-3">CEX</h4>
+            <div className="mb-4">
+              <label className="text-xs text-muted block mb-1.5">Торговая пара</label>
+              <Select
+                value={selection.pair}
+                onChange={onPairChange}
+                options={
+                  pairsLoading && pairOptions.length === 0
+                    ? [{ value: selection.pair, label: 'Загрузка пар…' }]
+                    : pairOptions
+                }
+                className="w-full text-sm"
+              />
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
               {CEX_SOURCES.map((source) => {
                 const active = selection.selectedExchanges.includes(source.name)
@@ -366,11 +383,11 @@ function PairSection({
           </div>
 
           <div>
-            <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="flex items-center justify-between gap-3 mb-1">
               <div>
                 <h4 className="text-xs font-bold text-accent-purple uppercase tracking-wider">DEX</h4>
                 <p className="text-[11px] text-muted mt-1">
-                  Добавьте DEX, выберите сеть и укажите адреса токенов
+                  Добавьте DEX, выберите сеть и пул с адресами токенов
                 </p>
               </div>
               <button
@@ -382,6 +399,9 @@ function PairSection({
                 Добавить DEX
               </button>
             </div>
+            <p className="text-[11px] text-muted mb-3">
+              Пара набора: <span className="text-white font-medium">{selection.pair}</span>
+            </p>
             {selection.dexEntries.length === 0 ? (
               <p className="text-xs text-muted py-6 text-center rounded-xl border border-dashed border-border">
                 Нет добавленных DEX. Нажмите «Добавить DEX», чтобы выбрать сеть.
@@ -406,7 +426,7 @@ function PairSection({
                       onToggle={() => onToggleDex(entry.id)}
                       onSetTrading={() => onSetTradingExchange(label)}
                       onNetworkChange={(network) => onDexNetworkChange(entry.id, network)}
-                      onAddressChange={(field, value) => onDexAddressChange(entry.id, field, value)}
+                      onPoolChange={(base, quote) => onDexPoolChange(entry.id, base, quote)}
                       onRemove={() => onRemoveDex(entry.id)}
                     />
                   )
@@ -424,7 +444,9 @@ export function AddPairsGridForm({ selections, onChange, mode = 'add' }: AddPair
   const isEdit = mode === 'edit'
   const { pairs: catalogPairs, loading: pairsLoading } = useCatalogPairs()
   const pairOptions = useMemo(() => {
-    const symbols = [...new Set([...catalogPairs, ...selections.map((s) => s.pair)])].sort((a, b) =>
+    const fromCatalog = filterStandardCexPairSymbols(catalogPairs)
+    const fromSelections = selections.map((s) => s.pair).filter(isStandardCexPairSymbol)
+    const symbols = [...new Set([...fromCatalog, ...fromSelections])].sort((a, b) =>
       a.localeCompare(b),
     )
     return symbols.map((p) => ({ value: p, label: p }))
@@ -477,17 +499,22 @@ export function AddPairsGridForm({ selections, onChange, mode = 'add' }: AddPair
     onChange(
       selections.map((col) => {
         if (col.id !== id) return col
+        const network = DEX_NETWORKS[0]?.name ?? 'Ethereum'
         const entry: DexEntry = {
           id: generateSelectionId(),
-          network: DEX_NETWORKS[0]?.name ?? 'Ethereum',
+          network,
         }
         const dexEntries = [...col.dexEntries, entry]
         const enabledIds = getEnabledDexEntryIds(col.dexEntries, col.selectedExchanges)
         enabledIds.add(entry.id)
+        const preset =
+          getDexPoolPresets(network, col.pair)[0] ??
+          defaultDexAddresses(network, col.pair) ??
+          emptyDexAddresses()
         return {
           ...col,
           dexEntries,
-          dexAddresses: { ...col.dexAddresses, [entry.id]: emptyDexAddresses() },
+          dexAddresses: { ...col.dexAddresses, [entry.id]: { base: preset.base, quote: preset.quote } },
           selectedExchanges: mergeSelectedExchanges(col.selectedExchanges, dexEntries, enabledIds),
         }
       }),
@@ -539,9 +566,14 @@ export function AddPairsGridForm({ selections, onChange, mode = 'add' }: AddPair
         const finalTrading =
           tradingExchange && selectedExchanges.includes(tradingExchange) ? tradingExchange : null
         const purpose = finalTrading ? 'trading' : 'monitoring'
+        const preset =
+          getDexPoolPresets(network, col.pair)[0] ??
+          defaultDexAddresses(network, col.pair) ??
+          emptyDexAddresses()
         return {
           ...col,
           dexEntries,
+          dexAddresses: { ...col.dexAddresses, [entryId]: { base: preset.base, quote: preset.quote } },
           selectedExchanges,
           tradingExchange: finalTrading,
           purpose,
@@ -579,21 +611,15 @@ export function AddPairsGridForm({ selections, onChange, mode = 'add' }: AddPair
     )
   }
 
-  const setDexAddress = (
-    id: string,
-    entryId: string,
-    field: keyof DexTokenAddresses,
-    value: string,
-  ) => {
+  const setDexPool = (id: string, entryId: string, base: string, quote: string) => {
     onChange(
       selections.map((col) => {
         if (col.id !== id) return col
-        const current = col.dexAddresses[entryId] ?? emptyDexAddresses()
         return {
           ...col,
           dexAddresses: {
             ...col.dexAddresses,
-            [entryId]: { ...current, [field]: value },
+            [entryId]: { base, quote },
           },
         }
       }),
@@ -632,12 +658,22 @@ export function AddPairsGridForm({ selections, onChange, mode = 'add' }: AddPair
             ? col.tradingExchange
             : getDefaultTradingExchange(pair)
         const selectedExchanges = [...new Set([...cexSelected, ...dexLabels])]
+        const dexAddresses = { ...col.dexAddresses }
+        for (const entry of col.dexEntries) {
+          const preset =
+            getDexPoolPresets(entry.network, pair)[0] ??
+            defaultDexAddresses(entry.network, pair)
+          if (preset) {
+            dexAddresses[entry.id] = { base: preset.base, quote: preset.quote }
+          }
+        }
         return {
           ...col,
           pair,
           name: col.name === defaultPairSetName(col.pair) ? defaultPairSetName(pair) : col.name,
           selectedExchanges,
           tradingExchange,
+          dexAddresses,
           purpose: keepMonitoring ? 'monitoring' : tradingExchange ? 'trading' : 'monitoring',
         }
       }),
@@ -664,7 +700,7 @@ export function AddPairsGridForm({ selections, onChange, mode = 'add' }: AddPair
             onPairChange={(pair) => changePair(sel.id, pair)}
             onToggleExchange={(ex) => toggleExchange(sel.id, ex)}
             onSetTradingExchange={(ex) => setTradingExchange(sel.id, ex)}
-            onDexAddressChange={(entryId, field, value) => setDexAddress(sel.id, entryId, field, value)}
+            onDexPoolChange={(entryId, base, quote) => setDexPool(sel.id, entryId, base, quote)}
             onAddDex={() => addDex(sel.id)}
             onRemoveDex={(entryId) => removeDex(sel.id, entryId)}
             onDexNetworkChange={(entryId, network) => changeDexNetwork(sel.id, entryId, network)}

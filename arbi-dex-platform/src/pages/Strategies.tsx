@@ -7,6 +7,14 @@ import { Button } from '../components/ui/Button'
 import { SearchInput } from '../components/ui/SearchInput'
 import { StatusBadge } from '../components/ui/Badge'
 import { SortableTableHead } from '../components/ui/SortableTableHead'
+import {
+  ResizableTable,
+  TableHeadCell,
+  TABLE_ACTIONS_CELL,
+  TABLE_CELL,
+  TABLE_HEAD,
+  type ResizableColumnConfig,
+} from '../components/ui/ResizableTable'
 import { STORE_STRATEGIES, getBots, type StrategyData, type StoreStrategy } from '../data/mockData'
 import { useTableSort } from '../hooks/useTableSort'
 import { useUndoDelete } from '../context/UndoDeleteContext'
@@ -16,6 +24,16 @@ import { cn, formatPercent } from '../lib/utils'
 
 const TOP_LIMIT = 5
 
+const STRATEGIES_TABLE_COLUMNS: ResizableColumnConfig[] = [
+  { id: 'name', defaultPercent: 26, minPercent: 14 },
+  { id: 'roi', defaultPercent: 10, minPercent: 7 },
+  { id: 'winRate', defaultPercent: 11, minPercent: 8 },
+  { id: 'drawdown', defaultPercent: 11, minPercent: 8 },
+  { id: 'runningBots', defaultPercent: 9, minPercent: 6 },
+  { id: 'status', defaultPercent: 11, minPercent: 8 },
+  { id: 'actions', defaultPercent: 12, minPercent: 10 },
+]
+
 type StrategySortKey = 'name' | 'roi' | 'winRate' | 'drawdown' | 'runningBots' | 'status'
 
 function TopYourStrategiesList({ items }: { items: StrategyData[] }) {
@@ -24,7 +42,7 @@ function TopYourStrategiesList({ items }: { items: StrategyData[] }) {
       {items.map((s, i) => (
         <Link
           key={s.id}
-          to={`/strategies/${s.id}`}
+          to={`/strategies/${s.id}/edit`}
           className="flex items-center gap-3 p-2.5 rounded-xl bg-surface/60 hover:bg-surface transition-colors"
         >
           <span className="w-6 h-6 rounded-lg bg-accent-purple/15 text-accent-purple text-xs font-bold flex items-center justify-center shrink-0">
@@ -173,105 +191,117 @@ export function StrategiesPage() {
             <div className="flex-[7] min-w-0 flex flex-col min-h-0">
               <Card className="flex-1 min-h-0 overflow-hidden p-0 flex flex-col">
                 <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
-                  <table className="w-full text-sm table-fixed">
+                  <ResizableTable
+                    tableId="strategies"
+                    columns={STRATEGIES_TABLE_COLUMNS}
+                    className="text-xs"
+                  >
                     <thead className="sticky top-0 bg-card z-10">
                       <tr className="text-muted text-left border-b border-border">
                         <SortableTableHead
                           label="Name"
                           column="name"
+                          columnId="name"
                           sortKey={sortKey}
                           direction={direction}
                           onSort={(col) => toggleSort(col as StrategySortKey)}
-                          className="w-[32%] px-5 py-3"
+                          className={TABLE_HEAD}
                         />
                         <SortableTableHead
                           label="ROI"
                           column="roi"
+                          columnId="roi"
                           sortKey={sortKey}
                           direction={direction}
                           onSort={(col) => toggleSort(col as StrategySortKey)}
-                          className="w-[11%] px-5 py-3"
+                          className={TABLE_HEAD}
                           align="right"
                         />
                         <SortableTableHead
                           label="Win Rate"
                           column="winRate"
+                          columnId="winRate"
                           sortKey={sortKey}
                           direction={direction}
                           onSort={(col) => toggleSort(col as StrategySortKey)}
-                          className="w-[12%] px-5 py-3"
+                          className={TABLE_HEAD}
                           align="right"
                         />
                         <SortableTableHead
                           label="Drawdown"
                           column="drawdown"
+                          columnId="drawdown"
                           sortKey={sortKey}
                           direction={direction}
                           onSort={(col) => toggleSort(col as StrategySortKey)}
-                          className="w-[12%] px-5 py-3"
+                          className={TABLE_HEAD}
                           align="right"
                         />
                         <SortableTableHead
                           label="Bots"
                           column="runningBots"
+                          columnId="runningBots"
                           sortKey={sortKey}
                           direction={direction}
                           onSort={(col) => toggleSort(col as StrategySortKey)}
-                          className="w-[10%] px-5 py-3"
+                          className={TABLE_HEAD}
                           align="center"
                         />
                         <SortableTableHead
                           label="Status"
                           column="status"
+                          columnId="status"
                           sortKey={sortKey}
                           direction={direction}
                           onSort={(col) => toggleSort(col as StrategySortKey)}
-                          className="w-[11%] px-5 py-3"
+                          className={TABLE_HEAD}
                         />
-                        <th className="w-[8%] px-5 py-3 font-medium">Actions</th>
+                        <TableHeadCell columnId="actions" className={TABLE_HEAD} align="center">
+                          Actions
+                        </TableHeadCell>
                       </tr>
                     </thead>
                     <tbody>
                       {filtered.map((s) => (
                         <tr
                           key={s.id}
-                          onClick={() => navigate(`/strategies/${s.id}`)}
+                          onClick={() => navigate(`/strategies/${s.id}/edit`)}
                           className="border-b border-border/50 hover:bg-white/[0.02] transition-colors cursor-pointer"
                         >
-                          <td className="px-5 py-3.5 min-w-0">
+                          <td className={TABLE_CELL}>
                             <p className="font-semibold text-white truncate">{s.name}</p>
-                            <p className="text-xs text-muted mt-0.5 line-clamp-1">{s.description}</p>
+                            <p className="text-[11px] text-muted mt-0.5 truncate">{s.description}</p>
                           </td>
-                          <td className={cn('px-5 py-3.5 text-right font-medium', s.roi >= 0 ? 'text-success' : 'text-error')}>
+                          <td className={cn(TABLE_CELL, 'text-right font-medium', s.roi >= 0 ? 'text-success' : 'text-error')}>
                             {formatPercent(s.roi)}
                           </td>
-                          <td className="px-5 py-3.5 text-right text-white">{s.winRate}%</td>
-                          <td className="px-5 py-3.5 text-right text-warning">{s.drawdown}%</td>
-                          <td className="px-5 py-3.5 text-center text-white">{s.runningBots}</td>
-                          <td className="px-5 py-3.5"><StatusBadge status={s.status} /></td>
-                          <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex gap-0.5">
+                          <td className={cn(TABLE_CELL, 'text-right text-white')}>{s.winRate}%</td>
+                          <td className={cn(TABLE_CELL, 'text-right text-warning')}>{s.drawdown}%</td>
+                          <td className={cn(TABLE_CELL, 'text-center text-white')}>{s.runningBots}</td>
+                          <td className={TABLE_CELL}><StatusBadge status={s.status} /></td>
+                          <td className={TABLE_ACTIONS_CELL} onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-center gap-0.5">
                               <Link
-                                to={`/strategies/${s.id}`}
-                                className="p-1.5 rounded-lg hover:bg-white/5 text-muted hover:text-white"
+                                to={`/strategies/${s.id}/edit`}
+                                className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-white shrink-0"
                                 title="Редактировать"
                               >
-                                <Edit2 size={14} />
+                                <Edit2 size={13} />
                               </Link>
                               <button
                                 type="button"
                                 onClick={(e) => handleDeleteStrategy(s, e)}
-                                className="p-1.5 rounded-lg hover:bg-white/5 text-muted hover:text-error"
+                                className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-error shrink-0"
                                 title="Удалить"
                               >
-                                <Trash2 size={14} />
+                                <Trash2 size={13} />
                               </button>
                             </div>
                           </td>
                         </tr>
                       ))}
                     </tbody>
-                  </table>
+                  </ResizableTable>
                 </div>
               </Card>
             </div>

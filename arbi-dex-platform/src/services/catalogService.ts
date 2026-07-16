@@ -59,6 +59,17 @@ export async function loadCatalogPairSymbols(force = false): Promise<string[]> {
   if (!force && loadPromise) return loadPromise
 
   loadPromise = (async () => {
+    // Store API не требует arbi-dex-server — приоритет в dev
+    try {
+      const fromStore = await fetchPairsFromStoreKeys()
+      if (fromStore.length > 0) {
+        cachedPairSymbols = fromStore
+        return fromStore
+      }
+    } catch {
+      // fallback to auth catalog
+    }
+
     try {
       const fromCatalog = await fetchPairsFromAuthCatalog()
       if (fromCatalog && fromCatalog.length > 0) {
@@ -66,17 +77,11 @@ export async function loadCatalogPairSymbols(force = false): Promise<string[]> {
         return fromCatalog
       }
     } catch {
-      // fallback to store keys
+      // server unavailable
     }
 
-    try {
-      const fromStore = await fetchPairsFromStoreKeys()
-      cachedPairSymbols = fromStore
-      return fromStore
-    } catch {
-      cachedPairSymbols = FALLBACK_PAIR_SYMBOLS
-      return FALLBACK_PAIR_SYMBOLS
-    }
+    cachedPairSymbols = FALLBACK_PAIR_SYMBOLS
+    return FALLBACK_PAIR_SYMBOLS
   })().finally(() => {
     loadPromise = null
   })

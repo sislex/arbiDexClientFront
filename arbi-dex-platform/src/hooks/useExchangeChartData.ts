@@ -1,6 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { referenceNetworks, resolveChartNetworks } from '../lib/buildChartNetworks'
 import { applyReferenceAverage } from '../lib/chartPointAvg'
+import {
+  cacheCoversPeriod,
+  CHART_POLL_OVERLAP_MS,
+  CHART_POLL_TAIL_LIMIT,
+  clearChartDataCache,
+  getChartDataCache,
+  mergeChartPoints,
+  setChartDataCache,
+} from '../lib/chartDataCache'
+import { filterChartDataByPeriod, type ChartPeriod } from '../lib/chartTimeRange'
 import {
   fetchChartData,
   fetchStoreKeyCatalog,
@@ -23,38 +33,89 @@ function selectionKey(selection: ChartPairSelection): string {
   ].join('|')
 }
 
-export function useExchangeChartData(selection: ChartPairSelection | undefined) {
-  const [data, setData] = useState<ChartPoint[]>([])
+export function useExchangeChartData(
+  selection: ChartPairSelection | undefined,
+  period: ChartPeriod = '1h',
+) {
+  const selectionId = selection ? selectionKey(selection) : ''
+  const cachedFull = selectionId ? getChartDataCache(selectionId) : undefined
+
+  const [fullData, setFullData] = useState<ChartPoint[]>(() => cachedFull ?? [])
   const [networks, setNetworks] = useState<NetworkSource[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(() => !(cachedFull && cacheCoversPeriod(cachedFull, period)))
   const [error, setError] = useState<string | null>(null)
   const [refreshToken, setRefreshToken] = useState(0)
 
-  const selectionId = selection ? selectionKey(selection) : ''
+  const resolvedRef = useRef<NetworkSource[]>([])
+  const fullDataRef = useRef(fullData)
+  const periodRef = useRef(period)
+  fullDataRef.current = fullData
+  periodRef.current = period
+
+  const data = useMemo(
+    () => filterChartDataByPeriod(fullData, period),
+    [fullData, period],
+  )
 
   const referenceNets = useMemo(
     () => (selection ? referenceNetworks(selection, networks) : []),
     [selection, networks],
   )
 
+  const commitFullData = useCallback(
+    (next: ChartPoint[], cachePeriod: ChartPeriod) => {
+      setFullData(next)
+      if (selectionId) setChartDataCache(selectionId, next, cachePeriod)
+    },
+    [selectionId],
+  )
+
   const reload = useCallback(() => {
     invalidateStoreKeyCatalog()
+    if (selectionId) clearChartDataCache(selectionId)
+    setFullData([])
     setRefreshToken((n) => n + 1)
-  }, [])
+  }, [selectionId])
+
+  const fetchAndMerge = useCallback(
+    async (
+      resolved: NetworkSource[],
+      fetchPeriod: ChartPeriod,
+      options?: { limit?: number; sinceMs?: number },
+    ): Promise<ChartPoint[]> => {
+      const refNets = selection ? referenceNetworks(selection, resolved) : []
+      const apiData = await fetchChartData(resolved, {
+        period: fetchPeriod,
+        keepBuffer: true,
+        limit: options?.limit,
+        sinceMs: options?.sinceMs,
+      })
+      if (apiData.length === 0) return fullDataRef.current
+      const averaged = applyReferenceAverage(apiData, refNets)
+      return mergeChartPoints(fullDataRef.current, averaged)
+    },
+    [selection],
+  )
 
   useEffect(() => {
     if (!selection || selection.selectedExchanges.length === 0) {
-      setData([])
+      setFullData([])
       setNetworks([])
       setLoading(false)
       setError(null)
+      resolvedRef.current = []
       return
     }
 
     let cancelled = false
-    let pollTimer: ReturnType<typeof setInterval> | null = null
+    const cached = getChartDataCache(selectionId)
+    if (cached?.length) {
+      setFullData(cached)
+      if (cacheCoversPeriod(cached, periodRef.current)) setLoading(false)
+    }
 
-    const load = async (showLoading: boolean) => {
+    const bootstrap = async () => {
+      const showLoading = !fullDataRef.current.length
       if (showLoading) setLoading(true)
 
       try {
@@ -62,31 +123,35 @@ export function useExchangeChartData(selection: ChartPairSelection | undefined) 
         if (cancelled) return
 
         const resolved = resolveChartNetworks(selection, catalog)
+        resolvedRef.current = resolved
         if (resolved.length === 0) {
           setNetworks([])
-          setData([])
+          setFullData([])
           setError(
             `Нет market-data для ${selection.pair} на выбранных биржах. Проверьте пару и адреса DEX.`,
           )
           return
         }
 
-        const apiData = await fetchChartData(resolved)
+        setNetworks(resolved)
+
+        if (cacheCoversPeriod(fullDataRef.current, periodRef.current)) {
+          setError(null)
+          return
+        }
+
+        const merged = await fetchAndMerge(resolved, periodRef.current)
         if (cancelled) return
 
-        if (apiData.length === 0) {
-          setNetworks(resolved)
-          setData([])
+        if (merged.length === 0) {
           setError('Store API не вернул историю цен для выбранных ключей.')
           return
         }
 
-        const refNets = referenceNetworks(selection, resolved)
-        setNetworks(resolved)
-        setData(applyReferenceAverage(apiData, refNets))
+        commitFullData(merged, periodRef.current)
         setError(null)
       } catch {
-        if (!cancelled) {
+        if (!cancelled && !fullDataRef.current.length) {
           setError('Не удалось загрузить данные графика из store API.')
         }
       } finally {
@@ -94,16 +159,65 @@ export function useExchangeChartData(selection: ChartPairSelection | undefined) 
       }
     }
 
-    void load(true)
-    pollTimer = setInterval(() => {
-      void load(false)
+    void bootstrap()
+
+    const pollTimer = setInterval(async () => {
+      const resolved = resolvedRef.current
+      if (resolved.length === 0 || fullDataRef.current.length === 0) return
+
+      try {
+        const lastT = fullDataRef.current[fullDataRef.current.length - 1].t
+        const merged = await fetchAndMerge(resolved, periodRef.current, {
+          limit: CHART_POLL_TAIL_LIMIT,
+          sinceMs: Math.max(0, lastT - CHART_POLL_OVERLAP_MS),
+        })
+        if (merged.length > fullDataRef.current.length) {
+          commitFullData(merged, periodRef.current)
+          setError(null)
+        }
+      } catch {
+        // фоновое обновление
+      }
     }, CHART_POLL_INTERVAL_MS)
 
     return () => {
       cancelled = true
-      if (pollTimer) clearInterval(pollTimer)
+      clearInterval(pollTimer)
     }
-  }, [selection, selectionId, refreshToken])
+  }, [selection, selectionId, refreshToken, fetchAndMerge, commitFullData])
 
-  return { data, loading, networks, referenceNets, error, reload }
+  useEffect(() => {
+    if (!selection || selection.selectedExchanges.length === 0) return
+    if (cacheCoversPeriod(fullDataRef.current, period)) {
+      setLoading(false)
+      return
+    }
+
+    let cancelled = false
+
+    const extendForPeriod = async () => {
+      const resolved = resolvedRef.current
+      if (resolved.length === 0) return
+
+      try {
+        const merged = await fetchAndMerge(resolved, period)
+        if (cancelled || merged.length === 0) return
+        commitFullData(merged, period)
+        setError(null)
+      } catch {
+        // оставляем уже загруженное
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    setLoading(fullDataRef.current.length === 0)
+    void extendForPeriod()
+
+    return () => {
+      cancelled = true
+    }
+  }, [period, selection, fetchAndMerge, commitFullData])
+
+  return { data, fullData, loading, networks, referenceNets, error, reload }
 }
