@@ -1,8 +1,9 @@
 import { getExchangeColor, isCexExchange } from '../data/mockData'
+import { defaultDexAddresses, findDexStoreKeysFromCatalog, resolveDexStoreKeysForPair, buildPreferredDexStoreKeys } from './dexStoreKeys'
 import { exchangeId } from '../simulation/simulationNetworkTypes'
 import type { NetworkSource } from '../simulation/simulationNetworkTypes'
 import type { ChartPairSelection } from '../types/chart'
-import { getDexEntryLabel } from '../types/chart'
+import { getDexEntryLabel, isDexNetworkName, normalizeExchangeLabel } from '../types/chart'
 
 export function networkIdForExchange(exchange: string, pair: string): string {
   const ex = exchangeId(exchange)
@@ -42,21 +43,62 @@ function resolveDexNetwork(
   const entry = dexEntries.find((e) => getDexEntryLabel(e, dexEntries) === exchangeLabel)
   if (!entry) return null
 
-  const addrs = selection.dexAddresses?.[entry.id]
-  if (!addrs?.base?.trim() || !addrs?.quote?.trim()) return null
+  const saved = selection.dexAddresses?.[entry.id]
+  let baseAddr = saved?.base?.trim() ?? ''
+  let quoteAddr = saved?.quote?.trim() ?? ''
 
-  const network = entry.network.toLowerCase()
-  const path = `${addrs.base.trim()}/${addrs.quote.trim()}`
-  const bidKey = `dex:${network}|${path}|bidPrice`
-  const askKey = `dex:${network}|${path}|askPrice`
-  if (!catalog.has(bidKey) || !catalog.has(askKey)) return null
+  if (!baseAddr || !quoteAddr) {
+    const discovered = findDexStoreKeysFromCatalog(entry.network, selection.pair, catalog)
+    if (discovered) {
+      baseAddr = discovered.base
+      quoteAddr = discovered.quote
+    } else {
+      const defaults = defaultDexAddresses(entry.network, selection.pair)
+      if (!defaults) return null
+      baseAddr = defaults.base
+      quoteAddr = defaults.quote
+    }
+  }
+
+  const resolved = resolveDexStoreKeysForPair(
+    entry.network,
+    baseAddr,
+    quoteAddr,
+    selection.pair,
+    catalog,
+  )
+  if (!resolved) return null
+
+  const [pathBase, pathQuote] = resolved.path.split('/')
 
   return {
-    id: networkIdForDex(network, addrs.base, addrs.quote),
+    id: networkIdForDex(entry.network.toLowerCase(), pathBase, pathQuote),
     label: exchangeLabel,
     color: getExchangeColor(entry.network),
-    bidKey,
-    askKey,
+    bidKey: resolved.bidKey,
+    askKey: resolved.askKey,
+    transform: (v: number) => v,
+  }
+}
+
+function resolveDexNetworkByName(
+  networkLabel: string,
+  pair: string,
+  catalog: Set<string>,
+): NetworkSource | null {
+  const normalized = normalizeExchangeLabel(networkLabel)
+  if (!isDexNetworkName(normalized)) return null
+
+  const discovered = findDexStoreKeysFromCatalog(normalized, pair, catalog)
+  if (!discovered) return null
+
+  const [pathBase, pathQuote] = discovered.path.split('/')
+  return {
+    id: networkIdForDex(normalized.toLowerCase(), pathBase, pathQuote),
+    label: networkLabel,
+    color: getExchangeColor(normalized),
+    bidKey: discovered.bidKey,
+    askKey: discovered.askKey,
     transform: (v: number) => v,
   }
 }
@@ -79,14 +121,19 @@ export function buildChartNetworks(selection: ChartPairSelection): NetworkSource
     const dexEntries = selection.dexEntries ?? []
     const entry = dexEntries.find((e) => getDexEntryLabel(e, dexEntries) === exchange)
     const addrs = entry ? selection.dexAddresses?.[entry.id] : undefined
-    const network = entry?.network.toLowerCase() ?? exchange.toLowerCase()
-    const path = addrs?.base && addrs?.quote ? `${addrs.base}/${addrs.quote}` : selection.pair
+    const network = entry?.network ?? exchange
+    const defaults = entry ? defaultDexAddresses(network, selection.pair) : null
+    const baseAddr = addrs?.base?.trim() || defaults?.base || 'x'
+    const quoteAddr = addrs?.quote?.trim() || defaults?.quote || 'y'
+    const resolved = buildPreferredDexStoreKeys(network, baseAddr, quoteAddr, selection.pair)
+    const path = resolved.path
+    const [pathBase, pathQuote] = path.split('/')
     return {
-      id: networkIdForDex(network, addrs?.base ?? 'x', addrs?.quote ?? 'y'),
+      id: networkIdForDex(network.toLowerCase(), pathBase, pathQuote),
       label: exchange,
       color: getExchangeColor(entry?.network ?? exchange),
-      bidKey: `dex:${network}|${path}|bidPrice`,
-      askKey: `dex:${network}|${path}|askPrice`,
+      bidKey: resolved.bidKey,
+      askKey: resolved.askKey,
       transform: (v: number) => v,
     }
   })
@@ -103,7 +150,8 @@ export function resolveChartNetworks(
   for (const exchangeLabel of selection.selectedExchanges) {
     const net = isCexExchange(exchangeLabel)
       ? resolveCexNetwork(exchangeLabel, selection.pair, catalogSet)
-      : resolveDexNetwork(exchangeLabel, selection, catalogSet)
+      : resolveDexNetwork(exchangeLabel, selection, catalogSet) ??
+        resolveDexNetworkByName(exchangeLabel, selection.pair, catalogSet)
     if (net) networks.push(net)
   }
 

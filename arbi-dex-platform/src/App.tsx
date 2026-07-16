@@ -33,10 +33,10 @@ export default function App() {
                 <Route element={<Layout />}>
                   <Route index element={<DashboardPage />} />
                   <Route path="pairs/new" element={<TradingPairEditorPage />} />
-                  <Route path="pairs/:id" element={<TradingPairEditorPage />} />
+                  <Route path="pairs/:id/edit" element={<TradingPairEditorPage />} />
                   <Route path="pairs" element={<TradingPairsPage />} />
                   <Route path="strategies/new" element={<StrategyEditorPage />} />
-                  <Route path="strategies/:id" element={<StrategyEditorPage />} />
+                  <Route path="strategies/:id/edit" element={<StrategyEditorPage />} />
                   <Route path="strategies" element={<StrategiesPage />} />
                   <Route path="bots/new" element={<BotEditorPage />} />
                   <Route path="bots/:id/edit" element={<BotEditorPage />} />

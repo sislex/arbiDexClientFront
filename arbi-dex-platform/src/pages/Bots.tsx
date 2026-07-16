@@ -6,6 +6,14 @@ import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { StatusBadge } from '../components/ui/Badge'
 import { SortableTableHead } from '../components/ui/SortableTableHead'
+import {
+  ResizableTable,
+  TableHeadCell,
+  TABLE_ACTIONS_CELL,
+  TABLE_CELL,
+  TABLE_HEAD,
+  type ResizableColumnConfig,
+} from '../components/ui/ResizableTable'
 import { SearchInput, Select } from '../components/ui/SearchInput'
 import { type Bot } from '../data/mockData'
 import { loadBots } from '../lib/botsStorage'
@@ -14,6 +22,17 @@ import { useUndoDelete } from '../context/UndoDeleteContext'
 import { cn, formatCurrency, formatPercent } from '../lib/utils'
 
 type BotSortKey = 'name' | 'pair' | 'strategy' | 'roi' | 'winRate' | 'drawdown' | 'status'
+
+const BOTS_TABLE_COLUMNS: ResizableColumnConfig[] = [
+  { id: 'name', defaultPercent: 20, minPercent: 12 },
+  { id: 'pair', defaultPercent: 10, minPercent: 8 },
+  { id: 'strategy', defaultPercent: 14, minPercent: 10 },
+  { id: 'roi', defaultPercent: 9, minPercent: 7 },
+  { id: 'winRate', defaultPercent: 10, minPercent: 8 },
+  { id: 'drawdown', defaultPercent: 10, minPercent: 8 },
+  { id: 'status', defaultPercent: 10, minPercent: 8 },
+  { id: 'actions', defaultPercent: 13, minPercent: 11 },
+]
 
 function getBotSortValue(bot: Bot, key: BotSortKey) {
   switch (key) {
@@ -129,18 +148,18 @@ export function BotsPage() {
 
         {filtered.length > 0 ? (
           <Card className="overflow-hidden p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <div className="overflow-x-hidden">
+              <ResizableTable tableId="bots" columns={BOTS_TABLE_COLUMNS} className="text-xs">
                 <thead className="sticky top-0 bg-card z-10">
                   <tr className="text-muted text-left border-b border-border">
-                    <SortableTableHead label="Name" column="name" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as BotSortKey)} className="px-5 py-3" />
-                    <SortableTableHead label="Pair" column="pair" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as BotSortKey)} className="px-5 py-3" />
-                    <SortableTableHead label="Strategy" column="strategy" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as BotSortKey)} className="px-5 py-3" />
-                    <SortableTableHead label="ROI" column="roi" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as BotSortKey)} className="px-5 py-3" align="right" />
-                    <SortableTableHead label="Win Rate" column="winRate" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as BotSortKey)} className="px-5 py-3" align="right" />
-                    <SortableTableHead label="Drawdown" column="drawdown" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as BotSortKey)} className="px-5 py-3" align="right" />
-                    <SortableTableHead label="Status" column="status" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as BotSortKey)} className="px-5 py-3" />
-                    <th className="px-5 py-3 font-medium">Actions</th>
+                    <SortableTableHead label="Name" column="name" columnId="name" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as BotSortKey)} className={TABLE_HEAD} />
+                    <SortableTableHead label="Pair" column="pair" columnId="pair" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as BotSortKey)} className={TABLE_HEAD} />
+                    <SortableTableHead label="Strategy" column="strategy" columnId="strategy" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as BotSortKey)} className={TABLE_HEAD} />
+                    <SortableTableHead label="ROI" column="roi" columnId="roi" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as BotSortKey)} className={TABLE_HEAD} align="right" />
+                    <SortableTableHead label="Win Rate" column="winRate" columnId="winRate" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as BotSortKey)} className={TABLE_HEAD} align="right" />
+                    <SortableTableHead label="Drawdown" column="drawdown" columnId="drawdown" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as BotSortKey)} className={TABLE_HEAD} align="right" />
+                    <SortableTableHead label="Status" column="status" columnId="status" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as BotSortKey)} className={TABLE_HEAD} />
+                    <TableHeadCell columnId="actions" className={TABLE_HEAD} align="center">Actions</TableHeadCell>
                   </tr>
                 </thead>
                 <tbody>
@@ -150,50 +169,50 @@ export function BotsPage() {
                       onClick={() => navigate(`/bots/${bot.id}?mode=demo&trade=auto`)}
                       className="border-b border-border/50 hover:bg-white/[0.02] transition-colors cursor-pointer"
                     >
-                      <td className="px-5 py-3.5">
-                        <p className="font-semibold text-white">{bot.name}</p>
-                        <p className="text-xs text-muted mt-0.5">{formatCurrency(bot.balance)} · {bot.runtime}</p>
+                      <td className={TABLE_CELL}>
+                        <p className="font-semibold text-white truncate">{bot.name}</p>
+                        <p className="text-[11px] text-muted mt-0.5 truncate">{formatCurrency(bot.balance)} · {bot.runtime}</p>
                       </td>
-                      <td className="px-5 py-3.5 text-muted">{bot.pair}</td>
-                      <td className="px-5 py-3.5 text-muted">{bot.strategy}</td>
-                      <td className={cn('px-5 py-3.5 text-right font-medium', bot.roi >= 0 ? 'text-success' : 'text-error')}>
+                      <td className={cn(TABLE_CELL, 'text-muted truncate')}>{bot.pair}</td>
+                      <td className={cn(TABLE_CELL, 'text-muted truncate')}>{bot.strategy}</td>
+                      <td className={cn(TABLE_CELL, 'text-right font-medium', bot.roi >= 0 ? 'text-success' : 'text-error')}>
                         {formatPercent(bot.roi)}
                       </td>
-                      <td className="px-5 py-3.5 text-right text-white">{bot.winRate}%</td>
-                      <td className="px-5 py-3.5 text-right text-warning">{bot.drawdown}%</td>
-                      <td className="px-5 py-3.5">
+                      <td className={cn(TABLE_CELL, 'text-right text-white')}>{bot.winRate}%</td>
+                      <td className={cn(TABLE_CELL, 'text-right text-warning')}>{bot.drawdown}%</td>
+                      <td className={TABLE_CELL}>
                         <StatusBadge status={bot.status} />
                       </td>
-                      <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center gap-0.5">
+                      <td className={TABLE_ACTIONS_CELL} onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-center gap-0.5">
                           <Link
                             to={`/bots/${bot.id}/history`}
-                            className="p-1.5 rounded-lg hover:bg-white/5 text-muted hover:text-accent-cyan"
+                            className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-accent-cyan shrink-0"
                             title="Исторические данные"
                           >
-                            <Clock size={14} />
+                            <Clock size={13} />
                           </Link>
                           <Link
                             to={`/bots/${bot.id}/edit`}
-                            className="p-1.5 rounded-lg hover:bg-white/5 text-muted hover:text-white"
+                            className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-white shrink-0"
                             title="Редактировать"
                           >
-                            <Edit2 size={14} />
+                            <Edit2 size={13} />
                           </Link>
                           <button
                             type="button"
                             onClick={(e) => handleDeleteBot(bot, e)}
-                            className="p-1.5 rounded-lg hover:bg-white/5 text-muted hover:text-error"
+                            className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-error shrink-0"
                             title="Удалить"
                           >
-                            <Trash2 size={14} />
+                            <Trash2 size={13} />
                           </button>
                         </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </ResizableTable>
             </div>
           </Card>
         ) : (

@@ -13,7 +13,7 @@ import {
   type TradeMode,
 } from '../components/bot/TradingModeToggles'
 import { LiveStrategySimulationPage } from '../simulation/LiveStrategySimulationPage'
-import { buildBotSimulationStrategy } from '../lib/buildBotSimulationStrategy'
+import { buildBotSimulationStrategy, getBotChartSelection } from '../lib/buildBotSimulationStrategy'
 import { getBotById, getPairExchangeConfig, PAIR_MARKET_DATA } from '../data/mockData'
 import { useAppPreferences } from '../context/AppPreferencesContext'
 import { useStrategySignalsFromSimulation } from '../hooks/useStrategySignals'
@@ -94,6 +94,7 @@ export function BotDetailPage() {
   const botStatus =
     bot.status === 'active' ? 'Running' : bot.status === 'paused' ? 'Paused' : 'Stopped'
   const simulationStrategy = buildBotSimulationStrategy(bot)
+  const chartSelection = getBotChartSelection(bot)
 
   const simulationHeader = {
     pairLabel: bot.pair,
@@ -176,6 +177,7 @@ export function BotDetailPage() {
       <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
         <LiveStrategySimulationPage
           strategy={simulationStrategy}
+          chartSelection={chartSelection}
           isDark={theme === 'dark'}
           className="min-h-0 h-full w-full min-w-0 flex-1 overflow-hidden"
           onStepResultChange={onStepResultChange}

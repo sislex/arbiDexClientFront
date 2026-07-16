@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Save } from 'lucide-react'
 import { PageHeader, PageContent } from '../components/layout/PageHeader'
@@ -15,11 +15,16 @@ import { getTradingPairById } from '../data/mockData'
 import { selectionFromSearchParams, selectionToSearchParams } from '../lib/pairUrlParams'
 import { selectionToTradingPair } from '../lib/pairEditorUtils'
 import { loadTradingPairs, saveTradingPairs } from '../lib/tradingPairsStorage'
+import { getDefaultCexPairSymbol } from '../lib/pairSymbols'
+import {
+  hasChartPairSelectionChanged,
+  isChartPairSelectionComplete,
+} from '../lib/editorFormState'
 import { generateSelectionId } from '../types/chart'
 
 export function TradingPairEditorPage() {
   const { id } = useParams<{ id: string }>()
-  const isNew = id === 'new'
+  const isNew = !id
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { pairs: catalogPairs } = useCatalogPairs()
@@ -28,25 +33,29 @@ export function TradingPairEditorPage() {
 
   const [selections, setSelections] = useState<ChartPairSelection[]>(() => {
     if (existingPair) return [selectionFromTradingPairRecord(existingPair)]
-    const defaultPair = catalogPairs[0] ?? 'BTC/USDT'
+    const defaultPair = getDefaultCexPairSymbol(catalogPairs)
     return buildInitialSelections(defaultPair)
   })
-  const [saved, setSaved] = useState(false)
+  const baselineSelectionRef = useRef<ChartPairSelection | null>(
+    existingPair ? selectionFromTradingPairRecord(existingPair) : null,
+  )
 
   useEffect(() => {
     if (isNew) {
-      const defaultPair = catalogPairs[0] ?? 'BTC/USDT'
+      const defaultPair = getDefaultCexPairSymbol(catalogPairs)
       const base = buildInitialSelections(defaultPair)
       const merged = base.map((sel, index) =>
         index === 0 ? selectionFromSearchParams(searchParams, sel) : sel,
       )
       setSelections(merged)
+      baselineSelectionRef.current = null
       return
     }
     if (!existingPair) return
-    const base = [selectionFromTradingPairRecord(existingPair)]
-    setSelections([selectionFromSearchParams(searchParams, base[0])])
-    setSaved(false)
+    const base = selectionFromTradingPairRecord(existingPair)
+    const merged = selectionFromSearchParams(searchParams, base)
+    setSelections([merged])
+    baselineSelectionRef.current = merged
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, isNew, existingPair?.id, catalogPairs[0]])
 
@@ -62,12 +71,15 @@ export function TradingPairEditorPage() {
   const handleChange = (next: ChartPairSelection[]) => {
     setSelections(next)
     syncUrl(next)
-    setSaved(false)
   }
 
+  const primary = selections[0]
+  const canCreate = isChartPairSelectionComplete(primary)
+  const isDirty = hasChartPairSelectionChanged(primary, baselineSelectionRef.current ?? undefined)
+  const submitEnabled = isNew ? canCreate : isDirty && canCreate
+
   const handleSave = () => {
-    const primary = selections[0]
-    if (!primary?.pair) return
+    if (!submitEnabled || !primary?.pair) return
 
     if (isNew) {
       const newEntries = selections.map((sel) =>
@@ -75,24 +87,15 @@ export function TradingPairEditorPage() {
       )
       const all = [...loadTradingPairs(), ...newEntries]
       saveTradingPairs(all)
-      const last = newEntries[newEntries.length - 1]
-      if (last) {
-        const sel = selections.find((s) => s.id === last.id) ?? selections[0]
-        if (sel) {
-          navigate(`/pairs/${last.id}?${new URLSearchParams(selectionToSearchParams(sel)).toString()}`, {
-            replace: true,
-          })
-          return
-        }
-      }
       navigate('/pairs')
+      return
     }
 
     if (!existingPair) return
     const updated = selectionToTradingPair(primary, existingPair)
     const all = loadTradingPairs().map((p) => (p.id === existingPair.id ? updated : p))
     saveTradingPairs(all)
-    setSaved(true)
+    navigate('/pairs')
   }
 
   if (!isNew && id && !existingPair) {
@@ -108,8 +111,6 @@ export function TradingPairEditorPage() {
     )
   }
 
-  const primary = selections[0]
-
   return (
     <>
       <PageHeader
@@ -122,9 +123,9 @@ export function TradingPairEditorPage() {
                 <ArrowLeft size={14} /> Назад
               </Button>
             </Link>
-            <Button onClick={handleSave} disabled={!primary?.pair}>
+            <Button onClick={handleSave} disabled={!submitEnabled}>
               <Save size={14} />
-              {isNew ? 'Создать' : saved ? 'Сохранено' : 'Сохранить'}
+              {isNew ? 'Создать' : 'Сохранить'}
             </Button>
           </div>
         }
@@ -138,19 +139,6 @@ export function TradingPairEditorPage() {
             mode={isNew ? 'add' : 'edit'}
           />
         </Card>
-
-        {primary && (
-          <Card className="p-5 space-y-3">
-            <h2 className="text-sm font-bold text-white uppercase tracking-wider">Параметры в URL</h2>
-            <p className="text-xs text-muted">
-              Настройки набора синхронизируются с адресной строкой.
-            </p>
-            <div className="rounded-xl bg-surface border border-border p-3 font-mono text-xs text-muted break-all">
-              /pairs/{isNew ? 'new' : existingPair?.id}
-              {searchParams.toString() ? `?${searchParams.toString()}` : ''}
-            </div>
-          </Card>
-        )}
       </PageContent>
     </>
   )

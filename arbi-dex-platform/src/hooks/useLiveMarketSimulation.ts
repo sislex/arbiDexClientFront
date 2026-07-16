@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { EngineConditionEvaluation } from '../engine/processAllStepsAndRecordResults'
 import {
   createInitialEngineState,
@@ -7,13 +7,22 @@ import {
   type StrategyEngineEvent,
 } from '../engine/processAllStepsAndRecordResults'
 import { buildTradingConditionsConfig } from '../lib/buildTradingConditionsConfig'
+import { referenceNetworks, resolveChartNetworks } from '../lib/buildChartNetworks'
+import { applyReferenceAverage } from '../lib/chartPointAvg'
 import {
-  calcMid,
+  cacheCoversPeriod,
+  CHART_POLL_OVERLAP_MS,
+  CHART_POLL_TAIL_LIMIT,
+  getChartDataCache,
+  mergeChartPoints,
+  setChartDataCache,
+} from '../lib/chartDataCache'
+import { filterChartDataByPeriod, type ChartPeriod } from '../lib/chartTimeRange'
+import {
   fetchChartData,
-  fetchLatestPrices,
-  FETCH_LIMIT,
+  fetchStoreKeyCatalog,
+  CHART_POLL_INTERVAL_MS,
   type ChartPoint,
-  type PriceSnapshot,
 } from '../services/chartDataService'
 import { eventTime } from '../simulation/simulationFormatters'
 import {
@@ -24,10 +33,10 @@ import {
 import { buildTradingNetworkIds } from '../simulation/buildSimulationContextFromStrategy'
 import type { Strategy } from '../simulation/simulationStrategy'
 import type { SimulationEventType, SimulationLogEvent } from '../simulation/simulationViewerTypes'
+import type { ChartPairSelection } from '../types/chart'
 
 const MAX_STEP_CALC_WINDOW = 100
 const TEST_TOKEN_BALANCE = 1000
-const POLL_INTERVAL_MS = 5000
 const EXECUTION_ERROR_PROBABILITY = Math.min(
   0.95,
   Math.max(0, Number.parseFloat(String(import.meta.env.VITE_EXECUTION_ERROR_PROBABILITY ?? '0.18')) || 0),
@@ -132,72 +141,287 @@ function buildMarketSteps(
 
 export interface UseLiveMarketSimulationOptions {
   strategy: Strategy
+  /** Тот же набор бирж/DEX, что в отслеживании (Trading Pairs → chart). */
+  chartSelection?: ChartPairSelection | null
   enabled?: boolean
+  period?: ChartPeriod
 }
 
-export function useLiveMarketSimulation({ strategy, enabled = true }: UseLiveMarketSimulationOptions) {
-  const networks = useMemo(() => buildNetworksFromStrategy(strategy), [strategy])
+function chartSelectionKey(selection: ChartPairSelection): string {
+  return [
+    selection.id,
+    selection.pair,
+    selection.purpose,
+    selection.tradingExchange ?? '',
+    selection.selectedExchanges.join(','),
+    JSON.stringify(selection.dexEntries ?? []),
+    JSON.stringify(selection.dexAddresses ?? {}),
+  ].join('|')
+}
+
+function buildTradingNetworkIdsFromSelection(
+  selection: ChartPairSelection | null | undefined,
+  networks: readonly NetworkSource[],
+): Set<string> {
+  if (!selection?.tradingExchange) return new Set()
+  const match = networks.find((n) => n.label === selection.tradingExchange)
+  return match ? new Set([match.id]) : new Set()
+}
+
+export function useLiveMarketSimulation({
+  strategy,
+  chartSelection = null,
+  enabled = true,
+  period = '1h',
+}: UseLiveMarketSimulationOptions) {
+  const [networks, setNetworks] = useState<NetworkSource[]>([])
+  const [networksReady, setNetworksReady] = useState(false)
+
+  const selectionKey = chartSelection ? chartSelectionKey(chartSelection) : ''
+  const cacheKey = useMemo(() => {
+    if (chartSelection) return chartSelectionKey(chartSelection)
+    const networkIds = networks.map((n) => n.id).join(',')
+    return networkIds ? `sim:${strategy.id}:${networkIds}` : `sim:${strategy.id}`
+  }, [chartSelection, strategy.id, networks])
+
+  const cachedFull = cacheKey ? getChartDataCache(cacheKey) : undefined
+
+  useEffect(() => {
+    if (!enabled) return
+    let cancelled = false
+    setNetworksReady(false)
+
+    const resolveNetworks = async () => {
+      try {
+        if (chartSelection) {
+          const catalog = await fetchStoreKeyCatalog()
+          if (cancelled) return
+          const resolved = resolveChartNetworks(chartSelection, catalog)
+          setNetworks(resolved.length > 0 ? resolved : buildNetworksFromStrategy(strategy))
+        } else {
+          setNetworks(buildNetworksFromStrategy(strategy))
+        }
+      } catch {
+        if (!cancelled) setNetworks(buildNetworksFromStrategy(strategy))
+      } finally {
+        if (!cancelled) setNetworksReady(true)
+      }
+    }
+
+    void resolveNetworks()
+    return () => {
+      cancelled = true
+    }
+  }, [enabled, selectionKey, strategy])
+
   const tradingNetworkIds = useMemo(
-    () => buildTradingNetworkIds(strategy, networks),
-    [strategy, networks],
+    () =>
+      chartSelection
+        ? buildTradingNetworkIdsFromSelection(chartSelection, networks)
+        : buildTradingNetworkIds(strategy, networks),
+    [chartSelection, networks, strategy],
   )
   const displayNetworks = useMemo(
     () => networks.map((n) => ({ id: n.id, label: n.label, color: n.color })),
     [networks],
   )
   const tokens = useMemo(() => resolveStrategyTokenSymbols(strategy), [strategy])
-  const liveKeys = useMemo(() => networks.flatMap((n) => [n.bidKey, n.askKey]), [networks])
 
-  const [chartData, setChartData] = useState<ChartPoint[]>([])
+  const [fullData, setFullData] = useState<ChartPoint[]>(() => cachedFull ?? [])
   const [events, setEvents] = useState<SimulationLogEvent[]>([])
   const [stepResult, setStepResult] = useState<SimulationLogEvent | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(() => !(cachedFull && cacheCoversPeriod(cachedFull, period)))
   const [loadingPhase, setLoadingPhase] = useState<'history' | 'simulation'>('history')
   const [error, setError] = useState<string | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [playIdx, setPlayIdx] = useState(0)
   const [speed, setSpeed] = useState(1)
-  const [liveSnapshot, setLiveSnapshot] = useState<PriceSnapshot>({})
 
-  const lastLiveTsRef = useRef(0)
+  const fullDataRef = useRef(fullData)
+  const periodRef = useRef(period)
+  const prevChartLenRef = useRef(0)
+  fullDataRef.current = fullData
+  periodRef.current = period
+
+  const chartData = useMemo(
+    () => filterChartDataByPeriod(fullData, period),
+    [fullData, period],
+  )
+
+  const commitFullData = useCallback(
+    (next: ChartPoint[], cachePeriod: ChartPeriod) => {
+      setFullData(next)
+      if (cacheKey) setChartDataCache(cacheKey, next, cachePeriod)
+    },
+    [cacheKey],
+  )
+
+  const fetchAndMerge = useCallback(
+    async (
+      resolved: NetworkSource[],
+      fetchPeriod: ChartPeriod,
+      options?: { limit?: number; sinceMs?: number },
+    ): Promise<ChartPoint[]> => {
+      const refNets = chartSelection ? referenceNetworks(chartSelection, resolved) : []
+      const apiData = await fetchChartData(resolved, {
+        period: fetchPeriod,
+        keepBuffer: true,
+        limit: options?.limit,
+        sinceMs: options?.sinceMs,
+      })
+      if (apiData.length === 0) return fullDataRef.current
+      const averaged = refNets.length > 0 ? applyReferenceAverage(apiData, refNets) : apiData
+      return mergeChartPoints(fullDataRef.current, averaged)
+    },
+    [chartSelection],
+  )
+  const playIdxRef = useRef(playIdx)
   const engineStateRef = useRef(createInitialEngineState())
   const processedIdxRef = useRef(0)
   const engineLogRef = useRef<SimulationLogEvent[]>([])
   const lastTransactionStepIdxRef = useRef<number | null>(null)
 
+  const followPlayIdxToLiveEdge = useCallback((data: readonly ChartPoint[]) => {
+    const len = filterChartDataByPeriod([...data], periodRef.current).length
+    if (len === 0) return
+    setPlayIdx(len)
+    prevChartLenRef.current = len
+  }, [])
+
+  playIdxRef.current = playIdx
+
   useEffect(() => {
-    if (!enabled) return
-    setLoading(true)
+    if (!enabled || !networksReady || networks.length === 0) return
+
     setLoadingPhase('history')
-    setChartData([])
-    setPlayIdx(0)
     setEvents([])
     setStepResult(null)
     setError(null)
-    lastLiveTsRef.current = 0
+    prevChartLenRef.current = 0
     engineStateRef.current = createInitialEngineState()
     processedIdxRef.current = 0
     engineLogRef.current = []
     lastTransactionStepIdxRef.current = null
 
-    fetchChartData(networks)
-      .then((data) => {
-        if (data.length === 0) {
-          setError('api')
-          setLoading(false)
+    let cancelled = false
+    const cached = getChartDataCache(cacheKey)
+    if (cached?.length) {
+      setFullData(cached)
+      if (cacheCoversPeriod(cached, periodRef.current)) {
+        setLoading(false)
+        followPlayIdxToLiveEdge(cached)
+      }
+    } else {
+      setFullData([])
+      setLoading(true)
+    }
+
+    const bootstrap = async () => {
+      const showLoading = !fullDataRef.current.length
+      if (showLoading) setLoading(true)
+
+      try {
+        if (cacheCoversPeriod(fullDataRef.current, periodRef.current)) {
+          if (fullDataRef.current.length > 0) {
+            followPlayIdxToLiveEdge(fullDataRef.current)
+            setLoadingPhase('simulation')
+            setError(null)
+          }
           return
         }
+
+        const merged = await fetchAndMerge(networks, periodRef.current)
+        if (cancelled) return
+
+        if (merged.length === 0) {
+          setError('api')
+          return
+        }
+
+        commitFullData(merged, periodRef.current)
+        followPlayIdxToLiveEdge(merged)
         setLoadingPhase('simulation')
-        setChartData(data)
-        setPlayIdx(data.length)
-        lastLiveTsRef.current = data[data.length - 1]?.t ?? 0
-        setLoading(false)
-      })
-      .catch(() => {
-        setError('api')
-        setLoading(false)
-      })
-  }, [enabled, networks, strategy.id])
+        setError(null)
+      } catch {
+        if (!cancelled && !fullDataRef.current.length) setError('api')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    void bootstrap()
+
+    const pollTimer = window.setInterval(async () => {
+      if (networks.length === 0 || fullDataRef.current.length === 0) return
+
+      try {
+        const lastT = fullDataRef.current[fullDataRef.current.length - 1].t
+        const merged = await fetchAndMerge(networks, periodRef.current, {
+          limit: CHART_POLL_TAIL_LIMIT,
+          sinceMs: Math.max(0, lastT - CHART_POLL_OVERLAP_MS),
+        })
+        if (merged.length > fullDataRef.current.length) {
+          commitFullData(merged, periodRef.current)
+          if (playIdxRef.current >= prevChartLenRef.current) {
+            followPlayIdxToLiveEdge(merged)
+          }
+          setError(null)
+        }
+      } catch {
+        // фоновое обновление
+      }
+    }, CHART_POLL_INTERVAL_MS)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(pollTimer)
+    }
+  }, [enabled, networks, networksReady, cacheKey, strategy.id, fetchAndMerge, commitFullData, followPlayIdxToLiveEdge])
+
+  useEffect(() => {
+    if (!enabled || !networksReady || networks.length === 0) return
+    if (cacheCoversPeriod(fullDataRef.current, period)) {
+      setLoading(false)
+      return
+    }
+
+    let cancelled = false
+
+    const extendForPeriod = async () => {
+      try {
+        const merged = await fetchAndMerge(networks, period)
+        if (cancelled || merged.length === 0) return
+        commitFullData(merged, period)
+        if (playIdxRef.current >= prevChartLenRef.current) {
+          followPlayIdxToLiveEdge(merged)
+        }
+        setLoadingPhase('simulation')
+        setError(null)
+      } catch {
+        // оставляем уже загруженное
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    setLoading(fullDataRef.current.length === 0)
+    void extendForPeriod()
+
+    return () => {
+      cancelled = true
+    }
+  }, [period, enabled, networks, networksReady, fetchAndMerge, commitFullData, followPlayIdxToLiveEdge])
+
+  useEffect(() => {
+    const len = chartData.length
+    if (len === 0) return
+    setPlayIdx((prev) => {
+      if (prevChartLenRef.current === 0) return len
+      if (prev >= prevChartLenRef.current) return len
+      return Math.min(prev, len)
+    })
+    prevChartLenRef.current = len
+  }, [chartData])
 
   useEffect(() => {
     if (!enabled || loading || chartData.length === 0) return
@@ -278,78 +502,18 @@ export function useLiveMarketSimulation({ strategy, enabled = true }: UseLiveMar
     if (latestStepResult) setStepResult(latestStepResult)
   }, [enabled, playIdx, chartData, strategy, networks, tradingNetworkIds, loading])
 
-  useEffect(() => {
-    if (!enabled || loading || liveKeys.length === 0) return
-    let cancelled = false
-    const poll = async () => {
-      try {
-        const snapshot = await fetchLatestPrices(liveKeys)
-        if (!cancelled) setLiveSnapshot(snapshot)
-      } catch {
-        // ignore transient poll errors
-      }
-    }
-    void poll()
-    const id = window.setInterval(poll, POLL_INTERVAL_MS)
-    return () => {
-      cancelled = true
-      window.clearInterval(id)
-    }
-  }, [enabled, loading, liveKeys.join('|')])
-
-  useEffect(() => {
-    if (!enabled || loading || networks.length === 0) return
-    const timestamps = networks
-      .flatMap((n) => [liveSnapshot[n.bidKey]?.timestamp, liveSnapshot[n.askKey]?.timestamp])
-      .filter((ts): ts is number => Number.isFinite(ts))
-    if (timestamps.length === 0) return
-
-    const ts = Math.max(...timestamps)
-    if (ts <= lastLiveTsRef.current) return
-
-    const point: ChartPoint = {
-      t: ts,
-      label: new Date(ts).toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-      }),
-    }
-    const mids: number[] = []
-    for (const net of networks) {
-      const bid = liveSnapshot[net.bidKey]?.value
-      const ask = liveSnapshot[net.askKey]?.value
-      if (typeof ask === 'number') point[`${net.id}_buy`] = net.transform(ask)
-      if (typeof bid === 'number') point[`${net.id}_sell`] = net.transform(bid)
-      const mid = calcMid(liveSnapshot, net.bidKey, net.askKey, net.transform)
-      if (mid !== null) mids.push(mid)
-    }
-    if (mids.length === 0) return
-    point.avg = +(mids.reduce((a, b) => a + b, 0) / mids.length).toFixed(4)
-
-    setChartData((prev) => {
-      const lastTs = prev[prev.length - 1]?.t ?? 0
-      if (ts <= lastTs) return prev
-      const next = [...prev, point]
-      return next.length > FETCH_LIMIT ? next.slice(next.length - FETCH_LIMIT) : next
-    })
-    setPlayIdx((i) => i + 1)
-    lastLiveTsRef.current = ts
-  }, [enabled, liveSnapshot, networks, loading])
-
-  const liveAvg = useMemo(() => {
-    const mids = networks
-      .map((n) => calcMid(liveSnapshot, n.bidKey, n.askKey, n.transform))
-      .filter((v): v is number => v !== null)
-    return mids.length > 0 ? (mids.reduce((a, b) => a + b, 0) / mids.length).toFixed(2) : null
-  }, [liveSnapshot, networks])
-
   const lastPrice =
-    liveAvg ?? (chartData.length > 0 ? chartData[chartData.length - 1].avg?.toFixed(2) ?? '—' : '—')
+    chartData.length > 0 ? chartData[chartData.length - 1].avg?.toFixed(2) ?? '—' : '—'
+
+  const live = useMemo(() => {
+    if (chartData.length === 0) return false
+    const lastT = chartData[chartData.length - 1].t
+    return Date.now() - lastT < CHART_POLL_INTERVAL_MS * 2
+  }, [chartData])
 
   return {
     chartData,
+    fullChartData: fullData,
     events,
     stepResult,
     loading,
@@ -362,7 +526,7 @@ export function useLiveMarketSimulation({ strategy, enabled = true }: UseLiveMar
     speed,
     setSpeed,
     lastPrice,
-    live: !!liveAvg,
+    live,
     displayNetworks,
     tradingNetworkIds,
     token1Label: tokens.token1,

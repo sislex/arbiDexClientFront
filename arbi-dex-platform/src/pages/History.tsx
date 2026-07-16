@@ -6,11 +6,28 @@ import { Button } from '../components/ui/Button'
 import { SearchInput, Select } from '../components/ui/SearchInput'
 import { Tabs } from '../components/ui/Tabs'
 import { SortableTableHead } from '../components/ui/SortableTableHead'
+import {
+  ResizableTable,
+  TABLE_CELL,
+  TABLE_HEAD,
+  type ResizableColumnConfig,
+} from '../components/ui/ResizableTable'
 import { TRADE_HISTORY } from '../data/mockData'
 import { useTableSort } from '../hooks/useTableSort'
 import { cn, formatCurrency } from '../lib/utils'
 
 type TradeSortKey = 'time' | 'bot' | 'pair' | 'side' | 'price' | 'amount' | 'profit' | 'status'
+
+const HISTORY_TRADES_COLUMNS: ResizableColumnConfig[] = [
+  { id: 'time', defaultPercent: 14, minPercent: 10 },
+  { id: 'bot', defaultPercent: 14, minPercent: 10 },
+  { id: 'pair', defaultPercent: 10, minPercent: 8 },
+  { id: 'side', defaultPercent: 8, minPercent: 6 },
+  { id: 'price', defaultPercent: 12, minPercent: 9 },
+  { id: 'amount', defaultPercent: 10, minPercent: 8 },
+  { id: 'profit', defaultPercent: 12, minPercent: 9 },
+  { id: 'status', defaultPercent: 10, minPercent: 8 },
+]
 
 function getTradeSortValue(trade: (typeof TRADE_HISTORY)[number], key: TradeSortKey) {
   switch (key) {
@@ -83,37 +100,37 @@ export function HistoryPage() {
 
         {tab === 'trades' && (
           <Card className="overflow-hidden p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <div className="overflow-x-hidden">
+              <ResizableTable tableId="history-trades" columns={HISTORY_TRADES_COLUMNS} className="text-xs">
                 <thead className="sticky top-0 bg-card z-10">
                   <tr className="text-muted text-left border-b border-border">
-                    <SortableTableHead label="Time" column="time" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as TradeSortKey)} className="px-5 py-3" />
-                    <SortableTableHead label="Bot" column="bot" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as TradeSortKey)} className="px-5 py-3" />
-                    <SortableTableHead label="Pair" column="pair" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as TradeSortKey)} className="px-5 py-3" />
-                    <SortableTableHead label="Side" column="side" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as TradeSortKey)} className="px-5 py-3" />
-                    <SortableTableHead label="Price" column="price" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as TradeSortKey)} className="px-5 py-3" align="right" />
-                    <SortableTableHead label="Amount" column="amount" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as TradeSortKey)} className="px-5 py-3" align="right" />
-                    <SortableTableHead label="Profit" column="profit" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as TradeSortKey)} className="px-5 py-3" align="right" />
-                    <SortableTableHead label="Status" column="status" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as TradeSortKey)} className="px-5 py-3" />
+                    <SortableTableHead label="Time" column="time" columnId="time" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as TradeSortKey)} className={TABLE_HEAD} />
+                    <SortableTableHead label="Bot" column="bot" columnId="bot" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as TradeSortKey)} className={TABLE_HEAD} />
+                    <SortableTableHead label="Pair" column="pair" columnId="pair" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as TradeSortKey)} className={TABLE_HEAD} />
+                    <SortableTableHead label="Side" column="side" columnId="side" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as TradeSortKey)} className={TABLE_HEAD} />
+                    <SortableTableHead label="Price" column="price" columnId="price" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as TradeSortKey)} className={TABLE_HEAD} align="right" />
+                    <SortableTableHead label="Amount" column="amount" columnId="amount" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as TradeSortKey)} className={TABLE_HEAD} align="right" />
+                    <SortableTableHead label="Profit" column="profit" columnId="profit" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as TradeSortKey)} className={TABLE_HEAD} align="right" />
+                    <SortableTableHead label="Status" column="status" columnId="status" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as TradeSortKey)} className={TABLE_HEAD} />
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((trade) => (
                     <tr key={trade.id} className="border-b border-border/50 hover:bg-white/[0.02] transition-colors">
-                      <td className="px-5 py-3.5 text-muted font-mono text-xs">{trade.time}</td>
-                      <td className="px-5 py-3.5 font-medium text-white">{trade.bot}</td>
-                      <td className="px-5 py-3.5 text-muted">{trade.pair}</td>
-                      <td className="px-5 py-3.5">
+                      <td className={cn(TABLE_CELL, 'text-muted font-mono text-[11px] truncate')}>{trade.time}</td>
+                      <td className={cn(TABLE_CELL, 'font-medium text-white truncate')}>{trade.bot}</td>
+                      <td className={cn(TABLE_CELL, 'text-muted truncate')}>{trade.pair}</td>
+                      <td className={TABLE_CELL}>
                         <span className={cn(
-                          'px-2 py-0.5 rounded-md text-xs font-medium uppercase',
+                          'px-2 py-0.5 rounded-md text-[10px] font-medium uppercase whitespace-nowrap',
                           trade.side === 'buy' ? 'bg-accent-cyan/15 text-accent-cyan' : 'bg-accent-purple/15 text-accent-purple',
                         )}>
                           {trade.side}
                         </span>
                       </td>
-                      <td className="px-5 py-3.5 text-right text-white">{formatCurrency(trade.price)}</td>
-                      <td className="px-5 py-3.5 text-right text-muted">{trade.amount}</td>
-                      <td className="px-5 py-3.5 text-right">
+                      <td className={cn(TABLE_CELL, 'text-right text-white')}>{formatCurrency(trade.price)}</td>
+                      <td className={cn(TABLE_CELL, 'text-right text-muted')}>{trade.amount}</td>
+                      <td className={cn(TABLE_CELL, 'text-right')}>
                         {trade.profit !== null ? (
                           <span className={trade.profit >= 0 ? 'text-success' : 'text-error'}>
                             {trade.profit >= 0 ? '+' : ''}{formatCurrency(trade.profit)}
@@ -122,9 +139,9 @@ export function HistoryPage() {
                           <span className="text-muted">—</span>
                         )}
                       </td>
-                      <td className="px-5 py-3.5">
+                      <td className={TABLE_CELL}>
                         <span className={cn(
-                          'px-2 py-0.5 rounded-full text-xs',
+                          'px-2 py-0.5 rounded-full text-[10px] whitespace-nowrap',
                           trade.status === 'open' ? 'bg-accent-cyan/15 text-accent-cyan' : 'bg-white/5 text-muted',
                         )}>
                           {trade.status === 'open' ? 'Open' : 'Closed'}
@@ -133,7 +150,7 @@ export function HistoryPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </ResizableTable>
             </div>
           </Card>
         )}

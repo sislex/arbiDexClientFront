@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { useAppPreferences } from '../../context/AppPreferencesContext'
 import { useAuth } from '../../context/AuthContext'
@@ -11,6 +11,8 @@ export function TopToolbar() {
   const { userName } = useAppPreferences()
   const { walletAddress, walletProvider } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
+  const menuAnchorRef = useRef<HTMLDivElement>(null)
+  const closeMenu = useCallback(() => setMenuOpen(false), [])
   const displayName = walletAddress ? shortAddress(walletAddress) : userName
 
   return (
@@ -19,7 +21,7 @@ export function TopToolbar() {
         {walletAddress && (
           <WalletAccountChip address={walletAddress} provider={walletProvider ?? undefined} />
         )}
-        <div className="relative">
+        <div ref={menuAnchorRef} className="relative">
           <button
             type="button"
             onClick={() => setMenuOpen((value) => !value)}
@@ -42,7 +44,7 @@ export function TopToolbar() {
             />
           </button>
 
-          <UserMenu open={menuOpen} onClose={() => setMenuOpen(false)} />
+          <UserMenu open={menuOpen} onClose={closeMenu} anchorRef={menuAnchorRef} />
         </div>
       </div>
     </header>

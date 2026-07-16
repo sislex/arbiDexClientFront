@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Save } from 'lucide-react'
 import { PageHeader, PageContent } from '../components/layout/PageHeader'
@@ -15,6 +15,10 @@ import {
   saveStrategyRulesForId,
 } from '../lib/strategyRulesStorage'
 import { loadStrategies, saveStrategies } from '../lib/strategiesStorage'
+import {
+  hasStrategyDraftChanged,
+  isStrategyDraftComplete,
+} from '../lib/editorFormState'
 import { generateSelectionId } from '../types/chart'
 import { cn, formatPercent } from '../lib/utils'
 
@@ -63,7 +67,7 @@ function draftToStrategy(draft: StrategyDraft, existing?: StrategyData): Strateg
 
 export function StrategyEditorPage() {
   const { id } = useParams<{ id: string }>()
-  const isNew = id === 'new'
+  const isNew = !id
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -73,8 +77,9 @@ export function StrategyEditorPage() {
     const base = existingStrategy ? strategyToDraft(existingStrategy) : createEmptyDraft()
     return draftFromSearchParams(searchParams, base)
   })
-
-  const [saved, setSaved] = useState(false)
+  const baselineDraftRef = useRef<StrategyDraft>(
+    existingStrategy ? strategyToDraft(existingStrategy) : createEmptyDraft(),
+  )
 
   useEffect(() => {
     const base = isNew
@@ -82,8 +87,9 @@ export function StrategyEditorPage() {
       : existingStrategy
         ? strategyToDraft(existingStrategy)
         : createEmptyDraft()
-    setDraft(draftFromSearchParams(searchParams, base))
-    setSaved(false)
+    const merged = draftFromSearchParams(searchParams, base)
+    setDraft(merged)
+    baselineDraftRef.current = merged
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when strategy id changes
   }, [id, isNew, existingStrategy?.id])
 
@@ -100,17 +106,18 @@ export function StrategyEditorPage() {
       setDraft((prev) => {
         const next = typeof patch === 'function' ? patch(prev) : { ...prev, ...patch }
         syncUrl(next)
-        setSaved(false)
         return next
       })
     },
     [syncUrl],
   )
 
-  const canSave = draft.name.trim().length > 0
+  const canCreate = isStrategyDraftComplete(draft)
+  const isDirty = hasStrategyDraftChanged(draft, baselineDraftRef.current)
+  const submitEnabled = isNew ? canCreate : isDirty && canCreate
 
   const handleSave = () => {
-    if (!canSave) return
+    if (!submitEnabled) return
 
     const strategies = loadStrategies()
     const strategy = draftToStrategy(draft, existingStrategy)
@@ -118,28 +125,16 @@ export function StrategyEditorPage() {
     if (isNew) {
       saveStrategies([...strategies, strategy])
       saveStrategyRulesForId(strategy.id, draft.rules)
-      navigate(`/strategies/${strategy.id}?${new URLSearchParams(draftToSearchParams(draft)).toString()}`, {
-        replace: true,
-      })
+      navigate('/strategies')
     } else if (existingStrategy) {
       const next = strategies.map((s) => (s.id === existingStrategy.id ? strategy : s))
       saveStrategies(next)
       saveStrategyRulesForId(existingStrategy.id, draft.rules)
-      setSaved(true)
+      navigate('/strategies')
     }
   }
 
   const stats = existingStrategy
-
-  const paramPreview = useMemo(() => {
-    const enabled = draft.rules.filter((r) => r.enabled)
-    return enabled.map((rule) => ({
-      id: rule.id,
-      params: Object.entries(rule.values)
-        .map(([k, v]) => `${k}=${v}`)
-        .join(', '),
-    }))
-  }, [draft.rules])
 
   if (!isNew && id && !existingStrategy) {
     return (
@@ -170,9 +165,9 @@ export function StrategyEditorPage() {
                 <ArrowLeft size={14} /> Назад
               </Button>
             </Link>
-            <Button onClick={handleSave} disabled={!canSave}>
+            <Button onClick={handleSave} disabled={!submitEnabled}>
               <Save size={14} />
-              {isNew ? 'Создать' : saved ? 'Сохранено' : 'Сохранить'}
+              {isNew ? 'Создать' : 'Сохранить'}
             </Button>
           </div>
         }
@@ -231,27 +226,6 @@ export function StrategyEditorPage() {
             rules={draft.rules}
             onChange={(rules) => updateDraft({ rules })}
           />
-        </Card>
-
-        <Card className="p-5 space-y-3">
-          <h2 className="text-sm font-bold text-white uppercase tracking-wider">Параметры в URL</h2>
-          <p className="text-xs text-muted">
-            Параметры стратегии синхронизируются с адресной строкой — ссылку можно сохранить или отправить.
-          </p>
-          <div className="rounded-xl bg-surface border border-border p-3 font-mono text-xs text-muted break-all">
-            /strategies/{isNew ? 'new' : existingStrategy?.id}
-            {searchParams.toString() ? `?${searchParams.toString()}` : ''}
-          </div>
-          {paramPreview.length > 0 && (
-            <div className="space-y-2">
-              {paramPreview.map((item) => (
-                <div key={item.id} className="flex gap-2 text-xs">
-                  <span className="text-accent-purple font-mono shrink-0">{item.id}</span>
-                  <span className="text-muted">{item.params || '—'}</span>
-                </div>
-              ))}
-            </div>
-          )}
         </Card>
       </PageContent>
     </div>
