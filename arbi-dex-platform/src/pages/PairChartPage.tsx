@@ -1,22 +1,32 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, LineChart } from 'lucide-react'
+import { ArrowLeft, LineChart, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { selectionFromTradingPairRecord } from '../components/forms/AddPairsGridForm'
 import { MultiExchangeChart, ExchangePricePanel } from '../components/charts/MultiExchangeChart'
+import { ChartStrategySelector } from '../components/charts/ChartStrategySelector'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Modal, ModalFooter } from '../components/ui/Modal'
 import { AddPairsGridForm } from '../components/forms/AddPairsGridForm'
 import type { ChartPairSelection } from '../types/chart'
+import type { ChartPeriod } from '../lib/chartTimeRange'
 import { useExchangeChartData } from '../hooks/useExchangeChartData'
-import { getTradingPairById, isMonitoringPair } from '../data/mockData'
+import { getStrategies, getTradingPairById, isMonitoringPair } from '../data/mockData'
 import { cn, formatCurrency } from '../lib/utils'
+import { CHART_STRATEGY_NONE } from '../components/charts/ChartStrategySelector'
+
+const PRICE_PANEL_STORAGE_KEY = 'arbidex-chart-price-panel'
 
 export function PairChartPage() {
   const { id } = useParams<{ id: string }>()
   const pairSet = id ? getTradingPairById(id) : undefined
 
   const [pairsFormOpen, setPairsFormOpen] = useState(false)
+  const [chartPeriod, setChartPeriod] = useState<ChartPeriod>('1h')
+  const [selectedStrategyId, setSelectedStrategyId] = useState<string>(CHART_STRATEGY_NONE)
+  const [showPricePanel, setShowPricePanel] = useState(
+    () => localStorage.getItem(PRICE_PANEL_STORAGE_KEY) !== 'false',
+  )
   const [chartSelections, setChartSelections] = useState<ChartPairSelection[]>(() =>
     pairSet ? [selectionFromTradingPairRecord(pairSet)] : [],
   )
@@ -30,8 +40,16 @@ export function PairChartPage() {
     }
   }, [pairSet?.id])
 
+  useEffect(() => {
+    localStorage.setItem(PRICE_PANEL_STORAGE_KEY, String(showPricePanel))
+  }, [showPricePanel])
+
   const selection = chartSelections[0]
-  const chartQuery = useExchangeChartData(selection)
+  const strategies = useMemo(
+    () => [...getStrategies()].sort((a, b) => a.name.localeCompare(b.name)),
+    [],
+  )
+  const chartQuery = useExchangeChartData(selection, chartPeriod)
   const latestPoint = chartQuery.data[chartQuery.data.length - 1]
   const livePrice = latestPoint?.avg ?? latestPoint?.[`${chartQuery.networks[0]?.id}_buy`]
   const prevPoint = chartQuery.data[Math.max(0, chartQuery.data.length - 2)]
@@ -71,7 +89,7 @@ export function PairChartPage() {
   }
 
   return (
-    <div className="min-h-screen bg-bg flex flex-col">
+    <div className="h-screen bg-bg flex flex-col overflow-hidden">
       <header className="shrink-0 border-b border-border bg-card/80 backdrop-blur-sm px-5 py-3">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-4 min-w-0">
@@ -100,44 +118,69 @@ export function PairChartPage() {
             </div>
           </div>
 
-          {typeof livePrice === 'number' && (
-            <div className="text-right">
-              <p className="text-lg font-bold text-white">{formatCurrency(livePrice)}</p>
-              {liveChange !== null && (
-                <p className={cn('text-xs font-medium', liveChange >= 0 ? 'text-success' : 'text-error')}>
-                  {liveChange >= 0 ? '+' : ''}
-                  {liveChange.toFixed(2)}%
-                </p>
-              )}
-            </div>
-          )}
+          <div className="flex items-center gap-3 ml-auto">
+            {typeof livePrice === 'number' && (
+              <div className="text-right">
+                <p className="text-lg font-bold text-white">{formatCurrency(livePrice)}</p>
+                {liveChange !== null && (
+                  <p className={cn('text-xs font-medium', liveChange >= 0 ? 'text-success' : 'text-error')}>
+                    {liveChange >= 0 ? '+' : ''}
+                    {liveChange.toFixed(2)}%
+                  </p>
+                )}
+              </div>
+            )}
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowPricePanel((v) => !v)}
+              title={showPricePanel ? 'Скрыть панель цен' : 'Показать панель цен'}
+              className="hidden md:inline-flex"
+            >
+              {showPricePanel ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
+              {showPricePanel ? 'Скрыть цены' : 'Цены'}
+            </Button>
+          </div>
         </div>
       </header>
 
-      <main className="flex-1 flex gap-4 p-4 min-h-0">
-        <Card className="flex-1 p-4 flex flex-col min-h-0 min-w-0">
+      <main className="flex-1 flex gap-4 p-4 min-h-0 overflow-hidden">
+        <Card className="flex-1 p-4 flex flex-col min-h-0 min-w-0 overflow-hidden">
+          <div className="flex items-center justify-between gap-3 mb-3 flex-wrap shrink-0">
+            <ChartStrategySelector
+              value={selectedStrategyId}
+              onChange={setSelectedStrategyId}
+              strategies={strategies}
+            />
+          </div>
           <MultiExchangeChart
             selections={chartSelections}
             primaryPair={pairSet.pair}
-            className="h-full min-h-[420px]"
+            className="flex-1 min-h-0"
             onConfigure={openPairsForm}
             chartData={chartQuery.data}
+            chartFullData={chartQuery.fullData}
             chartLoading={chartQuery.loading}
             networks={chartQuery.networks}
             chartError={chartQuery.error}
             onChartReload={chartQuery.reload}
+            chartPeriod={chartPeriod}
+            onChartPeriodChange={setChartPeriod}
           />
         </Card>
 
-        <Card className="w-72 xl:w-80 shrink-0 p-4 overflow-y-auto hidden md:block">
-          <h2 className="text-sm font-semibold text-white mb-3">Цены на биржах</h2>
-          <ExchangePricePanel
-            pair={pairSet.pair}
-            selection={selection}
-            chartData={chartQuery.data}
-            networks={chartQuery.networks}
-          />
-        </Card>
+        {showPricePanel && (
+          <Card className="w-72 xl:w-80 shrink-0 p-4 min-h-0 overflow-y-auto hidden md:block">
+            <h2 className="text-sm font-semibold text-white mb-3">Цены на биржах</h2>
+            <ExchangePricePanel
+              pair={pairSet.pair}
+              selection={selection}
+              chartData={chartQuery.data}
+              networks={chartQuery.networks}
+            />
+          </Card>
+        )}
       </main>
 
       <Modal

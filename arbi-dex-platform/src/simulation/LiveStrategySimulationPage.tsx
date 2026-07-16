@@ -1,25 +1,32 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useLiveMarketSimulation } from '../hooks/useLiveMarketSimulation'
+import type { ChartPeriod } from '../lib/chartTimeRange'
 import type { Strategy } from './simulationStrategy'
 import { StrategySimulationWorkspace, type SimulationWorkspaceHeader } from './StrategySimulationWorkspace'
 import type { SimulationLogEvent } from './simulationViewerTypes'
+import type { ChartPairSelection } from '../types/chart'
 
 export interface LiveStrategySimulationPageProps {
   strategy: Strategy
+  chartSelection?: ChartPairSelection | null
   isDark?: boolean
   className?: string
   header?: Partial<SimulationWorkspaceHeader>
   onStepResultChange?: (stepResult: SimulationLogEvent | null) => void
+  showPlayer?: boolean
 }
 
 export function LiveStrategySimulationPage({
   strategy,
+  chartSelection = null,
   isDark = true,
   className,
   header: headerOverride,
   onStepResultChange,
+  showPlayer = true,
 }: LiveStrategySimulationPageProps) {
-  const live = useLiveMarketSimulation({ strategy, enabled: true })
+  const [chartPeriod, setChartPeriod] = useState<ChartPeriod>('1h')
+  const live = useLiveMarketSimulation({ strategy, chartSelection, enabled: true, period: chartPeriod })
 
   useEffect(() => {
     onStepResultChange?.(live.stepResult)
@@ -46,6 +53,7 @@ export function LiveStrategySimulationPage({
         className="h-full min-h-0 w-full min-w-0 flex-1"
         isDark={isDark}
         chartData={live.chartData}
+        chartFullData={live.fullChartData}
         events={live.events}
         stepResult={live.stepResult}
         networks={live.displayNetworks}
@@ -66,6 +74,9 @@ export function LiveStrategySimulationPage({
         token1Label={live.token1Label}
         token2Label={live.token2Label}
         header={header}
+        chartPeriod={chartPeriod}
+        onChartPeriodChange={setChartPeriod}
+        showPlayer={showPlayer}
       />
     </div>
   )

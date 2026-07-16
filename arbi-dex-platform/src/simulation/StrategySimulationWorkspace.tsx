@@ -5,7 +5,6 @@ import {
   useMemo,
   useLayoutEffect,
   useCallback,
-  type WheelEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { AgCharts } from "ag-charts-react";
@@ -20,10 +19,13 @@ import {
   SkipForward,
   Square,
   Loader2,
-  Maximize2,
-  Minimize2,
 } from "lucide-react";
 import { useSimulatorI18n } from "./useSimulatorI18n";
+import { ChartPeriodSelector } from "../components/charts/ChartPeriodSelector";
+import { ChartViewportControls } from "../components/charts/ChartViewportControls";
+import { filterChartDataWithBuffer, strictPeriodBounds, type ChartPeriod } from "../lib/chartTimeRange";
+import { useChartViewport } from "../hooks/useChartViewport";
+import type { ChartPoint } from "../services/chartDataService";
 import { ChartErrorBoundary } from "./ChartErrorBoundary";
 import { PlayerBtn } from "./PlayerBtn";
 import { StepResultPanel } from "./StepResultPanel";
@@ -57,6 +59,8 @@ export interface SimulationWorkspaceHeader {
 
 export interface StrategySimulationWorkspaceProps {
   chartData: SimulationChartPoint[];
+  /** Полная загруженная история для viewport (как fullData в графике пары). */
+  chartFullData?: SimulationChartPoint[];
   events: SimulationLogEvent[];
   stepResult: SimulationLogEvent | null;
   networks: Array<{ id: string; label: string; color: string }>;
@@ -75,11 +79,14 @@ export interface StrategySimulationWorkspaceProps {
   token2Label?: string;
   header: SimulationWorkspaceHeader;
   className?: string;
+  chartPeriod?: ChartPeriod;
+  onChartPeriodChange?: (period: ChartPeriod) => void;
+  /** Панель Player (scrubber, play/pause). В live-торговле — выключить. */
+  showPlayer?: boolean;
 }
 
 type VisKey = string;
 type TradeEventHint = { type: "Buy" | "Sell" | "Error" };
-type NavigatorDragMode = "window" | "start" | "end";
 
 interface HoverCrosshair {
   xPx: number;
@@ -93,7 +100,21 @@ interface HoverCrosshair {
 }
 
 const CHART_PLOT_PADDING = { top: 8, right: 16, bottom: 8, left: 8 };
-const MIN_ZOOM_POINTS = 2;
+
+function findNearestPointByTime<T extends { t: number }>(points: readonly T[], targetTs: number): T | null {
+  if (points.length === 0) return null;
+  let best = points[0];
+  let bestDist = Math.abs(best.t - targetTs);
+  for (let i = 1; i < points.length; i += 1) {
+    const dist = Math.abs(points[i].t - targetTs);
+    if (dist < bestDist) {
+      best = points[i];
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
 const EVENT_LOG_ROW_HEIGHT_PX = 44;
 const EVENT_LOG_MIN_VISIBLE_ROWS = 5;
 const EVENT_LOG_MIN_HEIGHT_PX = EVENT_LOG_ROW_HEIGHT_PX * EVENT_LOG_MIN_VISIBLE_ROWS;
@@ -108,6 +129,7 @@ function toTradingNetworkSet(ids: Set<string> | string[]): Set<string> {
 
 export function StrategySimulationWorkspace({
   chartData,
+  chartFullData,
   events,
   stepResult,
   networks,
@@ -126,6 +148,9 @@ export function StrategySimulationWorkspace({
   token2Label = "token2",
   header,
   className,
+  chartPeriod,
+  onChartPeriodChange,
+  showPlayer = true,
 }: StrategySimulationWorkspaceProps) {
   const { t } = useSimulatorI18n();
   const tradingNetworkIds = useMemo(
@@ -165,7 +190,6 @@ export function StrategySimulationWorkspace({
   );
   const [filterOpen, setFilterOpen] = useState(false);
   const [logClearedAtTs, setLogClearedAtTs] = useState<number>(-1);
-  const [zoomWindow, setZoomWindow] = useState<{ start: number; size: number } | null>(null);
   const [eventPanelWidth, setEventPanelWidth] = useState(280);
   const [eventPanelCollapsed, setEventPanelCollapsed] = useState(false);
   const [playerPanelHeight, setPlayerPanelHeight] = useState(128);
@@ -177,9 +201,17 @@ export function StrategySimulationWorkspace({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [chartSafeMode, setChartSafeMode] = useState(false);
   const [chartErrorMessage, setChartErrorMessage] = useState<string | null>(null);
-  const [isChartDragging, setIsChartDragging] = useState(false);
-  const [isNavigatorDragging, setIsNavigatorDragging] = useState(false);
   const [hoverCrosshair, setHoverCrosshair] = useState<HoverCrosshair | null>(null);
+
+  const showInitialChartLoading = loading && chartData.length === 0;
+
+  useEffect(() => {
+    setHoverCrosshair(null);
+  }, [chartData.length, chartData[chartData.length - 1]?.t]);
+
+  useEffect(() => {
+    if (!loading) setHoverCrosshair(null);
+  }, [loading]);
 
   const filterRef = useRef<HTMLDivElement>(null);
   const logListRef = useRef<HTMLDivElement>(null);
@@ -188,7 +220,6 @@ export function StrategySimulationWorkspace({
   const stepResultSectionRef = useRef<HTMLDivElement>(null);
   const eventsControlsSectionRef = useRef<HTMLDivElement>(null);
   const chartPanelRef = useRef<HTMLDivElement>(null);
-  const chartNavigatorRef = useRef<HTMLDivElement>(null);
   const logPrevMetricsRef = useRef<{ length: number; scrollHeight: number }>({ length: 0, scrollHeight: 0 });
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const playIdxRef = useRef(playIdx);
@@ -198,13 +229,55 @@ export function StrategySimulationWorkspace({
   const playerResizeStartHeightRef = useRef(128);
   const stepResizeStartYRef = useRef(0);
   const stepResizeStartHeightRef = useRef(STEP_RESULT_DEFAULT_HEIGHT_PX);
-  const chartDragStartXRef = useRef(0);
-  const chartDragStartWindowRef = useRef<{ start: number; size: number } | null>(null);
-  const navigatorDragStartXRef = useRef(0);
-  const navigatorDragModeRef = useRef<NavigatorDragMode | null>(null);
-  const navigatorDragStartWindowRef = useRef<{ start: number; size: number; total: number } | null>(null);
 
   playIdxRef.current = playIdx;
+
+  const effectiveChartPeriod: ChartPeriod = chartPeriod ?? "1h";
+
+  const playHeadTs = useMemo(() => {
+    if (chartData.length === 0) return undefined;
+    const headIdx = Math.max(0, Math.min(Math.max(playIdx, 1), chartData.length) - 1);
+    return chartData[headIdx]?.t;
+  }, [chartData, playIdx]);
+
+  const chartSource = useMemo(() => {
+    const base = chartFullData && chartFullData.length > 0 ? chartFullData : chartData;
+    if (playHeadTs === undefined) return base;
+    return base.filter((point) => point.t <= playHeadTs);
+  }, [chartFullData, chartData, playHeadTs]);
+
+  const periodData = useMemo(
+    () => filterChartDataWithBuffer(chartSource as ChartPoint[], effectiveChartPeriod),
+    [chartSource, effectiveChartPeriod],
+  );
+  const clampBounds = useMemo(
+    () => strictPeriodBounds(chartSource as ChartPoint[], effectiveChartPeriod),
+    [chartSource, effectiveChartPeriod],
+  );
+  const {
+    visibleData: viewportVisibleData,
+    renderData: viewportRenderData,
+    xDomain,
+    isAdjusted: isViewportAdjusted,
+    reset: resetViewport,
+    centerOnTimestamp,
+    zoomByButton,
+    panByButton,
+    handleWheel,
+    handlePanStart,
+  } = useChartViewport(periodData, effectiveChartPeriod, clampBounds, {
+    containerRef: chartPanelRef,
+  });
+  const visibleData = useMemo(() => {
+    const source = viewportRenderData.length > 0 ? viewportRenderData : viewportVisibleData;
+    return source as SimulationChartPoint[];
+  }, [viewportRenderData, viewportVisibleData]);
+  const maxIdx = chartData.length;
+
+  useEffect(() => {
+    if (chartPeriod === undefined) return;
+    resetViewport();
+  }, [chartPeriod, resetViewport]);
 
   useEffect(() => {
     setVisibility((prev) => {
@@ -340,107 +413,6 @@ export function StrategySimulationWorkspace({
     return () => observer.disconnect();
   }, [eventPanelCollapsed, eventPanelWidth]);
 
-  const timelineData = chartData.slice(0, Math.max(playIdx, 1));
-  const zoomStart = zoomWindow?.start ?? 0;
-  const zoomSize = zoomWindow?.size ?? timelineData.length;
-  const zoomEnd = Math.min(zoomStart + zoomSize, timelineData.length);
-  const visibleData = timelineData.slice(zoomStart, zoomEnd);
-  const timelinePoints = Math.max(1, timelineData.length);
-  const navigatorWindow = zoomWindow ?? { start: 0, size: timelinePoints };
-  const navigatorStartPct = (navigatorWindow.start / timelinePoints) * 100;
-  const navigatorSizePct = Math.max((navigatorWindow.size / timelinePoints) * 100, 2);
-  const maxIdx = chartData.length;
-  const isZoomed = zoomWindow !== null && timelineData.length > 0 && zoomSize < timelineData.length;
-
-  useEffect(() => {
-    if (!isChartDragging) return;
-    const timelineLength = Math.min(chartData.length, Math.max(playIdx, 1));
-    const onMove = (e: MouseEvent) => {
-      const zoom = chartDragStartWindowRef.current;
-      const panel = chartPanelRef.current;
-      if (!zoom || !panel) return;
-      const maxStart = Math.max(0, timelineLength - zoom.size);
-      if (maxStart <= 0) return;
-      const width = panel.clientWidth;
-      if (width <= 0) return;
-      const pxPerPoint = width / Math.max(1, zoom.size);
-      const deltaX = e.clientX - chartDragStartXRef.current;
-      const deltaPoints = Math.round(deltaX / pxPerPoint);
-      const nextStart = Math.min(maxStart, Math.max(0, zoom.start - deltaPoints));
-      setZoomWindow((prev) => {
-        if (!prev || prev.size !== zoom.size || prev.start === nextStart) return prev;
-        return { start: nextStart, size: prev.size };
-      });
-    };
-    const onUp = () => {
-      setIsChartDragging(false);
-      chartDragStartWindowRef.current = null;
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-  }, [isChartDragging, chartData.length, playIdx]);
-
-  useEffect(() => {
-    if (!isNavigatorDragging) return;
-    const onMove = (e: MouseEvent) => {
-      const drag = navigatorDragStartWindowRef.current;
-      const mode = navigatorDragModeRef.current;
-      const track = chartNavigatorRef.current;
-      if (!drag || !mode || !track) return;
-      const width = track.clientWidth;
-      if (width <= 0) return;
-      const deltaX = e.clientX - navigatorDragStartXRef.current;
-      const deltaPoints = Math.round((deltaX / width) * drag.total);
-      if (mode === "window") {
-        const maxStart = Math.max(0, drag.total - drag.size);
-        const nextStart = Math.min(maxStart, Math.max(0, drag.start + deltaPoints));
-        if (nextStart === drag.start && drag.size >= drag.total) return;
-        if (nextStart === 0 && drag.size >= drag.total) {
-          setZoomWindow(null);
-          return;
-        }
-        setZoomWindow({ start: nextStart, size: drag.size });
-        return;
-      }
-      if (mode === "start") {
-        const fixedEnd = drag.start + drag.size;
-        const maxStart = Math.max(0, fixedEnd - MIN_ZOOM_POINTS);
-        const nextStart = Math.min(maxStart, Math.max(0, drag.start + deltaPoints));
-        const nextSize = Math.max(MIN_ZOOM_POINTS, fixedEnd - nextStart);
-        if (nextStart === 0 && nextSize >= drag.total) {
-          setZoomWindow(null);
-          return;
-        }
-        setZoomWindow({ start: nextStart, size: nextSize });
-        return;
-      }
-      const fixedStart = drag.start;
-      const minEnd = fixedStart + MIN_ZOOM_POINTS;
-      const nextEnd = Math.min(drag.total, Math.max(minEnd, drag.start + drag.size + deltaPoints));
-      const nextSize = Math.max(MIN_ZOOM_POINTS, nextEnd - fixedStart);
-      if (fixedStart === 0 && nextSize >= drag.total) {
-        setZoomWindow(null);
-        return;
-      }
-      setZoomWindow({ start: fixedStart, size: nextSize });
-    };
-    const onUp = () => {
-      setIsNavigatorDragging(false);
-      navigatorDragModeRef.current = null;
-      navigatorDragStartWindowRef.current = null;
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-  }, [isNavigatorDragging]);
-
   const tradeHintsByTs = useMemo(() => {
     return events.reduce<Record<number, TradeEventHint[]>>((acc, event) => {
       if (event.type !== "Buy" && event.type !== "Sell" && event.type !== "Error") return acc;
@@ -453,7 +425,7 @@ export function StrategySimulationWorkspace({
   }, [events, chartData]);
 
   const allTypes = Object.keys(SIMULATION_EVENT_TYPE_CONFIG) as SimulationEventType[];
-  const timelineLastTs = timelineData.length > 0 ? timelineData[timelineData.length - 1].t : -1;
+  const timelineLastTs = chartSource.length > 0 ? chartSource[chartSource.length - 1].t : -1;
 
   const { visibleEvents, totalEventsAfterClear } = useMemo(() => {
     const filtered: SimulationLogEvent[] = [];
@@ -486,18 +458,6 @@ export function StrategySimulationWorkspace({
     }
     logPrevMetricsRef.current = { length: nextLength, scrollHeight: nextHeight };
   }, [renderedEvents]);
-
-  useEffect(() => {
-    setZoomWindow((prev) => {
-      if (!prev) return null;
-      const maxCount = timelineData.length;
-      if (maxCount <= 0) return null;
-      const nextSize = Math.min(prev.size, maxCount);
-      const nextStart = Math.min(prev.start, Math.max(0, maxCount - nextSize));
-      if (nextSize >= maxCount) return null;
-      return { start: nextStart, size: nextSize };
-    });
-  }, [timelineData.length]);
 
   const toggleAverage = () => {
     setVisibility((prev) => {
@@ -587,48 +547,10 @@ export function StrategySimulationWorkspace({
     const targetIdx = Math.max(0, Math.min(Math.max(0, chartData.length - 1), event.dataIdx));
     onPlayIdxChange(Math.min(chartData.length, targetIdx + 1));
     setIsPlaying(false);
-    if (!zoomWindow) return;
-    const currentStart = zoomWindow.start;
-    const currentEnd = zoomWindow.start + zoomWindow.size - 1;
-    if (targetIdx < currentStart || targetIdx > currentEnd) {
-      const centeredStart = Math.max(
-        0,
-        Math.min(
-          targetIdx - Math.floor(zoomWindow.size / 2),
-          Math.max(0, chartData.length - zoomWindow.size),
-        ),
-      );
-      setZoomWindow({ start: centeredStart, size: zoomWindow.size });
+    const ts = chartData[targetIdx]?.t;
+    if (typeof ts === "number" && Number.isFinite(ts) && isViewportAdjusted) {
+      centerOnTimestamp(ts);
     }
-  };
-
-  const resetZoom = () => setZoomWindow(null);
-
-  const panZoomByButton = (direction: -1 | 1) => {
-    if (!zoomWindow) return;
-    const pointsCount = timelineData.length;
-    if (pointsCount <= 1) return;
-    const panBy = Math.max(1, Math.round(zoomWindow.size * 0.15));
-    const nextStart = Math.min(
-      Math.max(0, zoomWindow.start + direction * panBy),
-      Math.max(0, pointsCount - zoomWindow.size),
-    );
-    if (nextStart === zoomWindow.start) return;
-    setZoomWindow({ start: nextStart, size: zoomWindow.size });
-  };
-
-  const zoomByButton = (zoomIn: boolean) => {
-    const pointsCount = timelineData.length;
-    if (pointsCount <= 1) return;
-    const current = zoomWindow ?? { start: 0, size: pointsCount };
-    const factor = zoomIn ? 0.7 : 1.3;
-    let nextSize = Math.round(current.size * factor);
-    nextSize = Math.max(Math.min(pointsCount, nextSize), Math.min(MIN_ZOOM_POINTS, pointsCount));
-    if (nextSize >= pointsCount) {
-      setZoomWindow(null);
-      return;
-    }
-    setZoomWindow({ start: Math.max(0, pointsCount - nextSize), size: nextSize });
   };
 
   const toggleFullscreen = async () => {
@@ -642,74 +564,11 @@ export function StrategySimulationWorkspace({
     }
   };
 
-  const handleChartWheel = (e: WheelEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (timelineData.length <= 1) return;
-
-    const absX = Math.abs(e.deltaX);
-    const absY = Math.abs(e.deltaY);
-    const isHorizontalScroll = absX > absY || (e.shiftKey && absY > 0);
-    const current = zoomWindow ?? { start: 0, size: timelineData.length };
-
-    if (isHorizontalScroll) {
-      if (!zoomWindow) return;
-      const panBy = Math.max(1, Math.round(current.size * 0.08));
-      const direction = (e.deltaX !== 0 ? e.deltaX : e.deltaY) > 0 ? 1 : -1;
-      const nextStart = Math.min(
-        Math.max(0, current.start + direction * panBy),
-        Math.max(0, timelineData.length - current.size),
-      );
-      if (nextStart !== current.start) setZoomWindow({ start: nextStart, size: current.size });
-      return;
-    }
-
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const ratio = rect.width > 0 ? Math.min(1, Math.max(0, x / rect.width)) : 0.5;
-    const anchorIdx = current.start + ratio * Math.max(0, current.size - 1);
-    const zoomIn = e.deltaY < 0;
-    const factor = zoomIn ? 0.65 : 1.35;
-
-    let nextSize = Math.round(current.size * factor);
-    nextSize = Math.max(
-      Math.min(timelineData.length, nextSize),
-      Math.min(MIN_ZOOM_POINTS, timelineData.length),
-    );
-
-    if (nextSize >= timelineData.length) {
-      setZoomWindow(null);
-      return;
-    }
-
-    const rawStart = Math.round(anchorIdx - ratio * Math.max(0, nextSize - 1));
-    const nextStart = Math.min(Math.max(0, rawStart), timelineData.length - nextSize);
-    setZoomWindow({ start: nextStart, size: nextSize });
-  };
-
   const handleChartMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
     const target = e.target as HTMLElement | null;
     if (target?.closest("button")) return;
-    if (!zoomWindow) return;
-    if (timelineData.length <= zoomWindow.size) return;
     setHoverCrosshair(null);
-    chartDragStartXRef.current = e.clientX;
-    chartDragStartWindowRef.current = { ...zoomWindow };
-    setIsChartDragging(true);
-    e.preventDefault();
-  };
-
-  const startNavigatorDrag = (mode: NavigatorDragMode, e: ReactMouseEvent<HTMLElement>) => {
-    if (e.button !== 0) return;
-    const total = Math.max(1, timelineData.length);
-    if (total <= 1) return;
-    const current = zoomWindow ?? { start: 0, size: total };
-    navigatorDragStartXRef.current = e.clientX;
-    navigatorDragModeRef.current = mode;
-    navigatorDragStartWindowRef.current = { ...current, total };
-    setIsNavigatorDragging(true);
-    e.preventDefault();
-    e.stopPropagation();
+    handlePanStart(e);
   };
 
   const borderColor = isDark ? "#1E2D40" : "#D1D9E0";
@@ -752,7 +611,7 @@ export function StrategySimulationWorkspace({
   }, [visibleData, visibility, networks]);
 
   const handleChartMouseMove = (e: ReactMouseEvent<HTMLDivElement>) => {
-    if (loading || visibleData.length === 0 || !hasRenderableSeries || isChartDragging || isNavigatorDragging) {
+    if (loading || visibleData.length === 0 || !hasRenderableSeries) {
       setHoverCrosshair(null);
       return;
     }
@@ -766,8 +625,8 @@ export function StrategySimulationWorkspace({
     const xRaw = e.clientX - rect.left;
     const xClamped = Math.min(plotLeft + plotWidth, Math.max(plotLeft, xRaw));
     const ratio = (xClamped - plotLeft) / plotWidth;
-    const nearestIdx = Math.round(ratio * Math.max(0, visibleData.length - 1));
-    const point = visibleData[nearestIdx];
+    const tsAtCursor = xDomain[0] + ratio * (xDomain[1] - xDomain[0]);
+    const point = findNearestPointByTime(visibleData, tsAtCursor);
     if (!point) {
       setHoverCrosshair(null);
       return;
@@ -1019,7 +878,7 @@ export function StrategySimulationWorkspace({
         interpolation: stepLineInterpolation,
         marker: { enabled: false },
         connectMissingData: false,
-        tooltip: { enabled: true },
+        tooltip: { enabled: false },
       });
     }
 
@@ -1038,7 +897,7 @@ export function StrategySimulationWorkspace({
           interpolation: stepLineInterpolation,
           marker: { enabled: false },
           connectMissingData: false,
-          tooltip: { enabled: true },
+          tooltip: { enabled: false },
         });
       }
       if (visibility[sellKey]) {
@@ -1054,7 +913,7 @@ export function StrategySimulationWorkspace({
           interpolation: stepLineInterpolation,
           marker: { enabled: false },
           connectMissingData: false,
-          tooltip: { enabled: true },
+          tooltip: { enabled: false },
         });
       }
     }
@@ -1071,7 +930,7 @@ export function StrategySimulationWorkspace({
         fill: "#10B981",
         stroke: "#10B981",
         strokeWidth: 1,
-        tooltip: { enabled: true },
+        tooltip: { enabled: false },
       });
     }
     if (tradeMarkerData.sell.length > 0) {
@@ -1086,7 +945,7 @@ export function StrategySimulationWorkspace({
         fill: "#E5383B",
         stroke: "#E5383B",
         strokeWidth: 1,
-        tooltip: { enabled: true },
+        tooltip: { enabled: false },
       });
     }
     if (tradeMarkerData.error.length > 0) {
@@ -1101,7 +960,7 @@ export function StrategySimulationWorkspace({
         fill: "#EAB308",
         stroke: "#EAB308",
         strokeWidth: 1,
-        tooltip: { enabled: true },
+        tooltip: { enabled: false },
       });
     }
 
@@ -1119,7 +978,7 @@ export function StrategySimulationWorkspace({
         marker: { enabled: false },
         connectMissingData: false,
         tooltip: {
-          enabled: true,
+          enabled: false,
           renderer: (params: { datum?: Record<string, unknown> }) => ({
             title: `${band.side === "buy" ? "BUY" : band.side === "sell" ? "SELL" : `${(band.requestSide ?? "buy").toUpperCase()} ERROR`} fill · ${chartDateTime(Number(params.datum?.responseTs ?? params.datum?.t ?? 0))}`,
             data: [
@@ -1137,7 +996,7 @@ export function StrategySimulationWorkspace({
     return {
       data: chartRenderData,
       animation: { enabled: false },
-      tooltip: { enabled: true, mode: "shared" },
+      tooltip: { enabled: false },
       legend: { enabled: false },
       background: { fill: "transparent" },
       padding: { top: 8, right: 16, bottom: 8, left: 8 },
@@ -1145,6 +1004,8 @@ export function StrategySimulationWorkspace({
       axes: {
         x: {
           type: "number",
+          min: xDomain[0],
+          max: xDomain[1],
           line: { stroke: chartAxisColor },
           tick: { stroke: chartAxisColor },
           label: {
@@ -1157,22 +1018,7 @@ export function StrategySimulationWorkspace({
               return chartTimeOnly(ts);
             },
           },
-          crosshair: {
-            enabled: true,
-            snap: true,
-            stroke: isDark ? "#9FB1C7" : "#334155",
-            strokeWidth: 1,
-            strokeOpacity: 0.8,
-            lineDash: [6, 6],
-            label: {
-              enabled: true,
-              formatter: (params: { value?: unknown }) => {
-                const ts = Number(params?.value);
-                if (!Number.isFinite(ts)) return "";
-                return chartCrosshairDateTime(ts);
-              },
-            },
-          },
+          crosshair: { enabled: false },
           gridLine: { enabled: false },
         },
         y: {
@@ -1185,28 +1031,14 @@ export function StrategySimulationWorkspace({
             fontFamily: "var(--font-mono)",
             formatter: (params: { value: number }) => Number(params.value).toFixed(0),
           },
-          crosshair: {
-            enabled: true,
-            snap: true,
-            stroke: isDark ? "#9FB1C7" : "#334155",
-            strokeWidth: 1,
-            strokeOpacity: 0.8,
-            lineDash: [6, 6],
-            label: {
-              enabled: true,
-              formatter: (params: { value?: unknown }) => {
-                const value = Number(params?.value);
-                if (!Number.isFinite(value)) return "";
-                return value.toFixed(4);
-              },
-            },
-          },
+          crosshair: { enabled: false },
           gridLine: { enabled: true, style: [{ stroke: chartGridColor, lineDash: [2, 4] }] },
         },
       },
     };
   }, [
     chartRenderData,
+    xDomain,
     visibility,
     networks,
     tradingNetworkIds,
@@ -1226,7 +1058,7 @@ export function StrategySimulationWorkspace({
     return {
       data,
       animation: { enabled: false },
-      tooltip: { enabled: true, mode: "shared" },
+      tooltip: { enabled: false },
       legend: { enabled: false },
       background: { fill: "transparent" },
       series: [
@@ -1258,22 +1090,7 @@ export function StrategySimulationWorkspace({
               return chartTimeOnly(ts);
             },
           },
-          crosshair: {
-            enabled: true,
-            snap: true,
-            stroke: isDark ? "#9FB1C7" : "#334155",
-            strokeWidth: 1,
-            strokeOpacity: 0.8,
-            lineDash: [6, 6],
-            label: {
-              enabled: true,
-              formatter: (params: { value?: unknown }) => {
-                const ts = Number(params?.value);
-                if (!Number.isFinite(ts)) return "";
-                return chartCrosshairDateTime(ts);
-              },
-            },
-          },
+          crosshair: { enabled: false },
           gridLine: { enabled: false },
         },
         y: {
@@ -1286,22 +1103,7 @@ export function StrategySimulationWorkspace({
             fontFamily: "var(--font-mono)",
             formatter: (params: { value: number }) => Number(params.value).toFixed(0),
           },
-          crosshair: {
-            enabled: true,
-            snap: true,
-            stroke: isDark ? "#9FB1C7" : "#334155",
-            strokeWidth: 1,
-            strokeOpacity: 0.8,
-            lineDash: [6, 6],
-            label: {
-              enabled: true,
-              formatter: (params: { value?: unknown }) => {
-                const value = Number(params?.value);
-                if (!Number.isFinite(value)) return "";
-                return value.toFixed(4);
-              },
-            },
-          },
+          crosshair: { enabled: false },
           gridLine: { enabled: true, style: [{ stroke: chartGridColor, lineDash: [2, 4] }] },
         },
       },
@@ -1415,21 +1217,28 @@ export function StrategySimulationWorkspace({
               );
             })}
           </div>
+
+          {chartPeriod !== undefined && onChartPeriodChange ? (
+            <ChartPeriodSelector
+              period={chartPeriod}
+              onChange={onChartPeriodChange}
+              onReset={resetViewport}
+              showReset={isViewportAdjusted}
+              className="mt-2"
+            />
+          ) : null}
         </div>
 
         <div
           ref={chartPanelRef}
-          className="relative min-h-0 w-full flex-1"
-          style={{
-            minWidth: 0,
-            cursor: zoomWindow ? (isChartDragging ? "grabbing" : "grab") : "default",
-          }}
-          onWheel={handleChartWheel}
+          className="relative min-h-0 w-full flex-1 select-none touch-none overscroll-none cursor-grab active:cursor-grabbing"
+          style={{ minWidth: 0 }}
+          onWheel={handleWheel}
           onMouseDown={handleChartMouseDown}
           onMouseMove={handleChartMouseMove}
           onMouseLeave={() => setHoverCrosshair(null)}
         >
-          {loading ? (
+          {showInitialChartLoading ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
               <Loader2 size={24} className="animate-spin" style={{ color: accent }} />
               <span style={{ fontSize: "12px", color: textSecondary }}>{loadingMessage}</span>
@@ -1475,7 +1284,7 @@ export function StrategySimulationWorkspace({
                   Safe chart mode
                 </div>
               )}
-              {hoverCrosshair && (
+              {hoverCrosshair && !loading && (
                 <>
                   <div
                     className="absolute pointer-events-none"
@@ -1589,122 +1398,30 @@ export function StrategySimulationWorkspace({
               )}
             </div>
           )}
-          <div className="absolute top-3 right-3 flex items-center gap-1.5">
-            <button
-              onClick={resetZoom}
-              className="px-2 py-1 rounded text-xs min-w-[70px]"
-              style={{
-                backgroundColor: panelBg,
-                border: `1px solid ${borderColor}`,
-                color: textSecondary,
-                visibility: isZoomed ? "visible" : "hidden",
-                pointerEvents: isZoomed ? "auto" : "none",
-              }}
-            >
-              Сбросить
-            </button>
-            <button
-              onClick={() => zoomByButton(false)}
-              className="w-7 h-7 rounded text-sm flex items-center justify-center"
-              style={{ backgroundColor: panelBg, border: `1px solid ${borderColor}`, color: textSecondary }}
-              title="Отдалить"
-            >
-              -
-            </button>
-            <button
-              onClick={() => zoomByButton(true)}
-              className="w-7 h-7 rounded text-sm flex items-center justify-center"
-              style={{ backgroundColor: panelBg, border: `1px solid ${borderColor}`, color: textSecondary }}
-              title="Приблизить"
-            >
-              +
-            </button>
-            <div
-              className="flex items-center rounded overflow-hidden"
-              style={{
-                backgroundColor: panelBg,
-                border: `1px solid ${borderColor}`,
-                opacity: isZoomed ? 1 : 0.55,
-              }}
-            >
-              <button
-                onClick={() => panZoomByButton(-1)}
-                className="w-7 h-7 flex items-center justify-center"
-                style={{ color: textSecondary, borderRight: `1px solid ${borderColor}` }}
-                title="Сдвинуть влево"
-                disabled={!isZoomed}
-              >
-                <ChevronLeft size={12} />
-              </button>
-              <button
-                onClick={() => panZoomByButton(1)}
-                className="w-7 h-7 flex items-center justify-center"
-                style={{ color: textSecondary }}
-                title="Сдвинуть вправо"
-                disabled={!isZoomed}
-              >
-                <ChevronRight size={12} />
-              </button>
-            </div>
-            <button
-              onClick={toggleFullscreen}
-              className="w-7 h-7 rounded flex items-center justify-center"
-              style={{ backgroundColor: panelBg, border: `1px solid ${borderColor}`, color: textSecondary }}
-              title={isFullscreen ? "Выйти из полного экрана" : "Полный экран"}
-            >
-              {isFullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-            </button>
+          <div
+            className="absolute top-3 right-3 z-20"
+            onMouseEnter={() => setHoverCrosshair(null)}
+            onMouseMove={(e) => {
+              e.stopPropagation();
+              setHoverCrosshair(null);
+            }}
+          >
+            <ChartViewportControls
+              variant="simulation"
+              panelBg={panelBg}
+              borderColor={borderColor}
+              textSecondary={textSecondary}
+              onZoomOut={() => zoomByButton(false)}
+              onZoomIn={() => zoomByButton(true)}
+              onPanLeft={() => panByButton(-1)}
+              onPanRight={() => panByButton(1)}
+              onToggleFullscreen={toggleFullscreen}
+              isFullscreen={isFullscreen}
+            />
           </div>
         </div>
 
-        {timelineData.length > 1 && (
-          <div className="shrink-0 px-4 py-2" style={{ borderTop: `1px solid ${borderColor}`, backgroundColor: surfaceBg }}>
-            <div className="flex items-center gap-2">
-              <span
-                style={{
-                  fontSize: "10px",
-                  color: textSecondary,
-                  fontFamily: "var(--font-mono)",
-                  minWidth: "76px",
-                }}
-              >
-                {`view ${((navigatorWindow.size / timelinePoints) * 100).toFixed(1)}%`}
-              </span>
-              <div
-                ref={chartNavigatorRef}
-                className="relative flex-1 h-2 rounded-full"
-                style={{ backgroundColor: isDark ? "#2A3B52" : "#CBD5E1" }}
-              >
-                <div
-                  className="absolute top-0 h-full rounded-full"
-                  style={{
-                    left: `${navigatorStartPct}%`,
-                    width: `${Math.min(100 - navigatorStartPct, navigatorSizePct)}%`,
-                    backgroundColor: `${accent}AA`,
-                    cursor: isNavigatorDragging ? "grabbing" : "grab",
-                  }}
-                  onMouseDown={(e) => startNavigatorDrag("window", e)}
-                >
-                  <button
-                    className="absolute -left-1.5 -top-2 h-6 w-3 rounded-full"
-                    style={{ backgroundColor: panelBg, border: `1px solid ${borderColor}`, cursor: "ew-resize" }}
-                    onMouseDown={(e) => startNavigatorDrag("start", e)}
-                    aria-label="Левая граница диапазона"
-                    type="button"
-                  />
-                  <button
-                    className="absolute -right-1.5 -top-2 h-6 w-3 rounded-full"
-                    style={{ backgroundColor: panelBg, border: `1px solid ${borderColor}`, cursor: "ew-resize" }}
-                    onMouseDown={(e) => startNavigatorDrag("end", e)}
-                    aria-label="Правая граница диапазона"
-                    type="button"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
+        {showPlayer ? (
         <div
           className="shrink-0 flex flex-col"
           style={{
@@ -1873,6 +1590,7 @@ export function StrategySimulationWorkspace({
             </div>
           )}
         </div>
+        ) : null}
       </div>
 
       <div

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState, type RefObject } from 'react'
 import { LogOut, Moon, Sun } from 'lucide-react'
 import { useAppPreferences } from '../../context/AppPreferencesContext'
 import { useAuth } from '../../context/AuthContext'
@@ -31,10 +31,10 @@ function FlagRu() {
 interface UserMenuProps {
   open: boolean
   onClose: () => void
+  anchorRef: RefObject<HTMLElement | null>
 }
 
-export function UserMenu({ open, onClose }: UserMenuProps) {
-  const menuRef = useRef<HTMLDivElement>(null)
+export function UserMenu({ open, onClose, anchorRef }: UserMenuProps) {
   const { theme, locale, userName, setTheme, setLocale, t } = useAppPreferences()
   const { walletAddress, walletProvider, logout } = useAuth()
   const [mounted, setMounted] = useState(open)
@@ -48,29 +48,27 @@ export function UserMenu({ open, onClose }: UserMenuProps) {
   useEffect(() => {
     if (!open) return
 
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) {
-        onClose()
-      }
+    const handleClickOutside = (event: MouseEvent) => {
+      if (anchorRef.current?.contains(event.target as Node)) return
+      onClose()
     }
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
 
-    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('click', handleClickOutside)
     document.addEventListener('keydown', handleEscape)
     return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('click', handleClickOutside)
       document.removeEventListener('keydown', handleEscape)
     }
-  }, [open, onClose])
+  }, [open, onClose, anchorRef])
 
   if (!mounted) return null
 
   return (
     <div
-      ref={menuRef}
       className={cn(
         'absolute right-0 top-[calc(100%+10px)] z-50 w-[280px] origin-top-right rounded-2xl border border-border bg-card shadow-2xl transition-all duration-150',
         open ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none scale-95 opacity-0',

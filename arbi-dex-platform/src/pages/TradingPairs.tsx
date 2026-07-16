@@ -7,6 +7,14 @@ import { Button } from '../components/ui/Button'
 import { SearchInput } from '../components/ui/SearchInput'
 import { ExchangeViewDropdown } from '../components/ui/ExchangeViewDropdown'
 import { SortableTableHead } from '../components/ui/SortableTableHead'
+import {
+  ResizableTable,
+  TableHeadCell,
+  TABLE_ACTIONS_CELL,
+  TABLE_CELL,
+  TABLE_HEAD,
+  type ResizableColumnConfig,
+} from '../components/ui/ResizableTable'
 import { getBots, isMonitoringPair, type TradingPair } from '../data/mockData'
 import { loadTradingPairs } from '../lib/tradingPairsStorage'
 import { buildPairBotCountMap } from '../lib/botCounts'
@@ -15,6 +23,16 @@ import { useUndoDelete } from '../context/UndoDeleteContext'
 import { cn } from '../lib/utils'
 
 type PairSortKey = 'name' | 'pair' | 'type' | 'exchange' | 'runningBots' | 'created'
+
+const PAIRS_TABLE_COLUMNS: ResizableColumnConfig[] = [
+  { id: 'name', defaultPercent: 22, minPercent: 12 },
+  { id: 'pair', defaultPercent: 11, minPercent: 8 },
+  { id: 'type', defaultPercent: 9, minPercent: 7 },
+  { id: 'exchange', defaultPercent: 18, minPercent: 12 },
+  { id: 'runningBots', defaultPercent: 7, minPercent: 5 },
+  { id: 'created', defaultPercent: 12, minPercent: 9 },
+  { id: 'actions', defaultPercent: 13, minPercent: 11 },
+]
 
 function getPairSortValue(pair: TradingPair, key: PairSortKey, botCounts: Map<string, number>) {
   switch (key) {
@@ -116,36 +134,34 @@ export function TradingPairsPage() {
           <div className="flex flex-1 min-h-0 min-w-0 gap-4">
             <Card className="flex-[7] min-w-0 flex flex-col min-h-0 overflow-hidden p-0">
               <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
-                <table className="w-full text-xs table-fixed">
+                <ResizableTable tableId="trading-pairs" columns={PAIRS_TABLE_COLUMNS} className="text-xs">
                   <thead className="sticky top-0 bg-card z-10">
                     <tr className="text-muted text-left border-b border-border">
-                      <SortableTableHead label="Name" column="name" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as PairSortKey)} className="w-[24%] px-3 py-2.5" />
-                      <SortableTableHead label="Pair" column="pair" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as PairSortKey)} className="w-[11%] px-3 py-2.5" />
-                      <SortableTableHead label="Type" column="type" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as PairSortKey)} className="w-[10%] px-3 py-2.5" />
-                      <SortableTableHead label="Exchange" column="exchange" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as PairSortKey)} className="w-[17%] px-3 py-2.5" />
-                      <SortableTableHead label="Bots" column="runningBots" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as PairSortKey)} className="w-[7%] px-2 py-2.5" align="center" />
-                      <SortableTableHead label="Created" column="created" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as PairSortKey)} className="w-[12%] px-3 py-2.5" />
-                      <th className="w-[9%] px-2 py-2.5 font-medium">Actions</th>
+                      <SortableTableHead label="Name" column="name" columnId="name" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as PairSortKey)} className={TABLE_HEAD} />
+                      <SortableTableHead label="Pair" column="pair" columnId="pair" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as PairSortKey)} className={TABLE_HEAD} />
+                      <SortableTableHead label="Type" column="type" columnId="type" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as PairSortKey)} className={TABLE_HEAD} />
+                      <SortableTableHead label="Exchange" column="exchange" columnId="exchange" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as PairSortKey)} className={TABLE_HEAD} />
+                      <SortableTableHead label="Bots" column="runningBots" columnId="runningBots" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as PairSortKey)} className={TABLE_HEAD} align="center" />
+                      <SortableTableHead label="Created" column="created" columnId="created" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as PairSortKey)} className={TABLE_HEAD} />
+                      <TableHeadCell columnId="actions" className={TABLE_HEAD} align="center">Actions</TableHeadCell>
                     </tr>
                   </thead>
                   <tbody>
                     {filtered.map((pair) => (
                       <tr
                         key={pair.id}
-                        onClick={() => {
-                          setSelected(pair)
-                          navigate(`/pairs/${pair.id}`)
-                        }}
+                        onClick={() => setSelected(pair)}
+                        onDoubleClick={() => navigate(`/chart/${pair.id}`)}
                         className={cn(
-                          'border-b border-border/50 cursor-pointer transition-colors',
+                          'border-b border-border/50 cursor-pointer transition-colors select-none',
                           selected?.id === pair.id ? 'bg-accent-purple/5' : 'hover:bg-white/[0.02]',
                         )}
                       >
-                        <td className="px-3 py-2.5 font-semibold text-white truncate" title={pair.name}>
+                        <td className={cn(TABLE_CELL, 'font-semibold text-white truncate')} title={pair.name}>
                           {pair.name}
                         </td>
-                        <td className="px-3 py-2.5 text-muted truncate">{pair.pair}</td>
-                        <td className="px-3 py-2.5">
+                        <td className={cn(TABLE_CELL, 'text-muted truncate')}>{pair.pair}</td>
+                        <td className={TABLE_CELL}>
                           {isMonitoringPair(pair) ? (
                             <span className="inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-accent-cyan/15 text-accent-cyan whitespace-nowrap">
                               Монит.
@@ -156,7 +172,7 @@ export function TradingPairsPage() {
                             </span>
                           )}
                         </td>
-                        <td className="px-3 py-2.5 min-w-0" onClick={(e) => e.stopPropagation()}>
+                        <td className={TABLE_CELL} onClick={(e) => e.stopPropagation()}>
                           <ExchangeViewDropdown
                             exchanges={pair.exchanges}
                             tradingExchange={pair.tradingExchange}
@@ -164,22 +180,22 @@ export function TradingPairsPage() {
                             compact
                           />
                         </td>
-                        <td className="px-2 py-2.5 text-center text-white">{pairBotCounts.get(pair.id) ?? 0}</td>
-                        <td className="px-3 py-2.5 text-muted whitespace-nowrap">{pair.created}</td>
-                        <td className="px-2 py-2.5">
-                          <div className="flex gap-0.5">
+                        <td className={cn(TABLE_CELL, 'text-center text-white')}>{pairBotCounts.get(pair.id) ?? 0}</td>
+                        <td className={cn(TABLE_CELL, 'text-muted truncate')}>{pair.created}</td>
+                        <td className={TABLE_ACTIONS_CELL}>
+                          <div className="flex items-center justify-center gap-0.5">
                             <Link
                               to={`/chart/${pair.id}`}
                               onClick={(e) => e.stopPropagation()}
-                              className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-accent-cyan"
+                              className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-accent-cyan shrink-0"
                               title="График отслеживания"
                             >
                               <LineChart size={13} />
                             </Link>
                             <Link
-                              to={`/pairs/${pair.id}`}
+                              to={`/pairs/${pair.id}/edit`}
                               onClick={(e) => e.stopPropagation()}
-                              className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-white"
+                              className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-white shrink-0"
                               title="Редактировать"
                             >
                               <Edit2 size={13} />
@@ -187,7 +203,7 @@ export function TradingPairsPage() {
                             <button
                               type="button"
                               onClick={(e) => handleDeletePair(pair, e)}
-                              className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-error"
+                              className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-error shrink-0"
                               title="Удалить"
                             >
                               <Trash2 size={13} />
@@ -197,7 +213,7 @@ export function TradingPairsPage() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </ResizableTable>
               </div>
             </Card>
 
@@ -224,7 +240,7 @@ export function TradingPairsPage() {
                           {isMonitoringPair(selected) ? 'Мониторинг' : selectedBotCount}
                         </p>
                       </div>
-                      <Link to={`/pairs/${selected.id}`}>
+                      <Link to={`/pairs/${selected.id}/edit`}>
                         <Button variant="outline" className="w-full">Редактировать</Button>
                       </Link>
                       <Link to={`/chart/${selected.id}`}>

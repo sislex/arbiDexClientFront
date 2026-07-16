@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useCallback, useId, useRef, useEffect } from 'react'
 import type { ReactElement } from 'react'
 import {
   LineChart,
@@ -12,13 +12,26 @@ import {
 } from 'recharts'
 import { Layers, LineChart as LineChartIcon, RefreshCw, Settings2 } from 'lucide-react'
 import { Button } from '../ui/Button'
+import { ChartPeriodSelector } from './ChartPeriodSelector'
+import { ChartViewportControls } from './ChartViewportControls'
 import {
   generateMultiPairChartData,
   getPairExchangeConfig,
   type MultiPairChartPoint,
 } from '../../data/mockData'
 import { useExchangeChartData } from '../../hooks/useExchangeChartData'
+import { useChartViewport } from '../../hooks/useChartViewport'
 import { referenceNetworks, tradingNetwork } from '../../lib/buildChartNetworks'
+import {
+  filterChartDataWithBuffer,
+  formatChartAxisLabel,
+  formatChartTooltipLabel,
+  computeYDomainWithPadding,
+  CHART_Y_PADDING_RATIO,
+  strictPeriodBounds,
+  isChartGhostPoint,
+  type ChartPeriod,
+} from '../../lib/chartTimeRange'
 import type { ChartPoint } from '../../services/chartDataService'
 import type { NetworkSource } from '../../simulation/simulationNetworkTypes'
 import type { ChartPairSelection } from '../../types/chart'
@@ -39,10 +52,13 @@ interface MultiExchangeChartProps {
   className?: string
   onConfigure?: () => void
   chartData?: ChartPoint[]
+  chartFullData?: ChartPoint[]
   chartLoading?: boolean
   networks?: NetworkSource[]
   chartError?: string | null
   onChartReload?: () => void
+  chartPeriod?: ChartPeriod
+  onChartPeriodChange?: (period: ChartPeriod) => void
 }
 
 function formatChartPrice(value: number, pair: string): string {
@@ -62,12 +78,18 @@ export function MultiExchangeChart({
   className,
   onConfigure,
   chartData: chartDataProp,
+  chartFullData: chartFullDataProp,
   chartLoading: chartLoadingProp,
   networks: networksProp,
   chartError: chartErrorProp,
   onChartReload,
+  chartPeriod: chartPeriodProp,
+  onChartPeriodChange,
 }: MultiExchangeChartProps) {
   const [viewMode, setViewMode] = useState<ChartViewMode>('summary')
+  const [internalPeriod, setInternalPeriod] = useState<ChartPeriod>('1h')
+  const chartPeriod = chartPeriodProp ?? internalPeriod
+  const setChartPeriod = onChartPeriodChange ?? setInternalPeriod
   const uniquePairs = [...new Set(selections.map((s) => s.pair))]
   const isMultiPair = uniquePairs.length > 1
   const primarySelection = selections.find((s) => s.pair === primaryPair) ?? selections[0]
@@ -76,8 +98,10 @@ export function MultiExchangeChart({
 
   const fetched = useExchangeChartData(
     !isMultiPair && chartDataProp === undefined ? primarySelection : undefined,
+    chartPeriod,
   )
   const liveData = chartDataProp ?? fetched.data
+  const liveFullData = chartFullDataProp ?? fetched.fullData
   const loading = chartLoadingProp ?? fetched.loading
   const networks = networksProp ?? fetched.networks
   const error = chartErrorProp ?? fetched.error
@@ -99,8 +123,8 @@ export function MultiExchangeChart({
   const canToggleView = !isMultiPair && networks.length > 0
 
   return (
-    <div className={cn('flex flex-col h-full', className)}>
-      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+    <div className={cn('flex flex-col min-h-0', className)}>
+      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap shrink-0">
         <div className="flex items-center gap-2 flex-wrap">
           {isMultiPair ? (
             uniquePairs.map((pair) => (
@@ -187,26 +211,29 @@ export function MultiExchangeChart({
         ) : (
           <BidAskChartLines
             data={liveData}
+            fullData={liveFullData}
             selection={primarySelection}
             networks={networks}
             tradingNet={tradingNet}
             viewMode={viewMode}
             monitoring={monitoring}
             primaryPair={primaryPair}
+            period={chartPeriod}
+            onPeriodChange={setChartPeriod}
           />
         )}
       </div>
 
       {isMultiPair ? (
-        <p className="text-[11px] text-muted mt-2">
+        <p className="text-[11px] text-muted mt-2 shrink-0">
           Несколько пар на одном графике — отображение в % изменения от начала периода.
         </p>
       ) : config ? (
         <p className="text-[11px] text-muted mt-2">
           {monitoring
             ? viewMode === 'summary'
-              ? `Мониторинг — среднее по ${refNets.length} биржам (${liveData.length} точек).`
-              : `Мониторинг — bid/ask на ${networks.length} биржах (${liveData.length} точек).`
+              ? `Мониторинг — среднее по ${refNets.length} биржам. Колёсико — приближение, перетаскивание — сдвиг.`
+              : `Мониторинг — bid/ask на ${networks.length} биржах. Колёсико — приближение, перетаскивание — сдвиг.`
             : viewMode === 'summary'
               ? `Среднее по reference-биржам (${config.priceMethod}) и bid/ask на ${config.tradingExchange}.`
               : `Bid/ask на всех ${networks.length} биржах.`}
@@ -282,29 +309,136 @@ function LegendItem({
 
 function BidAskChartLines({
   data,
+  fullData,
   selection,
   networks,
   tradingNet,
   viewMode,
   monitoring,
   primaryPair,
+  period,
+  onPeriodChange,
 }: {
   data: ChartPoint[]
+  fullData: ChartPoint[]
   selection?: ChartPairSelection
   networks: NetworkSource[]
   tradingNet?: NetworkSource
   viewMode: ChartViewMode
   monitoring: boolean
   primaryPair: string
+  period: ChartPeriod
+  onPeriodChange: (period: ChartPeriod) => void
 }) {
+  const source = fullData.length > 0 ? fullData : data
+  const periodData = useMemo(() => filterChartDataWithBuffer(source, period), [source, period])
+  const clampBounds = useMemo(() => strictPeriodBounds(source, period), [source, period])
+  const {
+    renderData,
+    ghostRenderData,
+    visibleData,
+    xDomain,
+    lineClipRatio,
+    isAdjusted,
+    reset,
+    zoomByButton,
+    panByButton,
+    handleWheel,
+    handlePanStart,
+    containerRef,
+  } = useChartViewport(periodData, period, clampBounds)
+
+  const chartShellRef = useRef<HTMLDivElement>(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setIsFullscreen(document.fullscreenElement === chartShellRef.current)
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange)
+  }, [])
+
+  const toggleFullscreen = useCallback(async () => {
+    const panel = chartShellRef.current
+    if (!panel) return
+    try {
+      if (document.fullscreenElement === panel) await document.exitFullscreen()
+      else await panel.requestFullscreen()
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  const showGhostTail = lineClipRatio < 0.999
+  const clipPathId = useId().replace(/:/g, '')
+
+  const yDataKeys = useMemo(() => {
+    const keys: string[] = []
+    if (viewMode === 'summary') {
+      keys.push('avg')
+      if (!monitoring && tradingNet) {
+        keys.push(`${tradingNet.id}_buy`, `${tradingNet.id}_sell`)
+      }
+    } else {
+      for (const net of networks) {
+        keys.push(`${net.id}_buy`, `${net.id}_sell`)
+      }
+    }
+    return keys
+  }, [viewMode, monitoring, tradingNet, networks])
+
+  const yDomainFn = useCallback(
+    (domain: readonly [number, number]) => {
+      const [dataMin, dataMax] = domain
+      const source = visibleData.length > 0 ? visibleData : renderData
+      const bounds = computeYDomainWithPadding(
+        source,
+        yDataKeys.length > 0 ? yDataKeys : undefined,
+      )
+      if (bounds) return bounds
+
+      const lo = dataMin > 0 ? dataMin : dataMax > 0 ? dataMax * 0.95 : 0
+      const hi = dataMax > lo ? dataMax : lo * 1.05
+      if (hi <= lo) return [lo * 0.99, hi * 1.01] as [number, number]
+      const pad = (hi - lo) * CHART_Y_PADDING_RATIO
+      return [lo - pad, hi + pad] as [number, number]
+    },
+    [visibleData, renderData, yDataKeys],
+  )
+
   if (!selection || data.length === 0) {
     return <div className="h-full flex items-center justify-center text-sm text-muted">Нет данных</div>
   }
 
+  if (periodData.length === 0) {
+    return <div className="h-full flex items-center justify-center text-sm text-muted">Нет данных за период</div>
+  }
+
   const lines: ReactElement[] = []
+  const ghostLines: ReactElement[] = []
+
+  const pushLinePair = (visible: ReactElement, ghostKey: string) => {
+    lines.push(visible)
+    const props = visible.props as Record<string, unknown>
+    ghostLines.push(
+      <Line
+        key={`ghost-${ghostKey}`}
+        type="stepAfter"
+        dataKey={props.dataKey as string}
+        stroke={props.stroke as string}
+        strokeWidth={props.strokeWidth as number | undefined}
+        strokeOpacity={0}
+        dot={false}
+        activeDot={false}
+        connectNulls
+        isAnimationActive={false}
+      />,
+    )
+  }
 
   if (viewMode === 'summary') {
-    lines.push(
+    pushLinePair(
       <Line
         key="avg"
         type="stepAfter"
@@ -315,11 +449,14 @@ function BidAskChartLines({
         strokeDasharray="6 4"
         dot={false}
         activeDot={{ r: 4 }}
+        connectNulls
+        isAnimationActive={false}
       />,
+      'avg',
     )
 
     if (!monitoring && tradingNet) {
-      lines.push(
+      pushLinePair(
         <Line
           key={`${tradingNet.id}_buy`}
           type="stepAfter"
@@ -329,7 +466,12 @@ function BidAskChartLines({
           strokeWidth={2}
           dot={false}
           activeDot={{ r: 3 }}
+          connectNulls
+          isAnimationActive={false}
         />,
+        `${tradingNet.id}_buy`,
+      )
+      pushLinePair(
         <Line
           key={`${tradingNet.id}_sell`}
           type="stepAfter"
@@ -339,13 +481,16 @@ function BidAskChartLines({
           strokeWidth={2}
           dot={false}
           activeDot={{ r: 3 }}
+          connectNulls
+          isAnimationActive={false}
         />,
+        `${tradingNet.id}_sell`,
       )
     }
   } else {
     for (const net of networks) {
       const isTrading = !monitoring && tradingNet?.id === net.id
-      lines.push(
+      pushLinePair(
         <Line
           key={`${net.id}_buy`}
           type="stepAfter"
@@ -356,7 +501,12 @@ function BidAskChartLines({
           strokeOpacity={isTrading ? 1 : 0.85}
           dot={false}
           activeDot={{ r: 3 }}
+          connectNulls
+          isAnimationActive={false}
         />,
+        `${net.id}_buy`,
+      )
+      pushLinePair(
         <Line
           key={`${net.id}_sell`}
           type="stepAfter"
@@ -368,36 +518,92 @@ function BidAskChartLines({
           strokeDasharray={isTrading ? undefined : '3 2'}
           dot={false}
           activeDot={{ r: 3 }}
+          connectNulls
+          isAnimationActive={false}
         />,
+        `${net.id}_sell`,
       )
     }
   }
 
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" />
-        <XAxis dataKey="label" tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={40} />
-        <YAxis
-          tickLine={false}
-          axisLine={false}
-          domain={['auto', 'auto']}
-          tickFormatter={(v) => formatChartPrice(v, primaryPair)}
-          width={72}
+    <div className="flex flex-col h-full min-h-0">
+      <ChartPeriodSelector
+        period={period}
+        onChange={onPeriodChange}
+        onReset={reset}
+        showReset={isAdjusted}
+        className="mb-2 shrink-0"
+      />
+      <div ref={chartShellRef} className="relative flex-1 min-h-0">
+        <ChartViewportControls
+          className="absolute top-2 right-2 z-20"
+          onZoomOut={() => zoomByButton(false)}
+          onZoomIn={() => zoomByButton(true)}
+          onPanLeft={() => panByButton(-1)}
+          onPanRight={() => panByButton(1)}
+          onToggleFullscreen={toggleFullscreen}
+          isFullscreen={isFullscreen}
         />
-        <Tooltip
-          contentStyle={{
-            background: '#172033',
-            border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: 12,
-          }}
-          formatter={(value, name) => [formatChartPrice(Number(value), primaryPair), String(name)]}
-          labelFormatter={(label) => `Time: ${label}`}
-        />
-        <Legend content={() => null} />
-        {lines}
-      </LineChart>
-    </ResponsiveContainer>
+        <div
+          ref={containerRef}
+          className="h-full min-h-0 select-none touch-none overscroll-none cursor-grab active:cursor-grabbing"
+          onWheel={handleWheel}
+          onMouseDown={handlePanStart}
+        >
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={ghostRenderData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+            {showGhostTail ? (
+              <defs>
+                <clipPath id={clipPathId}>
+                  <rect x="0" y="0" width={`${lineClipRatio * 100}%`} height="100%" />
+                </clipPath>
+              </defs>
+            ) : null}
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis
+              dataKey="t"
+              type="number"
+              domain={xDomain}
+              scale="time"
+              allowDataOverflow
+              tickLine={false}
+              axisLine={false}
+              interval="preserveStartEnd"
+              minTickGap={48}
+              tickFormatter={(value) => formatChartAxisLabel(Number(value), period)}
+            />
+            <YAxis
+              type="number"
+              scale="linear"
+              allowDataOverflow
+              tickLine={false}
+              axisLine={false}
+              domain={yDomainFn}
+              tickFormatter={(v) => formatChartPrice(v, primaryPair)}
+              width={72}
+            />
+            <Tooltip
+              contentStyle={{
+                background: '#172033',
+                border: '1px solid rgba(255,255,255,0.06)',
+                borderRadius: 12,
+              }}
+              formatter={(value, name) => [formatChartPrice(Number(value), primaryPair), String(name)]}
+              labelFormatter={(label, payload) => {
+                const row = payload?.[0]?.payload as ChartPoint | undefined
+                if (isChartGhostPoint(row)) return ''
+                return formatChartTooltipLabel(Number(label))
+              }}
+            />
+            <Legend content={() => null} />
+            <g clipPath={showGhostTail ? `url(#${clipPathId})` : undefined}>{lines}</g>
+            {showGhostTail ? ghostLines : null}
+          </LineChart>
+        </ResponsiveContainer>
+        </div>
+      </div>
+    </div>
   )
 }
 

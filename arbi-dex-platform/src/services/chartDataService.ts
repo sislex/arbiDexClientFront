@@ -1,4 +1,5 @@
-import { chartDateTime } from '../simulation/simulationFormatters'
+import { filterChartDataByPeriod, type ChartPeriod } from '../lib/chartTimeRange'
+import { bufferedSinceMs, fetchLimitWithBuffer } from '../lib/chartDataCache'
 
 const STORE_API_BASE = import.meta.env.VITE_STORE_API_BASE ?? '/market-api'
 
@@ -114,12 +115,38 @@ interface NetworkKeySource {
   transform: (v: number) => number
 }
 
-export async function fetchChartData(networks: readonly NetworkKeySource[]): Promise<ChartPoint[]> {
+export interface FetchChartOptions {
+  period?: ChartPeriod
+  limit?: number
+  /** Не обрезать результат до границ периода (для кэша) */
+  keepBuffer?: boolean
+  /** Явная нижняя граница по времени */
+  sinceMs?: number
+}
+
+function trimPointsFromTime(points: Array<{ t: number; v: number }>, sinceMs: number) {
+  if (points.length === 0) return points
+  let startIdx = 0
+  for (let i = points.length - 1; i >= 0; i -= 1) {
+    if (points[i].t < sinceMs) {
+      startIdx = i + 1
+      break
+    }
+  }
+  return points.slice(startIdx)
+}
+
+export async function fetchChartData(
+  networks: readonly NetworkKeySource[],
+  options: FetchChartOptions = {},
+): Promise<ChartPoint[]> {
+  const period = options.period ?? '1h'
+  const targetLimit = options.limit ?? fetchLimitWithBuffer(period)
   const allKeys = networks.flatMap((n) => [n.bidKey, n.askKey])
   const limits = [...new Set([
-    FETCH_LIMIT,
-    Math.max(12000, Math.round(FETCH_LIMIT * 0.5)),
-    Math.max(4000, Math.round(FETCH_LIMIT * 0.2)),
+    targetLimit,
+    Math.max(1200, Math.round(targetLimit * 0.5)),
+    Math.max(800, Math.round(targetLimit * 0.25)),
     1200,
   ])]
 
@@ -133,6 +160,18 @@ export async function fetchChartData(networks: readonly NetworkKeySource[]): Pro
     }
   }
   if (!raw) return []
+
+  const latestT = Math.max(
+    0,
+    ...Object.values(raw).flatMap((series) => {
+      const pts = series?.points
+      if (!pts?.length) return []
+      return [pts[pts.length - 1].t]
+    }),
+  )
+  const sinceMs =
+    options.sinceMs ??
+    (latestT > 0 ? bufferedSinceMs(latestT, period) : 0)
 
   interface TypedSeries {
     t: Float64Array
@@ -162,8 +201,8 @@ export async function fetchChartData(networks: readonly NetworkKeySource[]): Pro
 
   const seriesMap: Record<string, TypedSeries> = {}
   for (const net of networks) {
-    const bidPts = toTypedSeries(raw[net.bidKey]?.points ?? [], net.transform)
-    const askPts = toTypedSeries(raw[net.askKey]?.points ?? [], net.transform)
+    const bidPts = toTypedSeries(trimPointsFromTime(raw[net.bidKey]?.points ?? [], sinceMs), net.transform)
+    const askPts = toTypedSeries(trimPointsFromTime(raw[net.askKey]?.points ?? [], sinceMs), net.transform)
     seriesMap[`${net.id}_buy`] = askPts
     seriesMap[`${net.id}_sell`] = bidPts
   }
@@ -203,23 +242,31 @@ export async function fetchChartData(networks: readonly NetworkKeySource[]): Pro
     filled[key] = carryForwardTyped(series, targetTs)
   }
 
-  return targetTs.map((t, i) => {
-    const point: ChartPoint = {
-      t,
-      label: new Date(t).toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-      }),
-      xLabel: chartDateTime(t),
-    }
+  const points = targetTs.map((t, i) => {
+    const point: ChartPoint = { t, label: '' }
 
     for (const net of networks) {
       const buy = filled[`${net.id}_buy`]
       const sell = filled[`${net.id}_sell`]
       if (buy?.hasValue[i]) point[`${net.id}_buy`] = buy.values[i]
       if (sell?.hasValue[i]) point[`${net.id}_sell`] = sell.values[i]
+    }
+
+    return point
+  })
+
+  const lastByKey: Record<string, number> = {}
+  for (const point of points) {
+    for (const net of networks) {
+      for (const side of ['buy', 'sell'] as const) {
+        const key = `${net.id}_${side}`
+        const value = point[key]
+        if (typeof value === 'number' && Number.isFinite(value)) {
+          lastByKey[key] = value
+        } else if (lastByKey[key] !== undefined) {
+          point[key] = lastByKey[key]
+        }
+      }
     }
 
     const mids: number[] = []
@@ -231,7 +278,8 @@ export async function fetchChartData(networks: readonly NetworkKeySource[]): Pro
       else if (s !== undefined) mids.push(s)
     }
     if (mids.length > 0) point.avg = +(mids.reduce((a, b) => a + b, 0) / mids.length).toFixed(4)
+  }
 
-    return point
-  })
+  if (options.keepBuffer) return points
+  return filterChartDataByPeriod(points, period)
 }
