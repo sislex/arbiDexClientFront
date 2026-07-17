@@ -224,6 +224,9 @@ export const liveApi: ApiClient = {
     resume(jobId) {
       return request(`/compute/jobs/${jobId}/resume`, { method: 'POST' });
     },
+    refineMore(jobId, params = {}) {
+      return request(`/compute/jobs/${jobId}/refine`, { method: 'POST', body: params });
+    },
     remove(jobId) {
       return request<void>(`/compute/jobs/${jobId}`, { method: 'DELETE' });
     },

@@ -3,7 +3,7 @@ import {
   Box, Card, CardContent, Stack, Button, TextField, Typography, CircularProgress,
   Alert, Table, TableBody, TableCell, TableHead, TableRow, Chip, Divider, Snackbar,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, InputAdornment,
-  LinearProgress,
+  LinearProgress, Tooltip,
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
@@ -155,6 +155,24 @@ export function AutotuneTab({ bot }: { bot: Bot }) {
       handleSnapshot(snap);
       if (snap.status === 'running' || snap.status === 'queued') {
         sessionStorage.setItem(jobStorageKey, snap.jobId);
+        unsubRef.current = subscribeAutotuneProgress(snap.jobId, handleSnapshot);
+      }
+    } catch (e) {
+      setStartError((e as Error).message);
+    }
+  };
+
+  /** «Уточнить ещё»: доп. раунды сужения вокруг лучших результатов завершённого
+   * прогона (без повторов); бюджет — текущее значение «Лимит прогонов». */
+  const refineMore = async () => {
+    if (!job || job.status !== 'done') return;
+    setStartError(null);
+    try {
+      const snap = await api.compute.refineMore(job.jobId, { maxCombos });
+      handleSnapshot(snap);
+      if (snap.status === 'running' || snap.status === 'queued') {
+        sessionStorage.setItem(jobStorageKey, snap.jobId);
+        unsubRef.current?.();
         unsubRef.current = subscribeAutotuneProgress(snap.jobId, handleSnapshot);
       }
     } catch (e) {
@@ -352,9 +370,18 @@ export function AutotuneTab({ bot }: { bot: Bot }) {
             <CardContent>
               <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1, flexWrap: 'wrap', gap: 1 }}>
                 <Typography variant="subtitle1">Лучшая комбинация</Typography>
-                <Button variant="contained" color="success" startIcon={<AutoFixHighIcon />} onClick={() => setApplyDialog(true)} data-testid="apply-best">
-                  Применить к стратегии
-                </Button>
+                <Stack direction="row" spacing={1}>
+                  {job?.status === 'done' && job.topCombos.length > 0 && (
+                    <Tooltip title={`Продолжить сужение вокруг лучших результатов: ещё ~${maxCombos.toLocaleString('ru-RU')} прогонов двумя раундами, без повторов`}>
+                      <Button variant="outlined" color="success" startIcon={<TimerOutlinedIcon />} onClick={refineMore} data-testid="at-refine-more">
+                        Уточнить ещё
+                      </Button>
+                    </Tooltip>
+                  )}
+                  <Button variant="contained" color="success" startIcon={<AutoFixHighIcon />} onClick={() => setApplyDialog(true)} data-testid="apply-best">
+                    Применить к стратегии
+                  </Button>
+                </Stack>
               </Stack>
               <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap', gap: 2, mb: 1 }}>
                 <StatCard label="PnL" value={<PnlValue value={best.stats.pnl} pct={best.stats.pnlPct} variant="h6" />} />

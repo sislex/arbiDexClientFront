@@ -183,6 +183,21 @@ export function ComputationJobPage() {
     });
   };
 
+  /** «Уточнить ещё»: доп. раунды сужения вокруг лучших; бюджет — поле «Лимит прогонов». */
+  const refineMore = async () => {
+    if (!job) return;
+    setError(null);
+    try {
+      const snap = await api.compute.refineMore(job.jobId, { maxCombos });
+      setJob(snap);
+      unsubRef.current?.();
+      unsubRef.current = subscribeAutotuneProgress(snap.jobId, (s) => setJob(s));
+      setMsg(`Дополнительное уточнение запущено (+${maxCombos.toLocaleString('ru-RU')} прогонов)`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   const applyToStrategy = async (combo: AutotuneCombo) => {
     if (!strategy) return setError('Стратегия бота не найдена');
     const { buy, sell } = applyComboToStrategy(strategy, combo.params);
@@ -242,6 +257,13 @@ export function ComputationJobPage() {
               <Button startIcon={<PlayArrowIcon />} onClick={() => act(() => api.compute.resume(job.jobId))} data-testid="job-resume">
                 Продолжить
               </Button>
+            )}
+            {job.status === 'done' && job.topCombos.length > 0 && (
+              <Tooltip title={`Продолжить сужение вокруг лучших результатов: ещё ~${maxCombos.toLocaleString('ru-RU')} прогонов (значение поля «Лимит прогонов») двумя раундами, без повторов уже испробованных комбинаций`}>
+                <Button variant="outlined" color="success" startIcon={<AutoFixHighIcon />} onClick={refineMore} data-testid="job-refine-more">
+                  Уточнить ещё
+                </Button>
+              </Tooltip>
             )}
             <Tooltip title="Удалить расчёт">
               <IconButton color="error" onClick={removeJob} data-testid="job-delete">

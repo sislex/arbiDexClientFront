@@ -239,6 +239,9 @@ export interface ApiClient {
     jobs(): Promise<AutotuneJob[]>;
     pause(jobId: string): Promise<AutotuneJob>;
     resume(jobId: string): Promise<AutotuneJob>;
+    /** Continue a FINISHED job with extra refinement rounds around its best
+     * results (works after any search type; no repeated combos). */
+    refineMore(jobId: string, params?: { maxCombos?: number; rounds?: number }): Promise<AutotuneJob>;
     /** Delete a job (a running one is cancelled, threads return to the pool). */
     remove(jobId: string): Promise<void>;
     config(): Promise<ComputeConfig>;

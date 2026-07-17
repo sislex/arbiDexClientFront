@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
-import { IsInt, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, Max, Min } from 'class-validator';
 import { AutotuneJobsService } from './autotune-jobs.service';
 import { SettingsService } from '../settings/settings.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -12,6 +12,21 @@ class UpdateComputeConfigDto {
   @Min(1)
   @Max(64)
   totalThreads: number;
+}
+
+class RefineMoreDto {
+  /** Бюджет дополнительных прогонов (по умолчанию половина исходного). */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxCombos?: number;
+
+  /** Сколько раундов уточнения (по умолчанию 2). */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  rounds?: number;
 }
 
 /**
@@ -46,6 +61,18 @@ export class ComputeController {
   @ApiParam({ name: 'jobId' })
   resume(@CurrentUser() user: User, @Param('jobId') jobId: string) {
     return this.jobs.resume(user.id, jobId);
+  }
+
+  @Post('jobs/:jobId/refine')
+  @ApiOperation({
+    summary: 'Уточнить ещё: продолжить завершённый расчёт раундами вокруг лучших результатов',
+    description:
+      'Работает после любого типа перебора: накопленный топ и уже испробованные комбинации ' +
+      'сохраняются, новые раунды сужают диапазоны вокруг топ-10 без повторов.',
+  })
+  @ApiParam({ name: 'jobId' })
+  refineMore(@CurrentUser() user: User, @Param('jobId') jobId: string, @Body() dto: RefineMoreDto) {
+    return this.jobs.refineMore(user.id, jobId, { maxCombos: dto.maxCombos, rounds: dto.rounds });
   }
 
   @Delete('jobs/:jobId')

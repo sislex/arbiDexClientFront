@@ -199,6 +199,7 @@ export const mockApi: ApiClient = {
     jobs: () => delay([]),
     pause: () => Promise.reject(new Error('Планировщик расчётов доступен только в live-режиме')),
     resume: () => Promise.reject(new Error('Планировщик расчётов доступен только в live-режиме')),
+    refineMore: () => Promise.reject(new Error('Планировщик расчётов доступен только в live-режиме')),
     remove: () => Promise.reject(new Error('Планировщик расчётов доступен только в live-режиме')),
     config: () => delay({ totalThreads: 1, activeThreads: 0, queuedJobs: 0 }),
     updateConfig: (totalThreads: number) => delay({ totalThreads, activeThreads: 0, queuedJobs: 0 }),

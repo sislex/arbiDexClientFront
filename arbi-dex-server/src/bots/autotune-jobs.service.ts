@@ -89,6 +89,8 @@ interface ComputeJob {
   runSince: number | null;
   error: string | null;
   result: (AutotuneResult & { tookMs: number }) | null;
+  /** Таймер удаления завершённой задачи — отменяется при доп. уточнении. */
+  cleanupTimer?: NodeJS.Timeout;
 }
 
 /**
@@ -186,6 +188,52 @@ export class AutotuneJobsService {
       result: null,
     };
     this.jobs.set(job.jobId, job);
+    this.tick();
+    return this.snapshot(job);
+  }
+
+  /**
+   * «Уточнить ещё»: продолжает ЗАВЕРШЁННЫЙ расчёт дополнительными раундами
+   * уточнения вокруг его лучших результатов. Накопленный топ и список уже
+   * испробованных комбинаций сохраняются (повторов не будет) — работает после
+   * любого типа перебора, дальше расчёт ведёт себя как уточняющий.
+   */
+  refineMore(
+    userId: string,
+    jobId: string,
+    opts: { maxCombos?: number; rounds?: number } = {},
+  ): AutotuneJobSnapshot {
+    const job = this.find(userId, jobId);
+    if (job.status !== 'done') {
+      throw new BadRequestException('Дополнительное уточнение доступно только для завершённого расчёта');
+    }
+    if (job.dims.length === 0 || job.topCombos.length === 0) {
+      throw new BadRequestException('В расчёте нет настраиваемых диапазонов или результатов для уточнения');
+    }
+    const rounds = Math.max(1, Math.min(opts.rounds ?? 2, 10));
+    const budget = Math.max(1, opts.maxCombos ?? Math.ceil(job.params.maxCombos / 2));
+
+    job.searchType = 'refine';
+    job.roundSize = Math.max(1, Math.ceil(budget / rounds));
+    job.roundsLeft = rounds - 1;
+    const first = buildRefineRound(job.dims, job.topCombos.slice(0, 10), job.roundSize, job.seen);
+    if (first.length === 0) {
+      throw new BadRequestException(
+        'Сетка вокруг лучших результатов уже исследована полностью — уточнять нечего',
+      );
+    }
+    let idx = job.done;
+    job.pending = first.map((params) => ({ index: idx++, params }));
+    job.total = job.done + budget - Math.max(0, job.roundSize - first.length);
+    job.status = 'queued';
+    job.order = ++this.orderSeq;
+    job.result = null;
+    job.error = null;
+    // Завершённую задачу ждала уборка — она снова живая.
+    if (job.cleanupTimer) {
+      clearTimeout(job.cleanupTimer);
+      job.cleanupTimer = undefined;
+    }
     this.tick();
     return this.snapshot(job);
   }
@@ -382,8 +430,11 @@ export class AutotuneJobsService {
   }
 
   private scheduleCleanup(jobId: string): void {
+    const job = this.jobs.get(jobId);
+    if (job?.cleanupTimer) clearTimeout(job.cleanupTimer);
     const t = setTimeout(() => this.jobs.delete(jobId), RETENTION_MS);
     // Не держим процесс живым ради уборки кэша задач.
     t.unref?.();
+    if (job) job.cleanupTimer = t;
   }
 }
