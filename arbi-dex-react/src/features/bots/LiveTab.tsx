@@ -26,6 +26,8 @@ import { assembleMarketPreview, type TradingPoint } from '../../api/assemble';
 import { marketLabelFromId } from '../../api/live';
 import type { PreviewSeries } from '../../api/types';
 import { StepResultPanel } from './StepResultPanel';
+import { LiveTradesTable } from './LiveTradesTable';
+import { fmtTime } from '../../components/format';
 
 /** The chart keeps at most the last 30 minutes of live data. */
 const WINDOW_SEC = 30 * 60;
@@ -33,6 +35,8 @@ const WINDOW_SEC = 30 * 60;
 const FLUSH_MS = 500;
 /** Do not call the step-result API more often than this. */
 const INSPECT_MIN_MS = 3000;
+/** Poll cadence for history / trades / bot state of a running bot. */
+const POLL_MS = 20_000;
 
 /** Human amount: 2 decimals for big values, significant digits for tiny ones
  * (0.001 WBTC must not collapse to «0.00»). */
@@ -63,6 +67,37 @@ export function LiveTab({ bot }: { bot: Bot }) {
 
   const [quotes, setQuotes] = useState<QuotePoint[]>([]);
   const [streaming, setStreaming] = useState(false);
+
+  // ── История с момента запуска бота ────────────────────────────────────────
+  // Запущенный бот: график начинается с bot.startedAt (момент старта скрипта
+  // на сервере), история подтягивается с сервера и дополняется live-потоком.
+  const isRunning = IS_LIVE && bot.status === 'running' && bot.mode !== 'idle';
+  const startedMs = isRunning && (bot.startedAt ?? 0) > 0 ? bot.startedAt! : null;
+  const [history, setHistory] = useState<QuotePoint[]>([]);
+  useEffect(() => {
+    if (!startedMs) {
+      setHistory([]);
+      return;
+    }
+    let alive = true;
+    const load = () =>
+      api.bots
+        .quotes(bot.id, { from: startedMs })
+        .then((r) => {
+          if (!alive) return;
+          // Chart times are unix seconds (fractional ok); the server sends ms.
+          setHistory(r.quotes.map((q) => (q.time > 1e12 ? { ...q, time: q.time / 1000 } : q)));
+        })
+        .catch(() => {
+          /* история недоступна — остаётся live-поток */
+        });
+    load();
+    const t = window.setInterval(load, POLL_MS);
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+    };
+  }, [bot.id, startedMs]);
 
   // Live stream: subscribe to the config's markets via the /live-chart socket,
   // assemble steps every FLUSH_MS and keep only the last 30 minutes.
@@ -144,6 +179,14 @@ export function LiveTab({ bot }: { bot: Bot }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [marketConfig?.id, marketConfig?.tradingMarketId, observedKey]);
 
+  // График = история с запуска + live-поток (поток точнее на последних шагах,
+  // история закрывает всё, что было до открытия страницы).
+  const chartQuotes = useMemo<QuotePoint[]>(() => {
+    if (history.length === 0) return quotes;
+    const firstStream = quotes[0]?.time ?? Infinity;
+    return history.filter((q) => q.time < firstStream).concat(quotes);
+  }, [history, quotes]);
+
   // Every new step → inspect the latest one via the API (throttled) and show
   // the breakdown in the side panel.
   const [stepResult, setStepResult] = useState<BotStepResult | null>(null);
@@ -177,7 +220,7 @@ export function LiveTab({ bot }: { bot: Bot }) {
       });
   }, [lastTime, bot.id]);
 
-  const last = quotes[quotes.length - 1];
+  const last = chartQuotes[chartQuotes.length - 1];
 
   // ── Manual trading (buy/sell buttons) ─────────────────────────────────────
   const [liveTrades, setLiveTrades] = useState<LiveTrade[]>([]);
@@ -201,6 +244,21 @@ export function LiveTab({ bot }: { bot: Bot }) {
       alive = false;
     };
   }, [bot.id]);
+
+  // Запущенный бот торгует сам (движок на сервере) — журнал сделок и счёт
+  // бота обновляются поллингом, чтобы сделки движка появлялись без перезагрузки.
+  useEffect(() => {
+    if (!isRunning) return;
+    const t = window.setInterval(() => {
+      api.bots
+        .trades(bot.id)
+        .then(setLiveTrades)
+        .catch(() => {});
+      dispatch(fetchBot(bot.id));
+    }, POLL_MS);
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bot.id, isRunning]);
 
   // Real mode: executor contract balances — fetched on every visit to the tab
   // and refreshed after each trade (real trades spend the executor's tokens).
@@ -271,12 +329,18 @@ export function LiveTab({ bot }: { bot: Bot }) {
     }
   };
 
+  // Запущенный бот: на графике и в журнале — сделки с момента запуска скрипта.
+  const visibleTrades = useMemo<LiveTrade[]>(
+    () => (startedMs ? liveTrades.filter((t) => t.time >= startedMs) : liveTrades),
+    [liveTrades, startedMs],
+  );
+
   // Trades → chart markers: snap each trade to the nearest visible step so the
   // marker lands on an existing series point (markers bind to bar times).
   const chartTrades = useMemo<Trade[]>(() => {
-    if (quotes.length === 0 || liveTrades.length === 0) return [];
-    const times = quotes.map((q) => q.time);
-    return liveTrades
+    if (chartQuotes.length === 0 || visibleTrades.length === 0) return [];
+    const times = chartQuotes.map((q) => q.time);
+    return visibleTrades
       .map((t) => {
         const sec = Math.round(t.time / 1000);
         if (sec < times[0] - 60) return null; // до окна графика — не показываем
@@ -304,16 +368,43 @@ export function LiveTab({ bot }: { bot: Bot }) {
       })
       .filter((t): t is Trade => t !== null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quotes, liveTrades, inverted]);
+  }, [chartQuotes, visibleTrades, inverted]);
+
+  // Клик по строке журнала → подсветить шаг сделки на графике.
+  const [selectedTradeTime, setSelectedTradeTime] = useState<number | null>(null);
 
   const positionSize = bot.positionSize ?? 0;
   const canTrade = IS_LIVE && bot.mode !== 'idle' && !!last;
+
+  // Живость движка: проверка раз в ~30 с; давность больше 90 с — тревога.
+  const lastTickAgoSec =
+    isRunning && (bot.lastTickAt ?? 0) > 0 ? Math.max(0, Math.round((Date.now() - bot.lastTickAt!) / 1000)) : null;
+  const engineAlive = lastTickAgoSec != null && lastTickAgoSec < 90;
+  const cooldownActive = isRunning && (bot.failCooldownUntil ?? 0) > Date.now();
 
   return (
     <Box>
       {isReal && (
         <Alert severity="error" sx={{ mb: 2 }} data-testid="real-warning">
           Реальный режим: сделки исполняются настоящими транзакциями on-chain.
+        </Alert>
+      )}
+
+      {/* Живость движка: бот запущен — сервер оценивает стратегию каждые 30 с. */}
+      {isRunning && (
+        <Alert
+          severity={lastTickAgoSec == null ? 'info' : engineAlive ? 'success' : 'warning'}
+          sx={{ mb: 2 }}
+          data-testid="engine-status"
+        >
+          {lastTickAgoSec == null
+            ? 'Бот запущен, движок ещё не сделал первую проверку (тик раз в 30 с).'
+            : engineAlive
+              ? `Движок работает: проверка стратегии ${lastTickAgoSec} с назад.`
+              : `Движок давно не тикал (${lastTickAgoSec} с назад) — проверьте сервер.`}
+          {(bot.lastSignalAt ?? 0) > 0 && <> Последний сигнал: {fmtTime(bot.lastSignalAt! / 1000)}.</>}
+          {cooldownActive && <> Пауза после неудачной сделки до {fmtTime(bot.failCooldownUntil! / 1000)}.</>}
+          {(bot.startedAt ?? 0) > 0 && <> Запущен: {fmtTime(bot.startedAt! / 1000)}.</>}
         </Alert>
       )}
 
@@ -499,9 +590,11 @@ export function LiveTab({ bot }: { bot: Bot }) {
                   <Chip size="small" color="success" variant="outlined" label="● LIVE" data-testid="live-indicator" sx={{ fontWeight: 700 }} />
                 )}
                 <Box sx={{ flexGrow: 1 }} />
-                <Typography variant="caption" color="text.secondary">последние 30 минут</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {startedMs ? `с запуска (${fmtTime(startedMs / 1000)})` : 'последние 30 минут'}
+                </Typography>
               </Stack>
-              {quotes.length === 0 ? (
+              {chartQuotes.length === 0 ? (
                 <Box sx={{ height: 340, display: 'grid', placeItems: 'center' }}>
                   <Typography color="text.secondary">
                     {IS_LIVE ? 'Ожидание тиков рынков…' : 'Нет потока'}
@@ -509,12 +602,12 @@ export function LiveTab({ bot }: { bot: Bot }) {
                 </Box>
               ) : (
                 <QuoteChartPanel
-                  quotes={quotes}
+                  quotes={chartQuotes}
                   trades={chartTrades}
                   hasTradingMarket={!!marketConfig?.tradingMarketId}
                   height={340}
                   defaultWeighted
-                  selectedTime={last?.time ?? null}
+                  selectedTime={selectedTradeTime ?? last?.time ?? null}
                 />
               )}
             </CardContent>
@@ -522,6 +615,39 @@ export function LiveTab({ bot }: { bot: Bot }) {
         </Box>
         <StepResultPanel result={stepResult} loading={stepLoading} error={stepError} source={stepResult ? 'api' : null} />
       </Stack>
+
+      {/* Журнал live-сделок — как таблица сделок в бэктесте, но с фактическим
+          статусом исполнения; клик по строке подсвечивает шаг на графике. */}
+      {IS_LIVE && (
+        <Card sx={{ mt: 2 }}>
+          <CardContent>
+            <Typography variant="subtitle1" sx={{ mb: 1 }}>
+              Сделки{startedMs ? ' с момента запуска' : ''} ({visibleTrades.length})
+            </Typography>
+            <LiveTradesTable
+              trades={visibleTrades}
+              displaySide={toDisplaySide}
+              displayAsset={displayAsset}
+              onRowClick={(t) => {
+                // Маркеры прибиты к ближайшему шагу — подсветку ставим туда же.
+                const sec = Math.round(t.time / 1000);
+                const times = chartQuotes.map((q) => q.time);
+                if (times.length === 0) return;
+                let nearest = times[0];
+                let bestD = Math.abs(times[0] - sec);
+                for (const ts of times) {
+                  const d = Math.abs(ts - sec);
+                  if (d < bestD) {
+                    bestD = d;
+                    nearest = ts;
+                  }
+                }
+                setSelectedTradeTime(nearest);
+              }}
+            />
+          </CardContent>
+        </Card>
+      )}
     </Box>
   );
 }

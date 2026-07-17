@@ -91,6 +91,15 @@ export class LiveEngineService implements OnModuleInit, OnModuleDestroy {
 
   /** Оценка стратегии бота на последнем шаге котировок + исполнение сигнала. */
   private async stepBot(bot: Bot): Promise<void> {
+    // Отметка живости: бот был проверен движком (даже если сигнала не будет).
+    // startedAt подставляем ботам, запущенным до появления этого поля.
+    const liveness: Partial<Bot> = { lastTickAt: Date.now() };
+    if (!(bot.startedAt > 0)) {
+      bot.startedAt = Date.now();
+      liveness.startedAt = bot.startedAt;
+    }
+    await this.botsRepo.update(bot.id, liveness);
+
     // После неудачной сделки (нет средств на executor, проскальзывание…) бот
     // выдерживает паузу, чтобы не забивать журнал ретраями каждый тик.
     if (Date.now() < (this.cooldownUntil.get(bot.id) ?? 0)) return;
@@ -133,6 +142,7 @@ export class LiveEngineService implements OnModuleInit, OnModuleDestroy {
 
     const side = wantBuy ? 'buy' : 'sell';
     const expectedPrice = side === 'buy' ? last.buyQuote : last.sellQuote;
+    await this.botsRepo.update(bot.id, { lastSignalAt: Date.now() });
     this.logger.log(
       `Бот ${bot.name} (${bot.mode}): сигнал ${side}${result.transaction.forcedSell ? ' (forced)' : ''} по ${expectedPrice}`,
     );
@@ -141,7 +151,9 @@ export class LiveEngineService implements OnModuleInit, OnModuleDestroy {
       `Бот ${bot.name}: сделка ${side} → ${trade.status}${trade.price != null ? ` по ${trade.price}` : ''}${trade.error ? ` (${trade.error})` : ''}`,
     );
     if (trade.status === 'failed') {
-      this.cooldownUntil.set(bot.id, Date.now() + FAIL_COOLDOWN_MS);
+      const until = Date.now() + FAIL_COOLDOWN_MS;
+      this.cooldownUntil.set(bot.id, until);
+      await this.botsRepo.update(bot.id, { failCooldownUntil: until });
     }
   }
 }

@@ -83,6 +83,22 @@ export class Bot {
   @Column({ type: 'double precision', default: 0 })
   positionOpenedAt: number;
 
+  /** When the bot was switched to `running`, unix ms (live chart starts here). */
+  @Column({ type: 'double precision', default: 0 })
+  startedAt: number;
+
+  /** Last time the live engine evaluated this bot, unix ms (liveness). */
+  @Column({ type: 'double precision', default: 0 })
+  lastTickAt: number;
+
+  /** Last time the strategy produced a buy/sell signal, unix ms. */
+  @Column({ type: 'double precision', default: 0 })
+  lastSignalAt: number;
+
+  /** Until when the bot pauses after a failed trade, unix ms. */
+  @Column({ type: 'double precision', default: 0 })
+  failCooldownUntil: number;
+
   @CreateDateColumn()
   createdAt: Date;
 

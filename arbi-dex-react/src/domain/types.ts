@@ -86,6 +86,14 @@ export interface Bot {
   positionSize?: number;
   /** Entry price of the open position (quote per base). */
   entryPrice?: number;
+  /** When the bot was switched to running, unix ms (live chart starts here). */
+  startedAt?: number;
+  /** Last live-engine evaluation of this bot, unix ms (0 = never). */
+  lastTickAt?: number;
+  /** Last buy/sell signal from the strategy, unix ms (0 = never). */
+  lastSignalAt?: number;
+  /** Pause after a failed trade until this moment, unix ms. */
+  failCooldownUntil?: number;
   createdAt: string;
   updatedAt: string;
 }

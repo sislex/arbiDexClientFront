@@ -115,6 +115,10 @@ export class BotsService {
     // непереданные равны undefined и затирали бота (balance и т.п. пропадали
     // из ответа, фронт падал). Копируем только реально переданные значения.
     const patch = Object.fromEntries(Object.entries(dto).filter(([, v]) => v !== undefined));
+    // Запуск бота: с этого момента live-вкладка показывает график и сделки.
+    if (dto.status === 'running' && bot.status !== 'running') {
+      bot.startedAt = Date.now();
+    }
     Object.assign(bot, patch);
     if (resetAccount && dto.balance === undefined) {
       bot.balance = bot.initialBalance;
@@ -257,14 +261,19 @@ export class BotsService {
       tookMs: Date.now() - startedAt,
     };
 
-    // Update the demo account.
-    bot.balance = result.stats.finalBalance;
-    bot.pnl = result.stats.pnl;
-    bot.pnlPct = result.stats.pnlPct;
-    bot.tradesCount = result.stats.trades;
-    bot.winRate = result.stats.winRate;
-    bot.openPosition = false;
-    await this.repo.save(bot);
+    // Update the demo account — но НЕ у запущенного live-бота: его счётом
+    // владеет движок live-торговли, бэктест затирал бы реальную позицию.
+    const liveRunning =
+      bot.status === 'running' && (bot.mode === 'demo-live' || bot.mode === 'real-live');
+    if (!liveRunning) {
+      bot.balance = result.stats.finalBalance;
+      bot.pnl = result.stats.pnl;
+      bot.pnlPct = result.stats.pnlPct;
+      bot.tradesCount = result.stats.trades;
+      bot.winRate = result.stats.winRate;
+      bot.openPosition = false;
+      await this.repo.save(bot);
+    }
     return result;
   }
 
