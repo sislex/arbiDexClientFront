@@ -17,8 +17,9 @@ const CHUNK_SIZE = 20;
 
 export type ComputeJobStatus = 'queued' | 'running' | 'paused' | 'done' | 'error';
 
-/** Тип перебора: обычный (равномерный по сетке) или уточняющий (раундами). */
-export type SearchType = 'grid' | 'refine';
+/** Тип перебора: обычный (равномерный по сетке), уточняющий (раундами) или
+ * случайный поиск. */
+export type SearchType = 'grid' | 'refine' | 'random';
 
 /** Параметры, с которыми запускался расчёт (для страницы расчёта/перезапуска). */
 export interface ComputeJobParams {

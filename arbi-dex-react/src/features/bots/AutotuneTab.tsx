@@ -3,13 +3,13 @@ import {
   Box, Card, CardContent, Stack, Button, TextField, Typography, CircularProgress,
   Alert, Table, TableBody, TableCell, TableHead, TableRow, Chip, Divider, Snackbar,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, InputAdornment,
-  LinearProgress, MenuItem,
+  LinearProgress,
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import TimerOutlinedIcon from '@mui/icons-material/TimerOutlined';
-import type { AutotuneCombo, AutotuneEstimate, AutotuneJob, BacktestStats, Bot } from '../../domain/types';
+import type { AutotuneCombo, AutotuneEstimate, AutotuneJob, BacktestStats, Bot, SearchType } from '../../domain/types';
 import { StatCard } from '../../components/StatCard';
 import { PnlValue } from '../../components/PnlValue';
 import { fmtDuration } from '../../components/format';
@@ -21,6 +21,7 @@ import { tuneKeyLabel, applyComboToStrategy } from './autotuneLabels';
 import { usePeriod } from './usePeriod';
 import { PeriodPicker } from './PeriodPicker';
 import { PeriodHistoryChart } from './PeriodHistoryChart';
+import { SearchTypeSelect } from './SearchTypeSelect';
 import { api } from '../../api';
 import { subscribeAutotuneProgress } from '../../api/liveSocket';
 
@@ -36,7 +37,7 @@ export function AutotuneTab({ bot }: { bot: Bot }) {
   const [maxCombos, setMaxCombos] = useState(1000);
   const [initialBalance, setInitialBalance] = useState(bot.initialBalance);
   const [threads, setThreads] = useState(6);
-  const [searchType, setSearchType] = useState<'grid' | 'refine'>('grid');
+  const [searchType, setSearchType] = useState<SearchType>('grid');
   const [applyDialog, setApplyDialog] = useState(false);
 
   // ── Оценка: сколько прогонов и сколько это займёт ─────────────────────────
@@ -247,19 +248,7 @@ export function AutotuneTab({ bot }: { bot: Bot }) {
               inputProps={{ min: 1, max: 64, 'data-testid': 'at-threads' }}
               sx={{ width: 110 }}
             />
-            <TextField
-              select
-              label="Тип перебора" size="small" value={searchType}
-              onChange={(e) => setSearchType(e.target.value as 'grid' | 'refine')}
-              sx={{ minWidth: 190 }}
-              inputProps={{ 'data-testid': 'at-search-type' }}
-              // Обычный — равномерно по всей сетке; уточняющий — раундами:
-              // каждый следующий раунд сужается вокруг лучших результатов.
-              helperText={searchType === 'refine' ? 'Раунды: сетка сужается вокруг лучших' : undefined}
-            >
-              <MenuItem value="grid">Обычный перебор</MenuItem>
-              <MenuItem value="refine">Уточняющий (быстрый)</MenuItem>
-            </TextField>
+            <SearchTypeSelect value={searchType} onChange={setSearchType} dataTestId="at-search-type" />
             <Button
               variant="outlined"
               startIcon={estimating ? <CircularProgress size={16} color="inherit" /> : <TimerOutlinedIcon />}

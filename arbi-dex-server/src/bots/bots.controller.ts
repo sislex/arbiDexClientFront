@@ -208,7 +208,7 @@ export class BotsController {
   @ApiQuery({ name: 'to', required: false })
   @ApiQuery({ name: 'maxCombos', required: false })
   @ApiQuery({ name: 'threads', required: false })
-  @ApiQuery({ name: 'searchType', required: false, enum: ['grid', 'refine'] })
+  @ApiQuery({ name: 'searchType', required: false, enum: ['grid', 'refine', 'random'] })
   autotuneEstimate(
     @CurrentUser() user: User,
     @Param('id') id: string,
@@ -223,7 +223,7 @@ export class BotsController {
       to: to !== undefined ? Number(to) : undefined,
       maxCombos: maxCombos !== undefined ? Number(maxCombos) : undefined,
       threads: threads !== undefined ? Number(threads) : undefined,
-      searchType: searchType === 'refine' ? 'refine' : 'grid',
+      searchType: searchType === 'refine' ? 'refine' : searchType === 'random' ? 'random' : 'grid',
     });
   }
 
@@ -241,7 +241,7 @@ export class BotsController {
   @ApiQuery({ name: 'maxCombos', required: false })
   @ApiQuery({ name: 'initialBalance', required: false })
   @ApiQuery({ name: 'threads', required: false, description: 'Сколько потоков пула занять этим расчётом' })
-  @ApiQuery({ name: 'searchType', required: false, enum: ['grid', 'refine'], description: 'Тип перебора: grid — обычный, refine — уточняющий (раундами)' })
+  @ApiQuery({ name: 'searchType', required: false, enum: ['grid', 'refine', 'random'], description: 'Тип перебора: grid — обычный, refine — уточняющий (раундами), random — случайный поиск' })
   autotuneStart(
     @CurrentUser() user: User,
     @Param('id') id: string,
@@ -258,7 +258,7 @@ export class BotsController {
       maxCombos: maxCombos !== undefined ? Number(maxCombos) : undefined,
       initialBalance: initialBalance !== undefined ? Number(initialBalance) : undefined,
       threads: threads !== undefined ? Number(threads) : undefined,
-      searchType: searchType === 'refine' ? 'refine' : 'grid',
+      searchType: searchType === 'refine' ? 'refine' : searchType === 'random' ? 'random' : 'grid',
     });
   }
 

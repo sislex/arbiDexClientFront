@@ -23,6 +23,42 @@ export function comboKey(params: Record<string, number>): string {
 }
 
 /**
+ * Случайный поиск: у каждого измерения выбирается случайное значение.
+ * В отличие от равномерного сэмпла (регулярная решётка по mixed-radix, которая
+ * может систематически пропускать области между узлами), случайные точки не
+ * имеют такого смещения — на огромных сетках это полезная альтернатива.
+ * Повторы отсеиваются по ключу комбинации.
+ */
+export function sampleRandom(dims: Dimension[], count: number): Record<string, number>[] {
+  if (dims.length === 0 || count <= 0) return [{}];
+  const total = gridSize(dims);
+  const target = Math.min(count, total);
+  const seen = new Set<string>();
+  const out: Record<string, number>[] = [];
+  // Запас попыток на случай коллизий; при почти полном покрытии сетки
+  // добиваем оставшееся равномерным сэмплом.
+  let attempts = target * 20;
+  while (out.length < target && attempts-- > 0) {
+    const combo: Record<string, number> = {};
+    for (const d of dims) combo[d.label] = d.values[Math.floor(Math.random() * d.values.length)];
+    const key = comboKey(combo);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(combo);
+  }
+  if (out.length < target) {
+    for (const combo of sampleGrid(dims, total)) {
+      if (out.length >= target) break;
+      const key = comboKey(combo);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(combo);
+    }
+  }
+  return out;
+}
+
+/**
  * Следующий раунд уточняющего перебора (coarse-to-fine): по топ-результатам
  * прошлого раунда сужаем диапазон каждого измерения до [min..max] значений в
  * топе, расширенного на один шаг сетки в обе стороны, и равномерно сэмплируем

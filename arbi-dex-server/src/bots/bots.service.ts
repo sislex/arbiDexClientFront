@@ -5,7 +5,7 @@ import { Bot } from './entities/bot.entity';
 import { CreateBotDto, UpdateBotDto } from './dto/bot.dto';
 import { MarketConfigsService } from '../market-configs/market-configs.service';
 import { StrategyConfigsService } from '../strategy-configs/strategy-configs.service';
-import { runAutotuneParallel, estimateGrid, applyCombo, collectDimensions, sampleGrid } from '../demo/engine/autotune';
+import { runAutotuneParallel, estimateGrid, applyCombo, collectDimensions, sampleGrid, sampleRandom } from '../demo/engine/autotune';
 import { AutotuneJobsService, AutotuneJobSnapshot, SearchType } from './autotune-jobs.service';
 import * as os from 'os';
 import { findMarket } from '../demo/engine/markets';
@@ -439,7 +439,8 @@ export class BotsService {
     const estimatedMs = Math.ceil(combosToRun / threads) * singleRunMs;
     // Уточняющий перебор гоняет тот же бюджет прогонов, но раундами — время
     // оценивается так же; отдаём разбивку на раунды для подсказки в UI.
-    const searchType: SearchType = opts.searchType === 'refine' ? 'refine' : 'grid';
+    const searchType: SearchType =
+      opts.searchType === 'refine' ? 'refine' : opts.searchType === 'random' ? 'random' : 'grid';
     const rounds = searchType === 'refine' ? 3 : null;
     const roundSize = searchType === 'refine' ? Math.max(1, Math.ceil(combosToRun / 3)) : null;
 
@@ -490,21 +491,30 @@ export class BotsService {
     const strategy = await this.loadStrategy(userId, bot);
     const strategyData = { buy: strategy.buy, sell: strategy.sell };
 
+    const searchType: SearchType =
+      opts.searchType === 'refine' ? 'refine' : opts.searchType === 'random' ? 'random' : 'grid';
+    const maxCombos = opts.maxCombos ?? 1000;
+
     const dims = collectDimensions(strategyData);
-    const gridTotal = dims.length ? estimateGrid(strategyData, opts.maxCombos ?? 1000).gridTotal : 1;
-    const comboParams = dims.length ? sampleGrid(dims, opts.maxCombos ?? 1000) : [{}];
+    const gridTotal = dims.length ? estimateGrid(strategyData, maxCombos).gridTotal : 1;
+    // Случайный поиск сэмплирует комбинации стохастически, остальные — равномерно.
+    const comboParams = !dims.length
+      ? [{}]
+      : searchType === 'random'
+        ? sampleRandom(dims, maxCombos)
+        : sampleGrid(dims, maxCombos);
 
     const steps: MarketStep[] = quotes.map((q) => ({
       time: q.time,
       quotes: { buyQuote: q.buyQuote, sellQuote: q.sellQuote, avgObservedQuote: q.avgObservedQuote },
     }));
 
-    const searchType: SearchType = opts.searchType === 'refine' ? 'refine' : 'grid';
-    const maxCombos = opts.maxCombos ?? 1000;
+    const typeSuffix =
+      searchType === 'refine' ? ' (уточняющий)' : searchType === 'random' ? ' (случайный)' : '';
     return this.autotuneJobs.submit({
       userId,
       botId: id,
-      label: `${bot.name}: ${comboParams.length.toLocaleString('ru-RU')} прогонов${searchType === 'refine' ? ' (уточняющий)' : ''}`,
+      label: `${bot.name}: ${comboParams.length.toLocaleString('ru-RU')} прогонов${typeSuffix}`,
       comboParams,
       gridTotal,
       dims,

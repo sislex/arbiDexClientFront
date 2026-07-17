@@ -10,7 +10,6 @@ import {
   CircularProgress,
   IconButton,
   LinearProgress,
-  MenuItem,
   Snackbar,
   Stack,
   Table,
@@ -44,7 +43,8 @@ import { tuneKeyLabel, applyComboToStrategy } from '../bots/autotuneLabels';
 import { usePeriod } from '../bots/usePeriod';
 import { PeriodPicker } from '../bots/PeriodPicker';
 import { PeriodHistoryChart } from '../bots/PeriodHistoryChart';
-import type { AutotuneCombo, AutotuneJob } from '../../domain/types';
+import { SearchTypeSelect } from '../bots/SearchTypeSelect';
+import type { AutotuneCombo, AutotuneJob, SearchType } from '../../domain/types';
 
 const STATUS_LABEL: Record<AutotuneJob['status'], string> = {
   running: 'идёт',
@@ -125,7 +125,7 @@ export function ComputationJobPage() {
   const [maxCombos, setMaxCombos] = useState(1000);
   const [threads, setThreads] = useState(6);
   const [initialBalance, setInitialBalance] = useState<number | undefined>(undefined);
-  const [searchType, setSearchType] = useState<'grid' | 'refine'>('grid');
+  const [searchType, setSearchType] = useState<SearchType>('grid');
   const paramsSeeded = useRef(false);
   useEffect(() => {
     if (!job || paramsSeeded.current) return;
@@ -286,15 +286,7 @@ export function ComputationJobPage() {
               inputProps={{ min: 1, max: 64, 'data-testid': 'cj-threads' }}
               sx={{ width: 110 }}
             />
-            <TextField
-              select label="Тип перебора" size="small" value={searchType}
-              onChange={(e) => setSearchType(e.target.value as 'grid' | 'refine')}
-              sx={{ minWidth: 190 }}
-              inputProps={{ 'data-testid': 'cj-search-type' }}
-            >
-              <MenuItem value="grid">Обычный перебор</MenuItem>
-              <MenuItem value="refine">Уточняющий (быстрый)</MenuItem>
-            </TextField>
+            <SearchTypeSelect value={searchType} onChange={setSearchType} dataTestId="cj-search-type" />
             <Box sx={{ flexGrow: 1 }} />
             <Button
               variant="contained"

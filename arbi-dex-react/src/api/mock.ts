@@ -234,7 +234,7 @@ export const mockApi: ApiClient = {
     },
     tokens: () => delay(clone(mockUserTokens)),
     createToken: (input) => {
-      const row = { id: `tok_${Math.random().toString(36).slice(2, 9)}`, decimals: 18, ...input };
+      const row = { ...input, id: `tok_${Math.random().toString(36).slice(2, 9)}` };
       mockUserTokens.push(row);
       return delay(clone(row));
     },
@@ -251,7 +251,7 @@ export const mockApi: ApiClient = {
     },
     computeNodes: () => delay(clone(mockComputeNodes)),
     createComputeNode: (input) => {
-      const row = { threads: 6, enabled: true, ...input, id: `cn_${Math.random().toString(36).slice(2, 9)}` };
+      const row = { ...input, id: `cn_${Math.random().toString(36).slice(2, 9)}` };
       mockComputeNodes.push(row);
       return delay(clone(row));
     },

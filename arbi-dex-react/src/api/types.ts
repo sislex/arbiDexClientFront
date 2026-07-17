@@ -11,6 +11,7 @@ import type {
   Market,
   MarketConfig,
   QuotePoint,
+  SearchType,
   Side,
   StepEngineResult,
   StrategyConfig,
@@ -164,7 +165,7 @@ export interface AutotuneStartParams {
   /** How many pool threads this job may occupy. */
   threads?: number;
   /** Sweep type: 'grid' (plain) or 'refine' (coarse-to-fine rounds). */
-  searchType?: 'grid' | 'refine';
+  searchType?: SearchType;
 }
 
 /** The API facade implemented by both the mock and the live backend clients. */
@@ -209,7 +210,7 @@ export interface ApiClient {
      * backtest × runs / threads). Does not start the sweep. */
     autotuneEstimate(
       id: string,
-      params?: { from?: number; to?: number; maxCombos?: number; threads?: number; searchType?: 'grid' | 'refine' },
+      params?: { from?: number; to?: number; maxCombos?: number; threads?: number; searchType?: SearchType },
     ): Promise<AutotuneEstimate>;
     /** Start a background autotune; progress streams over the websocket. */
     autotuneStart(id: string, params?: AutotuneStartParams): Promise<AutotuneJob>;

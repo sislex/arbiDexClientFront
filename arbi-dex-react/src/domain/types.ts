@@ -272,8 +272,8 @@ export interface AutotuneEstimate {
 
 export type ComputeJobStatus = 'queued' | 'running' | 'paused' | 'done' | 'error';
 
-/** Sweep type: plain uniform grid sampling or coarse-to-fine refinement. */
-export type SearchType = 'grid' | 'refine';
+/** Sweep type: uniform grid sampling, coarse-to-fine refinement or random search. */
+export type SearchType = 'grid' | 'refine' | 'random';
 
 /** Parameters a compute job was started with (for its page / restart). */
 export interface ComputeJobParams {
