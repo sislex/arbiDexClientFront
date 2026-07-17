@@ -208,6 +208,7 @@ export class BotsController {
   @ApiQuery({ name: 'to', required: false })
   @ApiQuery({ name: 'maxCombos', required: false })
   @ApiQuery({ name: 'threads', required: false })
+  @ApiQuery({ name: 'searchType', required: false, enum: ['grid', 'refine'] })
   autotuneEstimate(
     @CurrentUser() user: User,
     @Param('id') id: string,
@@ -215,12 +216,14 @@ export class BotsController {
     @Query('to') to?: string,
     @Query('maxCombos') maxCombos?: string,
     @Query('threads') threads?: string,
+    @Query('searchType') searchType?: string,
   ) {
     return this.service.autotuneEstimate(user.id, id, {
       from: from !== undefined ? Number(from) : undefined,
       to: to !== undefined ? Number(to) : undefined,
       maxCombos: maxCombos !== undefined ? Number(maxCombos) : undefined,
       threads: threads !== undefined ? Number(threads) : undefined,
+      searchType: searchType === 'refine' ? 'refine' : 'grid',
     });
   }
 

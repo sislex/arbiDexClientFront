@@ -262,6 +262,10 @@ export interface AutotuneEstimate {
   estimatedMs: number;
   from: number;
   to: number;
+  searchType: SearchType;
+  /** Refine sweep only: rounds and runs per round. */
+  rounds: number | null;
+  roundSize: number | null;
   /** How long the estimate itself took (data load + one backtest). */
   tookMs: number;
 }

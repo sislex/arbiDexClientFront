@@ -145,6 +145,10 @@ export const mockApi: ApiClient = {
         estimatedMs: combosToRun * singleRunMs,
         from: lo,
         to: hi,
+        searchType: 'grid' as const,
+        rounds: null,
+        roundSize: null,
+        tookMs: singleRunMs,
       });
     },
     // Мок выполняет перебор синхронно и сразу отдаёт завершённую задачу —

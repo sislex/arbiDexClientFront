@@ -385,7 +385,7 @@ export class BotsService {
   async autotuneEstimate(
     userId: string,
     id: string,
-    opts: { from?: number; to?: number; maxCombos?: number; threads?: number } = {},
+    opts: { from?: number; to?: number; maxCombos?: number; threads?: number; searchType?: SearchType } = {},
   ): Promise<{
     gridTotal: number;
     combosToRun: number;
@@ -396,6 +396,10 @@ export class BotsService {
     estimatedMs: number;
     from: number;
     to: number;
+    searchType: SearchType;
+    /** Для уточняющего перебора: раундов и прогонов в раунде. */
+    rounds: number | null;
+    roundSize: number | null;
     /** Сколько заняла сама оценка (загрузка данных + один бэктест). */
     tookMs: number;
   }> {
@@ -433,6 +437,11 @@ export class BotsService {
 
     const threads = this.autotuneThreads(opts.threads);
     const estimatedMs = Math.ceil(combosToRun / threads) * singleRunMs;
+    // Уточняющий перебор гоняет тот же бюджет прогонов, но раундами — время
+    // оценивается так же; отдаём разбивку на раунды для подсказки в UI.
+    const searchType: SearchType = opts.searchType === 'refine' ? 'refine' : 'grid';
+    const rounds = searchType === 'refine' ? 3 : null;
+    const roundSize = searchType === 'refine' ? Math.max(1, Math.ceil(combosToRun / 3)) : null;
 
     return {
       gridTotal,
@@ -444,6 +453,9 @@ export class BotsService {
       estimatedMs,
       from,
       to,
+      searchType,
+      rounds,
+      roundSize,
       tookMs: Date.now() - estimateStartedAt,
     };
   }

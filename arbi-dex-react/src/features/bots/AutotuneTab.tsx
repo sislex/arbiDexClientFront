@@ -46,7 +46,7 @@ export function AutotuneTab({ bot }: { bot: Bot }) {
   // Параметры изменились → прежняя оценка неактуальна.
   useEffect(() => {
     setEstimate(null);
-  }, [period.from, period.to, maxCombos, threads]);
+  }, [period.from, period.to, maxCombos, threads, searchType]);
   const runEstimate = async () => {
     setEstimating(true);
     setEstimateError(null);
@@ -57,6 +57,7 @@ export function AutotuneTab({ bot }: { bot: Bot }) {
           to: period.to ?? undefined,
           maxCombos,
           threads,
+          searchType,
         }),
       );
     } catch (e) {
@@ -286,6 +287,9 @@ export function AutotuneTab({ bot }: { bot: Bot }) {
           {estimate && (
             <Alert severity="info" icon={<TimerOutlinedIcon />} sx={{ mt: 1.5 }} data-testid="at-estimate">
               Будет выполнено <b>{estimate.combosToRun.toLocaleString('ru-RU')}</b> прогонов
+              {estimate.searchType === 'refine' && estimate.rounds
+                ? ` уточняющим перебором (${estimate.rounds} раунда по ~${(estimate.roundSize ?? 0).toLocaleString('ru-RU')})`
+                : ''}
               {estimate.gridTotal > estimate.combosToRun
                 ? ` (сетка ${estimate.gridTotal.toLocaleString('ru-RU')} комбинаций)`
                 : ''}{' '}

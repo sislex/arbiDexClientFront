@@ -148,7 +148,13 @@ export const liveApi: ApiClient = {
     autotuneEstimate(id, params = {}) {
       return request(`/bots/${id}/autotune-estimate`, {
         method: 'POST',
-        query: { from: params.from, to: params.to, maxCombos: params.maxCombos, threads: params.threads },
+        query: {
+          from: params.from,
+          to: params.to,
+          maxCombos: params.maxCombos,
+          threads: params.threads,
+          searchType: params.searchType,
+        },
       });
     },
     autotuneStart(id, params = {}) {

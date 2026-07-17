@@ -209,7 +209,7 @@ export interface ApiClient {
      * backtest × runs / threads). Does not start the sweep. */
     autotuneEstimate(
       id: string,
-      params?: { from?: number; to?: number; maxCombos?: number; threads?: number },
+      params?: { from?: number; to?: number; maxCombos?: number; threads?: number; searchType?: 'grid' | 'refine' },
     ): Promise<AutotuneEstimate>;
     /** Start a background autotune; progress streams over the websocket. */
     autotuneStart(id: string, params?: AutotuneStartParams): Promise<AutotuneJob>;
