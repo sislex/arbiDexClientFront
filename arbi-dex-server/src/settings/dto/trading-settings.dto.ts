@@ -48,6 +48,34 @@ export class CreateTradingContractDto {
 
 export class UpdateTradingContractDto extends PartialType(CreateTradingContractDto) {}
 
+export class CreateComputeNodeDto {
+  @ApiPropertyOptional({ description: 'Название узла' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  name?: string;
+
+  @ApiProperty({ description: 'Базовый URL сервера, напр. http://10.0.0.5:3006/api' })
+  @IsString()
+  @MinLength(4)
+  @MaxLength(255)
+  baseUrl: string;
+
+  @ApiPropertyOptional({ default: 6, description: 'Потоков на том сервере' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(64)
+  threads?: number;
+
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+}
+
+export class UpdateComputeNodeDto extends PartialType(CreateComputeNodeDto) {}
+
 export class CreateUserTokenDto {
   @ApiProperty({ description: 'Префикс сети: ARBITRUM | OPTIMISM | BASE' })
   @IsString()

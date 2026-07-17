@@ -83,6 +83,12 @@ const slice = createSlice({
       s.backtestStatus = 'idle';
       s.backtestError = null;
     },
+    /** Final result of a background autotune job (delivered over the socket). */
+    setAutotuneResult: (s, a: PayloadAction<AutotuneResult>) => {
+      s.autotune = a.payload;
+      s.autotuneStatus = 'succeeded';
+      s.autotuneError = null;
+    },
   },
   extraReducers: (b) => {
     b.addCase(fetchQuotes.pending, (s) => {
@@ -119,5 +125,5 @@ const slice = createSlice({
   },
 });
 
-export const { setStreaming, pushTick, clearLive, clearBacktest } = slice.actions;
+export const { setStreaming, pushTick, clearLive, clearBacktest, setAutotuneResult } = slice.actions;
 export const tradingReducer = slice.reducer;

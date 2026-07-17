@@ -1,7 +1,11 @@
 import type {
+  AutotuneEstimate,
+  AutotuneJob,
   AutotuneResult,
   BacktestResult,
   Bot,
+  ComputeConfig,
+  ComputeNode,
   ExecutorBalances,
   LiveTrade,
   Market,
@@ -39,6 +43,8 @@ export interface BacktestParams {
   initialBalance?: number;
   /** When present (live mode), runs against the bot and updates its demo account. */
   botId?: string;
+  /** Autotune-combo coefficients applied over the strategy for this run only. */
+  params?: Record<string, number>;
 }
 
 /** Bounds of available quote history for a bot's market (for period selection). */
@@ -150,6 +156,15 @@ export interface AutotuneParams {
   initialBalance?: number;
 }
 
+export interface AutotuneStartParams {
+  from?: number;
+  to?: number;
+  maxCombos?: number;
+  initialBalance?: number;
+  /** How many pool threads this job may occupy. */
+  threads?: number;
+}
+
 /** The API facade implemented by both the mock and the live backend clients. */
 export interface ApiClient {
   auth: {
@@ -188,6 +203,16 @@ export interface ApiClient {
     /** Reset the demo account: balance → initial, position/PnL/counters → 0,
      * demo-trade log cleared. Returns the updated bot. */
     resetAccount(id: string): Promise<Bot>;
+    /** Autotune estimate: grid size, run count, time forecast (one measured
+     * backtest × runs / threads). Does not start the sweep. */
+    autotuneEstimate(
+      id: string,
+      params?: { from?: number; to?: number; maxCombos?: number; threads?: number },
+    ): Promise<AutotuneEstimate>;
+    /** Start a background autotune; progress streams over the websocket. */
+    autotuneStart(id: string, params?: AutotuneStartParams): Promise<AutotuneJob>;
+    /** Snapshot of a background autotune job (reconnect after leaving the tab). */
+    autotuneJob(id: string, jobId: string): Promise<AutotuneJob>;
   };
   settings: {
     /** Quoter/executor contract entries (many per network; the active one trades). */
@@ -200,6 +225,19 @@ export interface ApiClient {
     createToken(input: Omit<UserToken, 'id'>): Promise<UserToken>;
     updateToken(id: string, patch: Partial<Omit<UserToken, 'id'>>): Promise<UserToken>;
     removeToken(id: string): Promise<void>;
+    /** Additional deployed compute servers (for distributing runs). */
+    computeNodes(): Promise<ComputeNode[]>;
+    createComputeNode(input: Omit<ComputeNode, 'id'>): Promise<ComputeNode>;
+    updateComputeNode(id: string, patch: Partial<Omit<ComputeNode, 'id'>>): Promise<ComputeNode>;
+    removeComputeNode(id: string): Promise<void>;
+  };
+  compute: {
+    /** All the user's compute jobs: running, queued, paused, finished. */
+    jobs(): Promise<AutotuneJob[]>;
+    pause(jobId: string): Promise<AutotuneJob>;
+    resume(jobId: string): Promise<AutotuneJob>;
+    config(): Promise<ComputeConfig>;
+    updateConfig(totalThreads: number): Promise<ComputeConfig>;
   };
   marketConfigs: {
     list(): Promise<MarketConfig[]>;

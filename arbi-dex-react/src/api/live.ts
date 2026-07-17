@@ -145,6 +145,27 @@ export const liveApi: ApiClient = {
     resetAccount(id) {
       return request(`/bots/${id}/reset-account`, { method: 'POST' });
     },
+    autotuneEstimate(id, params = {}) {
+      return request(`/bots/${id}/autotune-estimate`, {
+        method: 'POST',
+        query: { from: params.from, to: params.to, maxCombos: params.maxCombos, threads: params.threads },
+      });
+    },
+    autotuneStart(id, params = {}) {
+      return request(`/bots/${id}/autotune/start`, {
+        method: 'POST',
+        query: {
+          from: params.from,
+          to: params.to,
+          maxCombos: params.maxCombos,
+          initialBalance: params.initialBalance,
+          threads: params.threads,
+        },
+      });
+    },
+    autotuneJob(id, jobId) {
+      return request(`/bots/${id}/autotune/jobs/${jobId}`);
+    },
   },
 
   settings: {
@@ -171,6 +192,36 @@ export const liveApi: ApiClient = {
     },
     removeToken(id) {
       return request<void>(`/settings/tokens/${id}`, { method: 'DELETE' });
+    },
+    computeNodes() {
+      return request('/settings/compute-nodes');
+    },
+    createComputeNode(input) {
+      return request('/settings/compute-nodes', { method: 'POST', body: input });
+    },
+    updateComputeNode(id, patch) {
+      return request(`/settings/compute-nodes/${id}`, { method: 'PATCH', body: patch });
+    },
+    removeComputeNode(id) {
+      return request<void>(`/settings/compute-nodes/${id}`, { method: 'DELETE' });
+    },
+  },
+
+  compute: {
+    jobs() {
+      return request('/compute/jobs');
+    },
+    pause(jobId) {
+      return request(`/compute/jobs/${jobId}/pause`, { method: 'POST' });
+    },
+    resume(jobId) {
+      return request(`/compute/jobs/${jobId}/resume`, { method: 'POST' });
+    },
+    config() {
+      return request('/compute/config');
+    },
+    updateConfig(totalThreads) {
+      return request('/compute/config', { method: 'PATCH', body: { totalThreads } });
     },
   },
 
@@ -265,6 +316,8 @@ export const liveApi: ApiClient = {
       return request(`/bots/${params.botId}/backtest`, {
         method: 'POST',
         query: { from: params.from, to: params.to },
+        // Коэффициенты комбо автоподбора поверх стратегии (опционально).
+        body: params.params ? { params: params.params } : undefined,
       });
     },
   },

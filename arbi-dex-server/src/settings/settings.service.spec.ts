@@ -17,6 +17,7 @@ const defaultSettings: UserSettings = {
   theme: 'light',
   density: 'default',
   sidebarOpened: true,
+  computeThreads: 6,
   user: null as any,
 };
 

@@ -4,6 +4,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { BotsService } from './bots.service';
 import { LiveTradingService } from './live-trading.service';
+import { AutotuneJobsService } from './autotune-jobs.service';
 import { CreateBotDto, UpdateBotDto } from './dto/bot.dto';
 import { TradeRequestDto } from './dto/trade.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -18,6 +19,7 @@ export class BotsController {
   constructor(
     private readonly service: BotsService,
     private readonly liveTrading: LiveTradingService,
+    private readonly autotuneJobs: AutotuneJobsService,
   ) {}
 
   @Get()
@@ -151,10 +153,13 @@ export class BotsController {
     @Param('id') id: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Body() body?: { params?: Record<string, number> },
   ) {
     return this.service.backtest(user.id, id, {
       from: from !== undefined ? Number(from) : undefined,
       to: to !== undefined ? Number(to) : undefined,
+      // Коэффициенты комбо автоподбора поверх стратегии (опционально).
+      params: body?.params,
     });
   }
 
@@ -189,6 +194,74 @@ export class BotsController {
       openedAt: openedAt !== undefined ? Number(openedAt) : undefined,
       size: size !== undefined ? Number(size) : undefined,
     });
+  }
+
+  @Post(':id/autotune-estimate')
+  @ApiOperation({
+    summary: 'Оценка автоподбора: число прогонов и прогноз времени',
+    description:
+      'Считает размер сетки комбинаций и число реальных прогонов, замеряет ОДИН бэктест по ' +
+      'текущим коэффициентам и умножает на число прогонов с учётом потоков. Перебор не запускает.',
+  })
+  @ApiParam({ name: 'id' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  @ApiQuery({ name: 'maxCombos', required: false })
+  @ApiQuery({ name: 'threads', required: false })
+  autotuneEstimate(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('maxCombos') maxCombos?: string,
+    @Query('threads') threads?: string,
+  ) {
+    return this.service.autotuneEstimate(user.id, id, {
+      from: from !== undefined ? Number(from) : undefined,
+      to: to !== undefined ? Number(to) : undefined,
+      maxCombos: maxCombos !== undefined ? Number(maxCombos) : undefined,
+      threads: threads !== undefined ? Number(threads) : undefined,
+    });
+  }
+
+  @Post(':id/autotune/start')
+  @ApiOperation({
+    summary: 'Запустить автоподбор в фоне (прогресс — по вебсокету /autotune-progress)',
+    description:
+      'Сразу возвращает jobId; перебор идёт в worker_threads, готовые прогоны стримятся в ' +
+      'реестр задач. Подключитесь к namespace /autotune-progress (auth.token + query.jobId) — ' +
+      'раз в секунду приходит снапшот: done/total и top-500 лучших прогонов.',
+  })
+  @ApiParam({ name: 'id' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  @ApiQuery({ name: 'maxCombos', required: false })
+  @ApiQuery({ name: 'initialBalance', required: false })
+  @ApiQuery({ name: 'threads', required: false, description: 'Сколько потоков пула занять этим расчётом' })
+  autotuneStart(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('maxCombos') maxCombos?: string,
+    @Query('initialBalance') initialBalance?: string,
+    @Query('threads') threads?: string,
+  ) {
+    return this.service.autotuneStart(user.id, id, {
+      from: from !== undefined ? Number(from) : undefined,
+      to: to !== undefined ? Number(to) : undefined,
+      maxCombos: maxCombos !== undefined ? Number(maxCombos) : undefined,
+      initialBalance: initialBalance !== undefined ? Number(initialBalance) : undefined,
+      threads: threads !== undefined ? Number(threads) : undefined,
+    });
+  }
+
+  @Get(':id/autotune/jobs/:jobId')
+  @ApiOperation({ summary: 'Снапшот фоновой задачи автоподбора (страховка к вебсокету)' })
+  @ApiParam({ name: 'id' })
+  @ApiParam({ name: 'jobId' })
+  autotuneJob(@CurrentUser() user: User, @Param('jobId') jobId: string) {
+    return this.autotuneJobs.get(user.id, jobId);
   }
 
   @Post(':id/autotune')

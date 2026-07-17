@@ -240,14 +240,25 @@ export function LiveTab({ bot }: { bot: Bot }) {
     }
   };
 
-  const doTrade = async (side: Side) => {
+  // Рыночная семантика кнопок. График котирует НЕ-стейбл актив пары (WBTC в
+  // USDC и т.п.); если бот держит баланс именно в нём (инверсный листинг:
+  // baseAsset — стейбл), то бот-«buy» (quote→base) на деле ПРОДАЁТ этот актив
+  // по цене продажи. Кнопки/сообщения/маркеры показываем в терминах рыночного
+  // актива, а на сервер шлём бот-сторону.
+  const isStableSym = (s: string): boolean => s.toUpperCase().includes('USD');
+  const inverted = isStableSym(bot.baseAsset) && !isStableSym(bot.quoteAsset);
+  const displayAsset = inverted ? bot.quoteAsset : bot.baseAsset;
+  const toBotSide = (s: Side): Side => (inverted ? (s === 'buy' ? 'sell' : 'buy') : s);
+  const toDisplaySide = toBotSide; // преобразование симметрично
+
+  const doTrade = async (displaySide: Side) => {
     if (!last || tradePending) return;
     setTradePending(true);
     setTradeError(null);
     setLastTrade(null);
     try {
-      const expectedPrice = side === 'buy' ? last.buyQuote : last.sellQuote;
-      const r = await api.bots.trade(bot.id, { side, expectedPrice });
+      const expectedPrice = displaySide === 'buy' ? last.buyQuote : last.sellQuote;
+      const r = await api.bots.trade(bot.id, { side: toBotSide(displaySide), expectedPrice });
       setLiveTrades((ts) => [...ts, r.trade]);
       setLastTrade(r.trade);
       // Balance / position / PnL changed — refresh the bot in the store.
@@ -281,7 +292,9 @@ export function LiveTab({ bot }: { bot: Bot }) {
         const trade: Trade = {
           id: t.id,
           time: nearest,
-          side: t.side,
+          // Маркер в рыночной семантике: buy инверсного бота = продажа актива
+          // графика — стрелка и тултип должны лечь на линию продажи.
+          side: toDisplaySide(t.side),
           price: t.price ?? t.expectedPrice ?? 0,
           amount: t.amountIn,
           pnl: t.pnl ?? undefined,
@@ -290,7 +303,8 @@ export function LiveTab({ bot }: { bot: Bot }) {
         return trade;
       })
       .filter((t): t is Trade => t !== null);
-  }, [quotes, liveTrades]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quotes, liveTrades, inverted]);
 
   const positionSize = bot.positionSize ?? 0;
   const canTrade = IS_LIVE && bot.mode !== 'idle' && !!last;
@@ -404,21 +418,29 @@ export function LiveTab({ bot }: { bot: Bot }) {
                 variant="contained"
                 color="success"
                 startIcon={<ShoppingCartIcon />}
-                disabled={!canTrade || tradePending || (!isReal && bot.openPosition)}
+                // Демо: «купить актив графика» возможен, когда бот держит валюту,
+                // которой за него платят (бот-side buy → нет позиции, sell → есть).
+                disabled={
+                  !canTrade || tradePending ||
+                  (!isReal && (toBotSide('buy') === 'buy' ? bot.openPosition : !bot.openPosition))
+                }
                 onClick={() => doTrade('buy')}
                 data-testid="trade-buy"
               >
-                Купить{last ? ` по ${last.buyQuote.toFixed(2)}` : ''}
+                Купить {displayAsset}{last ? ` по ${last.buyQuote.toFixed(2)}` : ''}
               </Button>
               <Button
                 variant="contained"
                 color="error"
                 startIcon={<SellIcon />}
-                disabled={!canTrade || tradePending || (!isReal && !bot.openPosition)}
+                disabled={
+                  !canTrade || tradePending ||
+                  (!isReal && (toBotSide('sell') === 'buy' ? bot.openPosition : !bot.openPosition))
+                }
                 onClick={() => doTrade('sell')}
                 data-testid="trade-sell"
               >
-                Продать{last ? ` по ${last.sellQuote.toFixed(2)}` : ''}
+                Продать {displayAsset}{last ? ` по ${last.sellQuote.toFixed(2)}` : ''}
               </Button>
               {tradePending && (
                 <Stack direction="row" spacing={1} alignItems="center" data-testid="trade-pending">
@@ -448,10 +470,10 @@ export function LiveTab({ bot }: { bot: Bot }) {
               >
                 {lastTrade.status === 'success' ? (
                   <>
-                    {lastTrade.side === 'buy' ? 'Куплено' : 'Продано'} по{' '}
+                    {toDisplaySide(lastTrade.side) === 'buy' ? 'Куплено' : 'Продано'} {displayAsset} по{' '}
                     {(lastTrade.price ?? 0).toFixed(4)}
                     {lastTrade.side === 'sell' && lastTrade.pnl != null && (
-                      <> · PnL {lastTrade.pnl >= 0 ? '+' : ''}{lastTrade.pnl.toFixed(2)} {bot.quoteAsset}</>
+                      <> · PnL {lastTrade.pnl >= 0 ? '+' : ''}{fmtAmount(lastTrade.pnl)} {bot.quoteAsset}</>
                     )}
                     {lastTrade.txUrl && (
                       <> · <a href={lastTrade.txUrl} target="_blank" rel="noreferrer">транзакция</a></>

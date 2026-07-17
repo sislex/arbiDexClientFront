@@ -3,9 +3,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserTradingContract, TradingContractKind } from './entities/user-trading-contract.entity';
 import { UserToken } from './entities/user-token.entity';
+import { UserComputeNode } from './entities/user-compute-node.entity';
 import {
+  CreateComputeNodeDto,
   CreateTradingContractDto,
   CreateUserTokenDto,
+  UpdateComputeNodeDto,
   UpdateTradingContractDto,
   UpdateUserTokenDto,
 } from './dto/trading-settings.dto';
@@ -24,6 +27,8 @@ export class TradingSettingsService {
     private readonly contractsRepo: Repository<UserTradingContract>,
     @InjectRepository(UserToken)
     private readonly tokensRepo: Repository<UserToken>,
+    @InjectRepository(UserComputeNode)
+    private readonly nodesRepo: Repository<UserComputeNode>,
   ) {}
 
   // ── Квотеры / экзекутеры ───────────────────────────────────────────────────
@@ -139,6 +144,39 @@ export class TradingSettingsService {
     const token = await this.tokensRepo.findOne({ where: { id, userId } });
     if (!token) throw new NotFoundException('Токен не найден');
     await this.tokensRepo.remove(token);
+  }
+
+  // ── Серверы расчётов ───────────────────────────────────────────────────────
+
+  listComputeNodes(userId: string): Promise<UserComputeNode[]> {
+    return this.nodesRepo.find({ where: { userId }, order: { name: 'ASC' } });
+  }
+
+  async createComputeNode(userId: string, dto: CreateComputeNodeDto): Promise<UserComputeNode> {
+    const node = this.nodesRepo.create({
+      userId,
+      name: dto.name?.trim() ?? '',
+      baseUrl: dto.baseUrl.trim().replace(/\/+$/, ''),
+      threads: dto.threads ?? 6,
+      enabled: dto.enabled ?? true,
+    });
+    return this.nodesRepo.save(node);
+  }
+
+  async updateComputeNode(userId: string, id: string, dto: UpdateComputeNodeDto): Promise<UserComputeNode> {
+    const node = await this.nodesRepo.findOne({ where: { id, userId } });
+    if (!node) throw new NotFoundException('Сервер расчётов не найден');
+    if (dto.name !== undefined) node.name = dto.name.trim();
+    if (dto.baseUrl !== undefined) node.baseUrl = dto.baseUrl.trim().replace(/\/+$/, '');
+    if (dto.threads !== undefined) node.threads = dto.threads;
+    if (dto.enabled !== undefined) node.enabled = dto.enabled;
+    return this.nodesRepo.save(node);
+  }
+
+  async removeComputeNode(userId: string, id: string): Promise<void> {
+    const node = await this.nodesRepo.findOne({ where: { id, userId } });
+    if (!node) throw new NotFoundException('Сервер расчётов не найден');
+    await this.nodesRepo.remove(node);
   }
 
   /** Токен пользователя по символу в сети (для резолва адресов пары). */

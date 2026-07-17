@@ -18,6 +18,7 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import TuneIcon from '@mui/icons-material/Tune';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
+import MemoryIcon from '@mui/icons-material/Memory';
 import SettingsIcon from '@mui/icons-material/Settings';
 import RequestQuoteIcon from '@mui/icons-material/RequestQuote';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
@@ -35,13 +36,15 @@ const NAV = [
   { to: '/market-configs', label: 'Конфигурации рынков', icon: <ShowChartIcon /> },
   { to: '/strategies', label: 'Стратегии', icon: <TuneIcon /> },
   { to: '/bots', label: 'Боты', icon: <SmartToyIcon /> },
+  { to: '/computations', label: 'Расчёты', icon: <MemoryIcon /> },
 ];
 
-/** Подменю «Настройки»: квотеры, экзекутеры, сопоставление токенов. */
+/** Подменю «Настройки»: квотеры, экзекутеры, токены, вычисления. */
 const SETTINGS_NAV = [
   { to: '/settings/quoters', label: 'Квотеры', icon: <RequestQuoteIcon fontSize="small" /> },
   { to: '/settings/executors', label: 'Экзекутеры', icon: <RocketLaunchIcon fontSize="small" /> },
   { to: '/settings/tokens', label: 'Сопоставление токенов', icon: <TokenIcon fontSize="small" /> },
+  { to: '/settings/compute', label: 'Вычисления', icon: <MemoryIcon fontSize="small" /> },
 ];
 
 /** Authenticated layout: fixed sidebar nav + topbar with wallet & logout. */

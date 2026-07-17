@@ -25,7 +25,10 @@ export class SettingsService {
     if (!settings) {
       settings = this.repo.create({ userId });
     }
-    Object.assign(settings, dto);
+    // ValidationPipe(transform) даёт undefined для непереданных полей —
+    // копируем только реально переданные значения.
+    const patch = Object.fromEntries(Object.entries(dto).filter(([, v]) => v !== undefined));
+    Object.assign(settings, patch);
     await this.repo.save(settings);
     // Перезагружаем из БД чтобы вернуть все поля (включая defaults)
     return this.repo.findOne({ where: { userId } }) as Promise<UserSettings>;

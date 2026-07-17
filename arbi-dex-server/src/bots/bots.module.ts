@@ -1,8 +1,13 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { JwtModule } from '@nestjs/jwt';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BotsController } from './bots.controller';
+import { ComputeController } from './compute.controller';
 import { BotsService } from './bots.service';
 import { LiveTradingService } from './live-trading.service';
+import { AutotuneJobsService } from './autotune-jobs.service';
+import { AutotuneProgressGateway } from './autotune-progress.gateway';
 import { Bot } from './entities/bot.entity';
 import { BotTrade } from './entities/bot-trade.entity';
 import { MarketConfigsModule } from '../market-configs/market-configs.module';
@@ -19,8 +24,15 @@ import { SettingsModule } from '../settings/settings.module';
     MarketDataModule,
     SwapExecutionModule,
     SettingsModule,
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (cfg: ConfigService) => ({
+        secret: cfg.getOrThrow<string>('jwt.accessSecret'),
+      }),
+    }),
   ],
-  controllers: [BotsController],
-  providers: [BotsService, LiveTradingService],
+  controllers: [BotsController, ComputeController],
+  providers: [BotsService, LiveTradingService, AutotuneJobsService, AutotuneProgressGateway],
 })
 export class BotsModule {}

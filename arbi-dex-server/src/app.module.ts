@@ -37,6 +37,7 @@ import { Bot } from './bots/entities/bot.entity';
 import { BotTrade } from './bots/entities/bot-trade.entity';
 import { UserTradingContract } from './settings/entities/user-trading-contract.entity';
 import { UserToken } from './settings/entities/user-token.entity';
+import { UserComputeNode } from './settings/entities/user-compute-node.entity';
 
 @Module({
   imports: [
@@ -53,7 +54,7 @@ import { UserToken } from './settings/entities/user-token.entity';
         username: cfg.get<string>('db.username'),
         password: cfg.get<string>('db.password'),
         database: cfg.get<string>('db.database'),
-        entities: [User, Subscription, UserSettings, UserTradingContract, UserToken, Source, TradingPair, ArbiConfig, ArbiConfigSource, MarketConfig, StrategyConfig, Bot, BotTrade],
+        entities: [User, Subscription, UserSettings, UserTradingContract, UserToken, UserComputeNode, Source, TradingPair, ArbiConfig, ArbiConfigSource, MarketConfig, StrategyConfig, Bot, BotTrade],
         // Никогда не синхронизируем схему автоматически в production (риск потери данных).
         // TODO: перейти на явные миграции.
         synchronize: cfg.get<string>('app.nodeEnv') !== 'production',

@@ -5,7 +5,9 @@ import { Bot } from './entities/bot.entity';
 import { CreateBotDto, UpdateBotDto } from './dto/bot.dto';
 import { MarketConfigsService } from '../market-configs/market-configs.service';
 import { StrategyConfigsService } from '../strategy-configs/strategy-configs.service';
-import { runAutotuneParallel } from '../demo/engine/autotune';
+import { runAutotuneParallel, estimateGrid, applyCombo, collectDimensions, sampleGrid } from '../demo/engine/autotune';
+import { AutotuneJobsService, AutotuneJobSnapshot } from './autotune-jobs.service';
+import * as os from 'os';
 import { findMarket } from '../demo/engine/markets';
 import { BacktestResult, AutotuneResult, Trade, QuotePoint } from '../demo/engine/types';
 import { toEngineStrategy } from '../demo/engine/strategy-engine.mapper';
@@ -57,6 +59,7 @@ export class BotsService {
     private readonly repo: Repository<Bot>,
     private readonly marketConfigs: MarketConfigsService,
     private readonly strategyConfigs: StrategyConfigsService,
+    private readonly autotuneJobs: AutotuneJobsService,
   ) {}
 
   findAll(userId: string): Promise<Bot[]> {
@@ -187,7 +190,7 @@ export class BotsService {
   async backtest(
     userId: string,
     id: string,
-    opts: { from?: number; to?: number } = {},
+    opts: { from?: number; to?: number; params?: Record<string, number> } = {},
   ): Promise<BotBacktestResult> {
     const startedAt = Date.now();
     const bot = await this.findOne(userId, id);
@@ -203,7 +206,12 @@ export class BotsService {
 
     const { quotes } = await this.marketConfigs.getQuotesRange(userId, bot.marketConfigId, from, to);
     const strategy = await this.loadStrategy(userId, bot);
-    const { strategy: engineStrategy, gates, triggers } = toEngineStrategy(strategy.buy, strategy.sell);
+    // Опциональные коэффициенты комбо (строка автоподбора) поверх стратегии.
+    const strategyData =
+      opts.params && Object.keys(opts.params).length > 0
+        ? applyCombo({ buy: strategy.buy, sell: strategy.sell }, opts.params)
+        : { buy: strategy.buy, sell: strategy.sell };
+    const { strategy: engineStrategy, gates, triggers } = toEngineStrategy(strategyData.buy, strategyData.sell);
 
     const steps: MarketStep[] = quotes.map((q) => ({
       time: q.time,
@@ -361,5 +369,127 @@ export class BotsService {
       threads: opts.threads,
     });
     return { ...result, tookMs: Date.now() - startedAt };
+  }
+
+  /** Потоков перебора — та же формула, что в runAutotuneParallel. */
+  private autotuneThreads(threads?: number): number {
+    const cores = os.availableParallelism?.() ?? os.cpus().length;
+    return Math.max(1, threads ?? Math.min(6, cores - 1));
+  }
+
+  /**
+   * Оценка автоподбора БЕЗ перебора: размер сетки комбинаций, сколько прогонов
+   * реально будет выполнено и прогноз времени — один бэктест по текущим
+   * коэффициентам, умноженный на число прогонов с учётом потоков.
+   */
+  async autotuneEstimate(
+    userId: string,
+    id: string,
+    opts: { from?: number; to?: number; maxCombos?: number; threads?: number } = {},
+  ): Promise<{
+    gridTotal: number;
+    combosToRun: number;
+    dimensions: number;
+    steps: number;
+    singleRunMs: number;
+    threads: number;
+    estimatedMs: number;
+    from: number;
+    to: number;
+    /** Сколько заняла сама оценка (загрузка данных + один бэктест). */
+    tookMs: number;
+  }> {
+    const estimateStartedAt = Date.now();
+    const bot = await this.findOne(userId, id);
+    const { historyFrom, historyTo } = await this.marketConfigs.getHistoryRange(
+      userId,
+      bot.marketConfigId,
+    );
+    const week = historyTo > 1e12 ? 7 * 24 * 3600 * 1000 : 7 * 24 * 3600;
+    const to = clamp(opts.to ?? historyTo, historyFrom, historyTo);
+    const from = clamp(opts.from ?? to - week, historyFrom, to);
+
+    const { quotes } = await this.marketConfigs.getQuotesRange(userId, bot.marketConfigId, from, to);
+    const strategy = await this.loadStrategy(userId, bot);
+    const { gridTotal, combosToRun, dimensions } = estimateGrid(
+      { buy: strategy.buy, sell: strategy.sell },
+      opts.maxCombos ?? 1000,
+    );
+
+    // Один пробный бэктест по текущим коэффициентам — цена одного прогона.
+    const steps: MarketStep[] = quotes.map((q) => ({
+      time: q.time,
+      quotes: { buyQuote: q.buyQuote, sellQuote: q.sellQuote, avgObservedQuote: q.avgObservedQuote },
+    }));
+    const { strategy: engineStrategy, gates, triggers } = toEngineStrategy(strategy.buy, strategy.sell);
+    const t0 = Date.now();
+    runBacktest(steps, engineStrategy, {
+      initialBalance: bot.initialBalance,
+      conditions: gates,
+      triggerConditions: triggers,
+      id: `est_${bot.id}`,
+    });
+    const singleRunMs = Math.max(1, Date.now() - t0);
+
+    const threads = this.autotuneThreads(opts.threads);
+    const estimatedMs = Math.ceil(combosToRun / threads) * singleRunMs;
+
+    return {
+      gridTotal,
+      combosToRun,
+      dimensions,
+      steps: quotes.length,
+      singleRunMs,
+      threads,
+      estimatedMs,
+      from,
+      to,
+      tookMs: Date.now() - estimateStartedAt,
+    };
+  }
+
+  /**
+   * Фоновый автоподбор: сразу возвращает jobId, задача попадает в общий
+   * планировщик расчётов (пул потоков + очередь + пауза/резюме) — фронт
+   * получает прогресс раз в секунду по вебсокету /autotune-progress.
+   */
+  async autotuneStart(
+    userId: string,
+    id: string,
+    opts: { from?: number; to?: number; maxCombos?: number; threads?: number; initialBalance?: number } = {},
+  ): Promise<AutotuneJobSnapshot> {
+    const bot = await this.findOne(userId, id);
+    const { historyFrom, historyTo } = await this.marketConfigs.getHistoryRange(
+      userId,
+      bot.marketConfigId,
+    );
+    const week = historyTo > 1e12 ? 7 * 24 * 3600 * 1000 : 7 * 24 * 3600;
+    const to = clamp(opts.to ?? historyTo, historyFrom, historyTo);
+    const from = clamp(opts.from ?? to - week, historyFrom, to);
+
+    const { quotes } = await this.marketConfigs.getQuotesRange(userId, bot.marketConfigId, from, to);
+    const strategy = await this.loadStrategy(userId, bot);
+    const strategyData = { buy: strategy.buy, sell: strategy.sell };
+
+    const dims = collectDimensions(strategyData);
+    const gridTotal = dims.length ? estimateGrid(strategyData, opts.maxCombos ?? 1000).gridTotal : 1;
+    const comboParams = dims.length ? sampleGrid(dims, opts.maxCombos ?? 1000) : [{}];
+
+    const steps: MarketStep[] = quotes.map((q) => ({
+      time: q.time,
+      quotes: { buyQuote: q.buyQuote, sellQuote: q.sellQuote, avgObservedQuote: q.avgObservedQuote },
+    }));
+
+    return this.autotuneJobs.submit({
+      userId,
+      botId: id,
+      label: `${bot.name}: ${comboParams.length.toLocaleString('ru-RU')} прогонов`,
+      comboParams,
+      gridTotal,
+      steps,
+      strategy: strategyData,
+      initialBalance: opts.initialBalance ?? bot.initialBalance,
+      threads: opts.threads,
+    });
   }
 }

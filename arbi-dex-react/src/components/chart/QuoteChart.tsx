@@ -104,15 +104,18 @@ function fromLocal(localSec: number): number {
   return localSec + new Date(localSec * 1000).getTimezoneOffset() * 60;
 }
 
-/** Tooltip time with seconds — series can tick multiple times a minute. */
+/** Tooltip time with seconds — series can tick multiple times a minute.
+ * Sub-second steps get milliseconds appended so they stay distinguishable. */
 function fmtTipTime(unixSec: number): string {
-  return new Date(unixSec * 1000).toLocaleString('ru-RU', {
+  const base = new Date(unixSec * 1000).toLocaleString('ru-RU', {
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
   });
+  const ms = Math.round((unixSec % 1) * 1000);
+  return ms > 0 ? `${base}.${String(ms).padStart(3, '0')}` : base;
 }
 
 /** Tooltip price: 2 decimals for big values, significant digits for tiny ones. */
@@ -154,6 +157,9 @@ export function QuoteChart({
   const selectedLineRef = useRef<SelectedTimeLine>(new SelectedTimeLine());
   const selectedHostRef = useRef<ISeriesApi<'Line'> | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
+  // Dot series drawing each trade AT ITS EXECUTION PRICE — arrow markers are
+  // glued to the host series' value, not to the trade price.
+  const dotSeriesRef = useRef<Map<string, ISeriesApi<'Line'>>>(new Map());
 
   // Latest series defs / markers for the crosshair tooltip (the subscription
   // is created once with the chart, so it reads through refs).
@@ -283,6 +289,7 @@ export function QuoteChart({
       chart.remove();
       chartRef.current = null;
       seriesRef.current.clear();
+      dotSeriesRef.current.clear();
       selectedHostRef.current = null;
     };
   }, [height]);
@@ -320,6 +327,40 @@ export function QuoteChart({
       }
       s.setData(def.data.map((p) => ({ time: toLocal(p.time), value: p.value })));
       if (!markerHost) markerHost = s;
+    }
+
+    // Trade dots at execution prices: one point series per marker flavour.
+    const dotSpecs: { key: string; color: string; pick: (m: ChartMarker) => boolean }[] = [
+      { key: '__dot_buy', color: CHART.buy, pick: (m) => !m.failed && m.side === 'buy' },
+      { key: '__dot_sell', color: CHART.sell, pick: (m) => !m.failed && m.side === 'sell' },
+      { key: '__dot_failed', color: CHART.failed, pick: (m) => !!m.failed },
+    ];
+    for (const spec of dotSpecs) {
+      const pts = markers
+        .filter((m) => spec.pick(m) && m.price != null)
+        .sort((a, b) => a.time - b.time)
+        .map((m) => ({ time: toLocal(m.time), value: m.price! }));
+      // Collapse same-second duplicates — the chart requires ascending times.
+      const data: typeof pts = [];
+      for (const p of pts) {
+        if (data.length && data[data.length - 1].time === p.time) data[data.length - 1] = p;
+        else data.push(p);
+      }
+      let s = dotSeriesRef.current.get(spec.key);
+      if (!s && data.length === 0) continue;
+      if (!s) {
+        s = chart.addLineSeries({
+          color: spec.color,
+          lineVisible: false,
+          pointMarkersVisible: true,
+          pointMarkersRadius: 4,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
+        dotSeriesRef.current.set(spec.key, s);
+      }
+      s.setData(data);
     }
 
     // Attach markers to the first series (sorted — the lib requires ascending times).

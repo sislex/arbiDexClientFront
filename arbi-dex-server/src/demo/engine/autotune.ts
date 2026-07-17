@@ -21,7 +21,7 @@ function rangeValues(min: number, max: number, step: number): number[] {
   return out;
 }
 
-function collectDimensions(strategy: StrategyConfigData): Dimension[] {
+export function collectDimensions(strategy: StrategyConfigData): Dimension[] {
   const dims: Dimension[] = [];
   (['buy', 'sell'] as const).forEach((side) => {
     for (const cond of strategy[side]) {
@@ -39,8 +39,22 @@ function collectDimensions(strategy: StrategyConfigData): Dimension[] {
 }
 
 /** Full size of the combination grid. */
-function gridSize(dims: Dimension[]): number {
+export function gridSize(dims: Dimension[]): number {
   return dims.reduce((p, d) => p * d.values.length, 1);
+}
+
+/** Grid size + actual run count for the UI estimate (no backtests executed). */
+export function estimateGrid(
+  strategy: StrategyConfigData,
+  maxCombos = 1000,
+): { gridTotal: number; combosToRun: number; dimensions: number } {
+  const dims = collectDimensions(strategy);
+  const gridTotal = dims.length ? gridSize(dims) : 1;
+  return {
+    gridTotal,
+    combosToRun: dims.length ? Math.min(gridTotal, Math.max(1, maxCombos)) : 1,
+    dimensions: dims.length,
+  };
 }
 
 /**
@@ -48,7 +62,7 @@ function gridSize(dims: Dimension[]): number {
  * index decoding) — unlike a truncated cartesian product, the sample spans
  * every dimension's range instead of only wiggling the last one.
  */
-function sampleGrid(dims: Dimension[], max: number): Record<string, number>[] {
+export function sampleGrid(dims: Dimension[], max: number): Record<string, number>[] {
   const total = gridSize(dims);
   const count = Math.min(total, Math.max(1, max));
   const combos: Record<string, number>[] = [];
@@ -75,10 +89,13 @@ export function applyCombo(strategy: StrategyConfigData, combo: Record<string, n
   return s;
 }
 
+/** Live progress callback: called with each freshly finished batch of combos. */
+export type AutotuneProgress = (batch: AutotuneCombo[]) => void;
+
 export function runAutotune(
   quotes: QuotePoint[],
   strategy: StrategyConfigData,
-  opts: { maxCombos?: number; initialBalance?: number; id?: string } = {},
+  opts: { maxCombos?: number; initialBalance?: number; id?: string; onProgress?: AutotuneProgress } = {},
 ): AutotuneResult {
   const dims = collectDimensions(strategy);
   const gridTotal = dims.length ? gridSize(dims) : 1;
@@ -88,6 +105,7 @@ export function runAutotune(
     time: q.time,
     quotes: { buyQuote: q.buyQuote, sellQuote: q.sellQuote, avgObservedQuote: q.avgObservedQuote },
   }));
+  let progressBatch: AutotuneCombo[] = [];
   const combos: AutotuneCombo[] = comboParams.map((params, i) => {
     const s = applyCombo(strategy, params);
     const { strategy: engineStrategy, gates, triggers } = toEngineStrategy(s.buy, s.sell);
@@ -96,8 +114,17 @@ export function runAutotune(
       conditions: gates,
       triggerConditions: triggers,
     });
-    return { id: `combo_${i}`, params, stats: bt.stats };
+    const combo = { id: `combo_${i}`, params, stats: bt.stats };
+    if (opts.onProgress) {
+      progressBatch.push(combo);
+      if (progressBatch.length >= 20) {
+        opts.onProgress(progressBatch);
+        progressBatch = [];
+      }
+    }
+    return combo;
   });
+  if (opts.onProgress && progressBatch.length > 0) opts.onProgress(progressBatch);
   combos.sort((a, b) => b.stats.pnl - a.stats.pnl);
   return {
     id: opts.id ?? 'at',
@@ -119,7 +146,13 @@ export function runAutotune(
 export async function runAutotuneParallel(
   quotes: QuotePoint[],
   strategy: StrategyConfigData,
-  opts: { maxCombos?: number; initialBalance?: number; id?: string; threads?: number } = {},
+  opts: {
+    maxCombos?: number;
+    initialBalance?: number;
+    id?: string;
+    threads?: number;
+    onProgress?: AutotuneProgress;
+  } = {},
 ): Promise<AutotuneResult> {
   const dims = collectDimensions(strategy);
   const gridTotal = dims.length ? gridSize(dims) : 1;
@@ -145,6 +178,7 @@ export async function runAutotuneParallel(
   ).filter((c) => c.length > 0);
 
   const workerFile = path.join(__dirname, 'autotune.worker.js');
+  type WorkerMsg = { type: 'batch'; combos: AutotuneCombo[] } | { type: 'done' };
   const results = await Promise.all(
     chunks.map(
       (chunk) =>
@@ -152,7 +186,15 @@ export async function runAutotuneParallel(
           const w = new Worker(workerFile, {
             workerData: { steps, strategy, combos: chunk, initialBalance: opts.initialBalance },
           });
-          w.once('message', (msg: AutotuneCombo[]) => resolve(msg));
+          const acc: AutotuneCombo[] = [];
+          w.on('message', (msg: WorkerMsg) => {
+            if (msg.type === 'batch') {
+              acc.push(...msg.combos);
+              opts.onProgress?.(msg.combos);
+            } else if (msg.type === 'done') {
+              resolve(acc);
+            }
+          });
           w.once('error', reject);
           w.once('exit', (code) => {
             if (code !== 0) reject(new Error(`autotune worker exited with code ${code}`));

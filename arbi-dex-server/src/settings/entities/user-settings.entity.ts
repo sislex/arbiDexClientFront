@@ -27,5 +27,9 @@ export class UserSettings {
 
   @Column({ default: true })
   sidebarOpened: boolean;
+
+  /** Сколько потоков сервера доступно фоновым расчётам (пул планировщика). */
+  @Column({ type: 'int', default: 6 })
+  computeThreads: number;
 }
 

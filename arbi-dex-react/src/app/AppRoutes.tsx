@@ -13,6 +13,8 @@ import { BotsPage } from '../features/bots/BotsPage';
 import { EditBotPage } from '../features/bots/EditBotPage';
 import { ContractsPage } from '../features/settings/ContractsPage';
 import { TokensPage } from '../features/settings/TokensPage';
+import { ComputeSettingsPage } from '../features/settings/ComputeSettingsPage';
+import { ComputationsPage } from '../features/compute/ComputationsPage';
 
 export function AppRoutes() {
   return (
@@ -36,10 +38,12 @@ export function AppRoutes() {
         <Route path="/bots/new" element={<AddBotPage />} />
         <Route path="/bots/:id" element={<BotDetailPage />} />
         <Route path="/bots/:id/edit" element={<EditBotPage />} />
+        <Route path="/computations" element={<ComputationsPage />} />
         <Route path="/settings" element={<Navigate to="/settings/quoters" replace />} />
         <Route path="/settings/quoters" element={<ContractsPage kind="quoter" />} />
         <Route path="/settings/executors" element={<ContractsPage kind="executor" />} />
         <Route path="/settings/tokens" element={<TokensPage />} />
+        <Route path="/settings/compute" element={<ComputeSettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

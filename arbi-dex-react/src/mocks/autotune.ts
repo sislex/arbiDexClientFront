@@ -59,7 +59,7 @@ function sampleGrid(dims: Dimension[], max: number): Record<string, number>[] {
   return combos;
 }
 
-function applyCombo(strategy: StrategyConfig, combo: Record<string, number>): StrategyConfig {
+export function applyCombo(strategy: StrategyConfig, combo: Record<string, number>): StrategyConfig {
   const s: StrategyConfig = JSON.parse(JSON.stringify(strategy));
   for (const [label, value] of Object.entries(combo)) {
     const [side, conditionId, key] = label.split('.') as ['buy' | 'sell', string, string];

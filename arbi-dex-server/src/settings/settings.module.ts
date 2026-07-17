@@ -7,9 +7,10 @@ import { TradingSettingsService } from './trading-settings.service';
 import { UserSettings } from './entities/user-settings.entity';
 import { UserTradingContract } from './entities/user-trading-contract.entity';
 import { UserToken } from './entities/user-token.entity';
+import { UserComputeNode } from './entities/user-compute-node.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([UserSettings, UserTradingContract, UserToken])],
+  imports: [TypeOrmModule.forFeature([UserSettings, UserTradingContract, UserToken, UserComputeNode])],
   controllers: [SettingsController, TradingSettingsController],
   providers: [SettingsService, TradingSettingsService],
   exports: [SettingsService, TradingSettingsService],

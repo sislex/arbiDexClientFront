@@ -248,6 +248,68 @@ export interface ExecutorBalances {
   balances: { symbol: string; address: string; decimals: number; balance: number }[];
 }
 
+// ── Autotune estimation / background jobs ────────────────────────────────────
+
+/** Server estimate for an autotune run: grid size, run count and a time
+ * forecast (one measured backtest × runs / threads). */
+export interface AutotuneEstimate {
+  gridTotal: number;
+  combosToRun: number;
+  dimensions: number;
+  steps: number;
+  singleRunMs: number;
+  threads: number;
+  estimatedMs: number;
+  from: number;
+  to: number;
+  /** How long the estimate itself took (data load + one backtest). */
+  tookMs: number;
+}
+
+export type ComputeJobStatus = 'queued' | 'running' | 'paused' | 'done' | 'error';
+
+/** Snapshot of a background compute job (streamed over the websocket / listed
+ * in the computations menu). */
+export interface AutotuneJob {
+  jobId: string;
+  botId: string;
+  /** Human label: bot name + run count. */
+  label: string;
+  status: ComputeJobStatus;
+  total: number;
+  done: number;
+  gridTotal: number;
+  /** Threads requested by the job / busy right now. */
+  threadsRequested: number;
+  threadsActive: number;
+  /** Position in the queue (queued/paused); null otherwise. */
+  queuePosition: number | null;
+  startedAt: number;
+  elapsedMs: number;
+  /** Best runs so far (by PnL), capped at 500. */
+  topCombos: AutotuneCombo[];
+  best: AutotuneCombo | null;
+  error: string | null;
+  /** Full result — only when status === 'done'. */
+  result: (AutotuneResult & { tookMs?: number }) | null;
+}
+
+/** Server compute pool: total/busy threads and queue length. */
+export interface ComputeConfig {
+  totalThreads: number;
+  activeThreads: number;
+  queuedJobs: number;
+}
+
+/** Another deployed arbi-dex-server for distributing parallel runs. */
+export interface ComputeNode {
+  id: string;
+  name: string;
+  baseUrl: string;
+  threads: number;
+  enabled: boolean;
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 export interface User {

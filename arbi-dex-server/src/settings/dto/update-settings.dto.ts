@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsBoolean, IsOptional, IsIn } from 'class-validator';
+import { IsString, IsBoolean, IsOptional, IsIn, IsInt, Min, Max } from 'class-validator';
 
 export class UpdateSettingsDto {
   @ApiProperty({
@@ -29,5 +29,12 @@ export class UpdateSettingsDto {
   @IsOptional()
   @IsBoolean()
   sidebarOpened?: boolean;
+
+  @ApiProperty({ description: 'Потоков сервера для фоновых расчётов (1–64)', required: false })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(64)
+  computeThreads?: number;
 }
 

@@ -1,8 +1,8 @@
-import type { Bot, Market, MarketConfig, QuotePoint, StrategyConfig, TradingContract, User, UserToken } from '../domain/types';
+import type { Bot, ComputeNode, Market, MarketConfig, QuotePoint, StrategyConfig, TradingContract, User, UserToken } from '../domain/types';
 import { MARKETS, NOW, PAIR_BASE_PRICE } from '../mocks/seed';
 import { generateQuoteSeries } from '../mocks/quotes';
 import { simulateBacktest } from '../mocks/simulate';
-import { runAutotune } from '../mocks/autotune';
+import { runAutotune, applyCombo } from '../mocks/autotune';
 import { db, nextId } from './db';
 import { buildPreview } from '../features/marketConfigs/preview';
 import type { ApiClient, QuotesParams } from './types';
@@ -28,6 +28,7 @@ function marketById(id: string): Market | undefined {
 /** In-memory торговые настройки мок-режима (живут до перезагрузки вкладки). */
 const mockContracts: TradingContract[] = [];
 const mockUserTokens: UserToken[] = [];
+const mockComputeNodes: ComputeNode[] = [];
 
 function pairForConfig(mc: MarketConfig): string {
   return marketById(mc.tradingMarketId)?.pairId ?? 'ETH_USDT';
@@ -122,6 +123,78 @@ export const mockApi: ApiClient = {
       });
       return delay(clone(bot));
     },
+    autotuneEstimate: (id: string, params: { from?: number; to?: number; maxCombos?: number } = {}) => {
+      const bot = db.bots.find((b) => b.id === id);
+      const strategy = db.strategyConfigs.find((s) => s.id === bot?.strategyConfigId);
+      if (!bot || !strategy) return Promise.reject(new Error('Бот или стратегия не найдены'));
+      const full = series({ marketConfigId: bot.marketConfigId, count: 800 });
+      const lo = params.from ?? full[0]?.time ?? 0;
+      const hi = params.to ?? full[full.length - 1]?.time ?? 0;
+      const quotes = full.filter((q) => q.time >= lo && q.time <= hi);
+      const t0 = Date.now();
+      const probe = runAutotune(quotes, strategy, { maxCombos: 1 });
+      const singleRunMs = Math.max(1, Date.now() - t0);
+      const combosToRun = Math.min(probe.gridTotal ?? 1, Math.max(1, params.maxCombos ?? 1000));
+      return delay({
+        gridTotal: probe.gridTotal ?? 1,
+        combosToRun,
+        dimensions: 0,
+        steps: quotes.length,
+        singleRunMs,
+        threads: 1,
+        estimatedMs: combosToRun * singleRunMs,
+        from: lo,
+        to: hi,
+      });
+    },
+    // Мок выполняет перебор синхронно и сразу отдаёт завершённую задачу —
+    // UI, не увидев status 'running', пропускает подписку на сокет.
+    autotuneStart: (id: string, params: { from?: number; to?: number; maxCombos?: number; initialBalance?: number } = {}) => {
+      const bot = db.bots.find((b) => b.id === id);
+      const strategy = db.strategyConfigs.find((s) => s.id === bot?.strategyConfigId);
+      if (!bot || !strategy) return Promise.reject(new Error('Бот или стратегия не найдены'));
+      const full = series({ marketConfigId: bot.marketConfigId, count: 800 });
+      const lo = params.from ?? full[0]?.time ?? 0;
+      const hi = params.to ?? full[full.length - 1]?.time ?? 0;
+      const quotes = full.filter((q) => q.time >= lo && q.time <= hi);
+      const startedAt = Date.now();
+      const result = runAutotune(quotes, strategy, {
+        maxCombos: params.maxCombos ?? 48,
+        initialBalance: params.initialBalance,
+        id: nextId('at'),
+      });
+      const tookMs = Date.now() - startedAt;
+      return delay({
+        jobId: nextId('atjob'),
+        botId: id,
+        label: `${bot.name}: ${result.totalCombos} прогонов`,
+        // Мок завершает синхронно — переподключаться не к чему.
+        status: 'done' as const,
+        total: result.totalCombos,
+        done: result.totalCombos,
+        gridTotal: result.gridTotal ?? result.totalCombos,
+        threadsRequested: 1,
+        threadsActive: 0,
+        queuePosition: null,
+        startedAt,
+        elapsedMs: tookMs,
+        topCombos: result.combos,
+        best: result.best,
+        error: null,
+        result: { ...result, tookMs },
+      });
+    },
+    autotuneJob: () =>
+      Promise.reject(new Error('Фоновые задачи автоподбора доступны только в live-режиме')),
+  },
+
+  // Планировщик расчётов — live-фича; в моке пул «пустой».
+  compute: {
+    jobs: () => delay([]),
+    pause: () => Promise.reject(new Error('Планировщик расчётов доступен только в live-режиме')),
+    resume: () => Promise.reject(new Error('Планировщик расчётов доступен только в live-режиме')),
+    config: () => delay({ totalThreads: 1, activeThreads: 0, queuedJobs: 0 }),
+    updateConfig: (totalThreads: number) => delay({ totalThreads, activeThreads: 0, queuedJobs: 0 }),
   },
 
   // Торговые настройки: в мок-режиме живут в памяти вкладки (без персиста).
@@ -167,6 +240,23 @@ export const mockApi: ApiClient = {
     removeToken: (id) => {
       const i = mockUserTokens.findIndex((t) => t.id === id);
       if (i >= 0) mockUserTokens.splice(i, 1);
+      return delay(undefined);
+    },
+    computeNodes: () => delay(clone(mockComputeNodes)),
+    createComputeNode: (input) => {
+      const row = { threads: 6, enabled: true, ...input, id: `cn_${Math.random().toString(36).slice(2, 9)}` };
+      mockComputeNodes.push(row);
+      return delay(clone(row));
+    },
+    updateComputeNode: (id, patch) => {
+      const row = mockComputeNodes.find((n) => n.id === id);
+      if (!row) return Promise.reject(new Error('Сервер расчётов не найден'));
+      Object.assign(row, patch);
+      return delay(clone(row));
+    },
+    removeComputeNode: (id) => {
+      const i = mockComputeNodes.findIndex((n) => n.id === id);
+      if (i >= 0) mockComputeNodes.splice(i, 1);
       return delay(undefined);
     },
   },
@@ -315,7 +405,9 @@ export const mockApi: ApiClient = {
       const lo = params.from ?? full[0]?.time ?? 0;
       const hi = params.to ?? full[full.length - 1]?.time ?? 0;
       const quotes = full.filter((q) => q.time >= lo && q.time <= hi);
-      const result = simulateBacktest(quotes, strategy, { initialBalance: params.initialBalance, id: nextId('bt') });
+      // Коэффициенты комбо автоподбора поверх стратегии (опционально).
+      const effective = params.params ? applyCombo(strategy, params.params) : strategy;
+      const result = simulateBacktest(quotes, effective, { initialBalance: params.initialBalance, id: nextId('bt') });
       return delay({ ...result, from: lo, to: hi });
     },
   },

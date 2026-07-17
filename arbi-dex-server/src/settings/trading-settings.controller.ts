@@ -2,8 +2,10 @@ import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { TradingSettingsService } from './trading-settings.service';
 import {
+  CreateComputeNodeDto,
   CreateTradingContractDto,
   CreateUserTokenDto,
+  UpdateComputeNodeDto,
   UpdateTradingContractDto,
   UpdateUserTokenDto,
 } from './dto/trading-settings.dto';
@@ -50,6 +52,38 @@ export class TradingSettingsController {
   @ApiParam({ name: 'id' })
   removeContract(@CurrentUser() user: User, @Param('id') id: string) {
     return this.service.removeContract(user.id, id);
+  }
+
+  @Get('compute-nodes')
+  @ApiOperation({
+    summary: 'Дополнительные серверы расчётов',
+    description:
+      'Адреса других задеплоенных arbi-dex-server для распределения параллельных прогонов ' +
+      '(узлы хранятся и настраиваются здесь; распределение — следующий этап).',
+  })
+  listComputeNodes(@CurrentUser() user: User) {
+    return this.service.listComputeNodes(user.id);
+  }
+
+  @Post('compute-nodes')
+  @ApiOperation({ summary: 'Добавить сервер расчётов' })
+  createComputeNode(@CurrentUser() user: User, @Body() dto: CreateComputeNodeDto) {
+    return this.service.createComputeNode(user.id, dto);
+  }
+
+  @Patch('compute-nodes/:id')
+  @ApiOperation({ summary: 'Изменить сервер расчётов' })
+  @ApiParam({ name: 'id' })
+  updateComputeNode(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: UpdateComputeNodeDto) {
+    return this.service.updateComputeNode(user.id, id, dto);
+  }
+
+  @Delete('compute-nodes/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Удалить сервер расчётов' })
+  @ApiParam({ name: 'id' })
+  removeComputeNode(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.service.removeComputeNode(user.id, id);
   }
 
   @Get('tokens')

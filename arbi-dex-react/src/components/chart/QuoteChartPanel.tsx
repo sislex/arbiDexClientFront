@@ -20,11 +20,13 @@ export interface ObservedSeries {
 /** Minimum number of steps kept visible when zooming in. */
 const MIN_VISIBLE = 12;
 
-/** Normalize a timestamp to unix seconds — backend series come in ms. */
-const toSec = (t: number): number => (t > 1e12 ? Math.round(t / 1000) : t);
+/** Normalize a timestamp to unix seconds — backend series come in ms.
+ * FRACTIONAL seconds are kept on purpose: history can contain several steps
+ * within one second, and rounding would collapse them into a single point. */
+const toSec = (t: number): number => (t > 1e12 ? t / 1000 : t);
 
-/** Collapse points sharing a second (ms ticks can be sub-second) — the chart
- * asserts strictly ascending times. The last value of the second wins. */
+/** Collapse points with IDENTICAL timestamps (the chart asserts strictly
+ * ascending times) — the last value wins. Sub-second steps stay distinct. */
 function dedupeByTime<T extends { time: number }>(arr: T[]): T[] {
   const out: T[] = [];
   for (const p of arr) {
@@ -217,9 +219,13 @@ export function QuoteChartPanel({
   // Visible window derived from playhead + zoom.
   const win = visible > 0 ? visible : total;
   const endIdx = Math.min(playhead, total - 1);
-  const startIdx = Math.max(0, endIdx - win + 1);
+  // The chart needs a non-degenerate range (from < to): near the history start
+  // the window shrinks down to two steps instead of collapsing into one point
+  // (a collapsed range was silently ignored — the view stuck at the old spot).
+  const viewEndIdx = Math.max(endIdx, Math.min(1, total - 1));
+  const startIdx = Math.max(0, viewEndIdx - win + 1);
   const viewStartTime = total ? steps[startIdx] : undefined;
-  const viewEndTime = total ? steps[endIdx] : undefined;
+  const viewEndTime = total ? steps[viewEndIdx] : undefined;
   const zoomed = win < total;
 
   return (
@@ -279,7 +285,7 @@ export function QuoteChartPanel({
               viewEndTime={viewEndTime}
               onTimeClick={
                 onTimeClick &&
-                ((sec) => onTimeClick((quotes[0]?.time ?? 0) > 1e12 ? sec * 1000 : sec))
+                ((sec) => onTimeClick((quotes[0]?.time ?? 0) > 1e12 ? Math.round(sec * 1000) : sec))
               }
               selectedTime={selectedTime != null ? toSec(selectedTime) : null}
             />
