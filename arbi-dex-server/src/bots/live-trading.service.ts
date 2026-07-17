@@ -219,18 +219,18 @@ export class LiveTradingService {
     // Сумма входа: демо — покупка тратит quote-баланс, продажа — размер позиции;
     // реал — только маленькие суммы (эквивалент 1 USDC), считается ниже.
     let amountIn = dto.amount ?? (side === 'buy' ? bot.balance : bot.positionSize);
-    if (!isReal) {
-      if (!(amountIn > 0)) {
-        throw new BadRequestException(
-          side === 'buy' ? 'Нет свободного баланса для покупки.' : 'Нет открытой позиции для продажи.',
-        );
-      }
-      if (side === 'buy' && bot.openPosition) {
-        throw new BadRequestException('Позиция уже открыта — сначала продайте её.');
-      }
-      if (side === 'sell' && !bot.openPosition) {
-        throw new BadRequestException('Нет открытой позиции — сначала купите.');
-      }
+    if (!isReal && !(amountIn > 0)) {
+      throw new BadRequestException(
+        side === 'buy' ? 'Нет свободного баланса для покупки.' : 'Нет открытой позиции для продажи.',
+      );
+    }
+    // Единая модель позиции для обоих режимов — иначе демо и реальную
+    // торговлю нельзя сравнивать один к одному.
+    if (side === 'buy' && bot.openPosition) {
+      throw new BadRequestException('Позиция уже открыта — сначала продайте её.');
+    }
+    if (side === 'sell' && !bot.openPosition) {
+      throw new BadRequestException('Нет открытой позиции — сначала купите.');
     }
 
     const slippagePct = bot.slippagePct ?? 0.5;
@@ -251,7 +251,9 @@ export class LiveTradingService {
       let outHuman: number;
       if (isReal) {
         // Executor проверяем только на маленьких суммах — эквивалент 1 USDC.
-        amountIn = await this.oneUsdcEquivalent(quoterCfg, network, pool, tokenIn, tokenOut);
+        // Продажа закрывает учётную позицию бота, если она меньше эквивалента.
+        const equiv = await this.oneUsdcEquivalent(quoterCfg, network, pool, tokenIn, tokenOut);
+        amountIn = side === 'sell' && bot.positionSize > 0 ? Math.min(equiv, bot.positionSize) : equiv;
         inHuman = amountIn;
         await this.assertExecutorBalance(executorCfg, network, tokenIn, amountIn);
 
@@ -338,9 +340,9 @@ export class LiveTradingService {
     }
 
     let pnl: number | null = null;
-    // Демосчёт ведём только для демо-сделок; реальные сделки — тестовые
-    // микрообъёмы с баланса executor, демо-баланс бота они не трогают.
-    if (!isReal && status === 'success' && rawPrice != null && amountOut != null) {
+    // Учёт бота (баланс/позиция/PnL) ведётся в ОБОИХ режимах: цель live-режима —
+    // сравнение демо и реальной торговли один к одному.
+    if (status === 'success' && rawPrice != null && amountOut != null) {
       pnl = this.applyToAccount(bot, side, amountIn, amountOut, rawPrice);
     }
 
@@ -364,7 +366,7 @@ export class LiveTradingService {
 
     if (status === 'success') {
       bot.tradesCount += 1;
-      if (!isReal && side === 'sell') bot.winRate = await this.recomputeWinRate(bot.id);
+      if (side === 'sell') bot.winRate = await this.recomputeWinRate(bot.id);
       await this.botsRepo.save(bot);
     }
 
@@ -383,6 +385,7 @@ export class LiveTradingService {
       bot.balance = Math.max(0, bot.balance - amountIn);
       bot.positionSize += amountOut;
       bot.entryPrice = price;
+      bot.positionOpenedAt = Date.now();
       bot.openPosition = true;
       return null;
     }
@@ -393,16 +396,17 @@ export class LiveTradingService {
     if (!bot.openPosition) {
       bot.entryPrice = 0;
       bot.positionSize = 0;
+      bot.positionOpenedAt = 0;
     }
     bot.pnl += pnl;
     bot.pnlPct = bot.initialBalance > 0 ? (bot.pnl / bot.initialBalance) * 100 : 0;
     return pnl;
   }
 
-  /** Winrate по закрывающим (sell) успешным демо-сделкам из журнала. */
+  /** Winrate по закрывающим (sell) успешным сделкам из журнала. */
   private async recomputeWinRate(botId: string): Promise<number> {
     const sells = await this.tradesRepo.find({
-      where: { botId, side: 'sell', status: 'success', mode: 'demo' },
+      where: { botId, side: 'sell', status: 'success' },
     });
     if (sells.length === 0) return 0;
     const wins = sells.filter((t) => (t.pnl ?? 0) > 0).length;

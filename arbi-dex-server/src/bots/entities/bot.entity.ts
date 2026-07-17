@@ -79,6 +79,10 @@ export class Bot {
   @Column({ type: 'double precision', default: 0 })
   entryPrice: number;
 
+  /** When the open position was entered, unix ms (for sell triggers). */
+  @Column({ type: 'double precision', default: 0 })
+  positionOpenedAt: number;
+
   @CreateDateColumn()
   createdAt: Date;
 

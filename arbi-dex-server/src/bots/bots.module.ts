@@ -6,6 +6,7 @@ import { BotsController } from './bots.controller';
 import { ComputeController } from './compute.controller';
 import { BotsService } from './bots.service';
 import { LiveTradingService } from './live-trading.service';
+import { LiveEngineService } from './live-engine.service';
 import { AutotuneJobsService } from './autotune-jobs.service';
 import { AutotuneProgressGateway } from './autotune-progress.gateway';
 import { Bot } from './entities/bot.entity';
@@ -33,6 +34,6 @@ import { SettingsModule } from '../settings/settings.module';
     }),
   ],
   controllers: [BotsController, ComputeController],
-  providers: [BotsService, LiveTradingService, AutotuneJobsService, AutotuneProgressGateway],
+  providers: [BotsService, LiveTradingService, LiveEngineService, AutotuneJobsService, AutotuneProgressGateway],
 })
 export class BotsModule {}
