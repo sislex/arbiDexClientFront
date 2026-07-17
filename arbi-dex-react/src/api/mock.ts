@@ -168,6 +168,8 @@ export const mockApi: ApiClient = {
         jobId: nextId('atjob'),
         botId: id,
         label: `${bot.name}: ${result.totalCombos} прогонов`,
+        searchType: 'grid' as const,
+        params: { from: lo, to: hi, maxCombos: params.maxCombos ?? 48, initialBalance: params.initialBalance, searchType: 'grid' as const },
         // Мок завершает синхронно — переподключаться не к чему.
         status: 'done' as const,
         total: result.totalCombos,
@@ -193,6 +195,7 @@ export const mockApi: ApiClient = {
     jobs: () => delay([]),
     pause: () => Promise.reject(new Error('Планировщик расчётов доступен только в live-режиме')),
     resume: () => Promise.reject(new Error('Планировщик расчётов доступен только в live-режиме')),
+    remove: () => Promise.reject(new Error('Планировщик расчётов доступен только в live-режиме')),
     config: () => delay({ totalThreads: 1, activeThreads: 0, queuedJobs: 0 }),
     updateConfig: (totalThreads: number) => delay({ totalThreads, activeThreads: 0, queuedJobs: 0 }),
   },

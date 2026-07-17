@@ -15,6 +15,7 @@ import { ContractsPage } from '../features/settings/ContractsPage';
 import { TokensPage } from '../features/settings/TokensPage';
 import { ComputeSettingsPage } from '../features/settings/ComputeSettingsPage';
 import { ComputationsPage } from '../features/compute/ComputationsPage';
+import { ComputationJobPage } from '../features/compute/ComputationJobPage';
 
 export function AppRoutes() {
   return (
@@ -39,6 +40,7 @@ export function AppRoutes() {
         <Route path="/bots/:id" element={<BotDetailPage />} />
         <Route path="/bots/:id/edit" element={<EditBotPage />} />
         <Route path="/computations" element={<ComputationsPage />} />
+        <Route path="/computations/:jobId" element={<ComputationJobPage />} />
         <Route path="/settings" element={<Navigate to="/settings/quoters" replace />} />
         <Route path="/settings/quoters" element={<ContractsPage kind="quoter" />} />
         <Route path="/settings/executors" element={<ContractsPage kind="executor" />} />

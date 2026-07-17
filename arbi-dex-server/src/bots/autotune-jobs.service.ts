@@ -4,6 +4,7 @@ import { Worker } from 'worker_threads';
 import * as os from 'os';
 import * as path from 'path';
 import { AutotuneCombo, AutotuneResult, StrategyConfigData } from '../demo/engine/types';
+import { buildRefineRound, comboKey, Dimension } from '../demo/engine/autotune';
 import type { MarketStep } from '@sislex/arbi-conditions-libs';
 
 /** Таблица live-результатов держит не больше 500 лучших прогонов. */
@@ -16,11 +17,26 @@ const CHUNK_SIZE = 20;
 
 export type ComputeJobStatus = 'queued' | 'running' | 'paused' | 'done' | 'error';
 
+/** Тип перебора: обычный (равномерный по сетке) или уточняющий (раундами). */
+export type SearchType = 'grid' | 'refine';
+
+/** Параметры, с которыми запускался расчёт (для страницы расчёта/перезапуска). */
+export interface ComputeJobParams {
+  from: number;
+  to: number;
+  maxCombos: number;
+  initialBalance?: number;
+  threads?: number;
+  searchType: SearchType;
+}
+
 export interface AutotuneJobSnapshot {
   jobId: string;
   botId: string;
   /** Человекочитаемая подпись задачи (бот + параметры). */
   label: string;
+  searchType: SearchType;
+  params: ComputeJobParams;
   status: ComputeJobStatus;
   total: number;
   done: number;
@@ -43,6 +59,16 @@ interface ComputeJob {
   userId: string;
   botId: string;
   label: string;
+  searchType: SearchType;
+  params: ComputeJobParams;
+  /** Измерения сетки — нужны уточняющим раундам. */
+  dims: Dimension[];
+  /** Ключи уже выданных комбинаций (дедуп между раундами). */
+  seen: Set<string>;
+  /** Сколько раундов уточнения осталось (для refine). */
+  roundsLeft: number;
+  /** Размер одного раунда (для refine). */
+  roundSize: number;
   status: ComputeJobStatus;
   /** Порядок в очереди — пауза перекидывает в конец (больший order). */
   order: number;
@@ -114,23 +140,39 @@ export class AutotuneJobsService {
     label: string;
     comboParams: Record<string, number>[];
     gridTotal: number;
+    dims: Dimension[];
     steps: MarketStep[];
     strategy: StrategyConfigData;
+    params: ComputeJobParams;
     initialBalance?: number;
     threads?: number;
   }): AutotuneJobSnapshot {
+    const searchType = input.params.searchType;
+    // Уточняющий перебор: бюджет прогонов делится на раунды — первый идёт по
+    // всей сетке, следующие сужаются вокруг лучших результатов.
+    const ROUNDS = 3;
+    const roundSize = searchType === 'refine' ? Math.max(1, Math.ceil(input.params.maxCombos / ROUNDS)) : 0;
+    const firstBatch = searchType === 'refine' ? input.comboParams.slice(0, roundSize) : input.comboParams;
+    const seen = new Set<string>(firstBatch.map((p) => comboKey(p)));
+
     const job: ComputeJob = {
       jobId: randomUUID(),
       userId: input.userId,
       botId: input.botId,
       label: input.label,
+      searchType,
+      params: input.params,
+      dims: input.dims,
+      seen,
+      roundsLeft: searchType === 'refine' ? ROUNDS - 1 : 0,
+      roundSize,
       status: 'queued',
       order: ++this.orderSeq,
       threadsRequested: Math.max(1, Math.min(input.threads ?? this.totalThreads, 64)),
       inFlight: 0,
-      pending: input.comboParams.map((params, index) => ({ index, params })),
+      pending: firstBatch.map((params, index) => ({ index, params })),
       done: 0,
-      total: input.comboParams.length,
+      total: searchType === 'refine' ? Math.min(input.params.maxCombos, input.gridTotal) : input.comboParams.length,
       gridTotal: input.gridTotal,
       topCombos: [],
       steps: input.steps,
@@ -145,6 +187,14 @@ export class AutotuneJobsService {
     this.jobs.set(job.jobId, job);
     this.tick();
     return this.snapshot(job);
+  }
+
+  /** Удаляет расчёт (идущий — отменяется: начатые порции доработают вхолостую). */
+  remove(userId: string, jobId: string): void {
+    const job = this.find(userId, jobId);
+    // Занятые потоки вернутся в пул через release() соответствующих воркеров.
+    this.jobs.delete(job.jobId);
+    this.tick();
   }
 
   pause(userId: string, jobId: string): AutotuneJobSnapshot {
@@ -227,12 +277,21 @@ export class AutotuneJobsService {
       finished = true;
       job.inFlight -= 1;
       this.activeThreads -= 1;
-      if (err && job.status !== 'done') {
+      // Расчёт могли удалить, пока порция была в работе, — просто вернуть поток.
+      const alive = this.jobs.has(job.jobId);
+      if (err && alive && job.status !== 'done') {
         job.status = 'error';
         job.error = err.message;
         this.scheduleCleanup(job.jobId);
-      } else if (job.pending.length === 0 && job.inFlight === 0 && job.status === 'running') {
-        this.finish(job);
+      } else if (alive && job.pending.length === 0 && job.inFlight === 0 && job.status === 'running') {
+        // Уточняющий перебор: следующий раунд вокруг лучших результатов.
+        const next = this.nextRound(job);
+        if (next.length > 0) {
+          let idx = job.done;
+          job.pending.push(...next.map((params) => ({ index: idx++, params })));
+        } else {
+          this.finish(job);
+        }
       }
       this.tick();
     };
@@ -246,7 +305,20 @@ export class AutotuneJobsService {
     });
   }
 
+  /** Комбинации для следующего раунда уточняющего перебора (пусто = финиш). */
+  private nextRound(job: ComputeJob): Record<string, number>[] {
+    if (job.searchType !== 'refine' || job.roundsLeft <= 0) return [];
+    job.roundsLeft -= 1;
+    const budget = Math.min(job.roundSize, Math.max(0, job.total - job.done));
+    if (budget <= 0) return [];
+    const fresh = buildRefineRound(job.dims, job.topCombos.slice(0, 10), budget, job.seen);
+    // Сетка в сузившихся пределах меньше бюджета — не рисуем невыполнимый total.
+    if (fresh.length < budget) job.total -= budget - fresh.length;
+    return fresh;
+  }
+
   private progress(job: ComputeJob, batch: AutotuneCombo[]): void {
+    if (!this.jobs.has(job.jobId)) return;
     if (job.status === 'done' || job.status === 'error') return;
     job.done += batch.length;
     job.topCombos = [...job.topCombos, ...batch]
@@ -284,6 +356,8 @@ export class AutotuneJobsService {
       jobId: job.jobId,
       botId: job.botId,
       label: job.label,
+      searchType: job.searchType,
+      params: job.params,
       status: job.status,
       total: job.total,
       done: job.done,

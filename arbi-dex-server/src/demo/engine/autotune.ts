@@ -6,12 +6,60 @@ import { toEngineStrategy } from './strategy-engine.mapper';
 import { runBacktest } from '@sislex/arbi-conditions-libs';
 import type { MarketStep } from '@sislex/arbi-conditions-libs';
 
-interface Dimension {
+export interface Dimension {
   side: 'buy' | 'sell';
   conditionId: string;
   key: string;
   values: number[];
   label: string;
+}
+
+/** Стабильный ключ комбинации — для дедупликации между раундами уточнения. */
+export function comboKey(params: Record<string, number>): string {
+  return Object.keys(params)
+    .sort()
+    .map((k) => `${k}=${params[k]}`)
+    .join('|');
+}
+
+/**
+ * Следующий раунд уточняющего перебора (coarse-to-fine): по топ-результатам
+ * прошлого раунда сужаем диапазон каждого измерения до [min..max] значений в
+ * топе, расширенного на один шаг сетки в обе стороны, и равномерно сэмплируем
+ * уменьшенную сетку. Так гигантские сетки (миллиарды комбинаций) сходятся к
+ * хорошим областям за тысячи прогонов вместо полного перебора.
+ */
+export function buildRefineRound(
+  dims: Dimension[],
+  topCombos: { params: Record<string, number> }[],
+  count: number,
+  seen: Set<string>,
+): Record<string, number>[] {
+  if (dims.length === 0 || topCombos.length === 0 || count <= 0) return [];
+  const refined: Dimension[] = dims.map((d) => {
+    const used = topCombos
+      .map((c) => c.params[d.label])
+      .filter((v): v is number => typeof v === 'number');
+    if (used.length === 0) return d;
+    const idxs = used
+      .map((v) => d.values.findIndex((x) => Math.abs(x - v) < 1e-9))
+      .filter((i) => i >= 0);
+    if (idxs.length === 0) return d;
+    const lo = Math.max(0, Math.min(...idxs) - 1);
+    const hi = Math.min(d.values.length - 1, Math.max(...idxs) + 1);
+    return { ...d, values: d.values.slice(lo, hi + 1) };
+  });
+  // Сэмплируем с запасом: часть комбинаций уже выполнена в прошлых раундах.
+  const sampled = sampleGrid(refined, count * 3);
+  const fresh: Record<string, number>[] = [];
+  for (const params of sampled) {
+    const key = comboKey(params);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    fresh.push(params);
+    if (fresh.length >= count) break;
+  }
+  return fresh;
 }
 
 function rangeValues(min: number, max: number, step: number): number[] {

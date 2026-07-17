@@ -268,6 +268,19 @@ export interface AutotuneEstimate {
 
 export type ComputeJobStatus = 'queued' | 'running' | 'paused' | 'done' | 'error';
 
+/** Sweep type: plain uniform grid sampling or coarse-to-fine refinement. */
+export type SearchType = 'grid' | 'refine';
+
+/** Parameters a compute job was started with (for its page / restart). */
+export interface ComputeJobParams {
+  from: number;
+  to: number;
+  maxCombos: number;
+  initialBalance?: number;
+  threads?: number;
+  searchType: SearchType;
+}
+
 /** Snapshot of a background compute job (streamed over the websocket / listed
  * in the computations menu). */
 export interface AutotuneJob {
@@ -275,6 +288,8 @@ export interface AutotuneJob {
   botId: string;
   /** Human label: bot name + run count. */
   label: string;
+  searchType: SearchType;
+  params: ComputeJobParams;
   status: ComputeJobStatus;
   total: number;
   done: number;

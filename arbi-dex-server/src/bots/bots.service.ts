@@ -6,7 +6,7 @@ import { CreateBotDto, UpdateBotDto } from './dto/bot.dto';
 import { MarketConfigsService } from '../market-configs/market-configs.service';
 import { StrategyConfigsService } from '../strategy-configs/strategy-configs.service';
 import { runAutotuneParallel, estimateGrid, applyCombo, collectDimensions, sampleGrid } from '../demo/engine/autotune';
-import { AutotuneJobsService, AutotuneJobSnapshot } from './autotune-jobs.service';
+import { AutotuneJobsService, AutotuneJobSnapshot, SearchType } from './autotune-jobs.service';
 import * as os from 'os';
 import { findMarket } from '../demo/engine/markets';
 import { BacktestResult, AutotuneResult, Trade, QuotePoint } from '../demo/engine/types';
@@ -456,7 +456,14 @@ export class BotsService {
   async autotuneStart(
     userId: string,
     id: string,
-    opts: { from?: number; to?: number; maxCombos?: number; threads?: number; initialBalance?: number } = {},
+    opts: {
+      from?: number;
+      to?: number;
+      maxCombos?: number;
+      threads?: number;
+      initialBalance?: number;
+      searchType?: SearchType;
+    } = {},
   ): Promise<AutotuneJobSnapshot> {
     const bot = await this.findOne(userId, id);
     const { historyFrom, historyTo } = await this.marketConfigs.getHistoryRange(
@@ -480,14 +487,25 @@ export class BotsService {
       quotes: { buyQuote: q.buyQuote, sellQuote: q.sellQuote, avgObservedQuote: q.avgObservedQuote },
     }));
 
+    const searchType: SearchType = opts.searchType === 'refine' ? 'refine' : 'grid';
+    const maxCombos = opts.maxCombos ?? 1000;
     return this.autotuneJobs.submit({
       userId,
       botId: id,
-      label: `${bot.name}: ${comboParams.length.toLocaleString('ru-RU')} прогонов`,
+      label: `${bot.name}: ${comboParams.length.toLocaleString('ru-RU')} прогонов${searchType === 'refine' ? ' (уточняющий)' : ''}`,
       comboParams,
       gridTotal,
+      dims,
       steps,
       strategy: strategyData,
+      params: {
+        from,
+        to,
+        maxCombos,
+        initialBalance: opts.initialBalance ?? bot.initialBalance,
+        threads: opts.threads,
+        searchType,
+      },
       initialBalance: opts.initialBalance ?? bot.initialBalance,
       threads: opts.threads,
     });

@@ -238,6 +238,7 @@ export class BotsController {
   @ApiQuery({ name: 'maxCombos', required: false })
   @ApiQuery({ name: 'initialBalance', required: false })
   @ApiQuery({ name: 'threads', required: false, description: 'Сколько потоков пула занять этим расчётом' })
+  @ApiQuery({ name: 'searchType', required: false, enum: ['grid', 'refine'], description: 'Тип перебора: grid — обычный, refine — уточняющий (раундами)' })
   autotuneStart(
     @CurrentUser() user: User,
     @Param('id') id: string,
@@ -246,6 +247,7 @@ export class BotsController {
     @Query('maxCombos') maxCombos?: string,
     @Query('initialBalance') initialBalance?: string,
     @Query('threads') threads?: string,
+    @Query('searchType') searchType?: string,
   ) {
     return this.service.autotuneStart(user.id, id, {
       from: from !== undefined ? Number(from) : undefined,
@@ -253,6 +255,7 @@ export class BotsController {
       maxCombos: maxCombos !== undefined ? Number(maxCombos) : undefined,
       initialBalance: initialBalance !== undefined ? Number(initialBalance) : undefined,
       threads: threads !== undefined ? Number(threads) : undefined,
+      searchType: searchType === 'refine' ? 'refine' : 'grid',
     });
   }
 

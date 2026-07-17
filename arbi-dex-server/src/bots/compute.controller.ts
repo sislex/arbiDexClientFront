@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { IsInt, Max, Min } from 'class-validator';
 import { AutotuneJobsService } from './autotune-jobs.service';
@@ -46,6 +46,14 @@ export class ComputeController {
   @ApiParam({ name: 'jobId' })
   resume(@CurrentUser() user: User, @Param('jobId') jobId: string) {
     return this.jobs.resume(user.id, jobId);
+  }
+
+  @Delete('jobs/:jobId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Удалить расчёт (идущий отменяется, потоки возвращаются в пул)' })
+  @ApiParam({ name: 'jobId' })
+  remove(@CurrentUser() user: User, @Param('jobId') jobId: string) {
+    this.jobs.remove(user.id, jobId);
   }
 
   @Get('config')

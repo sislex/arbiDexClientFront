@@ -1,19 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Alert,
   Box,
-  Button,
   Card,
   CardContent,
   Chip,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   IconButton,
   LinearProgress,
-  Snackbar,
   Stack,
   Table,
   TableBody,
@@ -25,17 +19,14 @@ import {
 } from '@mui/material';
 import PauseIcon from '@mui/icons-material/Pause';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { PageHeader } from '../../components/PageHeader';
-import { PnlValue } from '../../components/PnlValue';
 import { fmtDuration } from '../../components/format';
 import { api } from '../../api';
 import { useAppDispatch, useAppSelector } from '../../store';
-import { fetchBots, updateBot } from '../../store/botsSlice';
-import { createStrategyConfig, fetchStrategyConfigs, updateStrategyConfig } from '../../store/strategyConfigsSlice';
-import { tuneKeyLabel, applyComboToStrategy } from '../bots/autotuneLabels';
-import type { AutotuneCombo, AutotuneJob, ComputeConfig, ComputeJobStatus } from '../../domain/types';
+import { fetchBots } from '../../store/botsSlice';
+import { fetchStrategyConfigs } from '../../store/strategyConfigsSlice';
+import type { AutotuneJob, ComputeConfig, ComputeJobStatus } from '../../domain/types';
 
 const STATUS_LABEL: Record<ComputeJobStatus, { label: string; color: 'success' | 'info' | 'warning' | 'default' | 'error' }> = {
   running: { label: 'идёт', color: 'success' },
@@ -52,13 +43,12 @@ const STATUS_LABEL: Record<ComputeJobStatus, { label: string; color: 'success' |
  */
 export function ComputationsPage() {
   const dispatch = useAppDispatch();
+  const navigate = useNavigate();
   const bots = useAppSelector((s) => s.bots.items);
-  const strategies = useAppSelector((s) => s.strategyConfigs.items);
 
   const [jobs, setJobs] = useState<AutotuneJob[]>([]);
   const [config, setConfig] = useState<ComputeConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
     dispatch(fetchBots());
@@ -95,32 +85,6 @@ export function ComputationsPage() {
     } catch (e) {
       setError((e as Error).message);
     }
-  };
-
-  // ── Детали расчёта ──────────────────────────────────────────────────────────
-  const [openJobId, setOpenJobId] = useState<string | null>(null);
-  const openJob = useMemo(() => jobs.find((j) => j.jobId === openJobId) ?? null, [jobs, openJobId]);
-  const openBot = useMemo(() => bots.find((b) => b.id === openJob?.botId) ?? null, [bots, openJob]);
-  const openStrategy = useMemo(
-    () => strategies.find((s) => s.id === openBot?.strategyConfigId) ?? null,
-    [strategies, openBot],
-  );
-
-  const applyToStrategy = async (combo: AutotuneCombo) => {
-    if (!openStrategy) return setError('Стратегия бота не найдена');
-    const { buy, sell } = applyComboToStrategy(openStrategy, combo.params);
-    await dispatch(updateStrategyConfig({ id: openStrategy.id, patch: { buy, sell } }));
-    setMsg('Коэффициенты применены к текущей стратегии');
-  };
-
-  const createNewStrategy = async (combo: AutotuneCombo) => {
-    if (!openStrategy || !openBot) return setError('Стратегия бота не найдена');
-    const { buy, sell } = applyComboToStrategy(openStrategy, combo.params);
-    const created = await dispatch(
-      createStrategyConfig({ name: `${openStrategy.name} — расчёт (${openBot.name})`, buy, sell }),
-    ).unwrap();
-    await dispatch(updateBot({ id: openBot.id, patch: { strategyConfigId: created.id } }));
-    setMsg(`Создана стратегия «${created.name}» и привязана к боту`);
   };
 
   const botName = (botId: string): string => bots.find((b) => b.id === botId)?.name ?? botId.slice(0, 8);
@@ -164,7 +128,7 @@ export function ComputationsPage() {
                   const st = STATUS_LABEL[j.status];
                   const pct = j.total > 0 ? Math.min(100, (j.done / j.total) * 100) : 0;
                   return (
-                    <TableRow key={j.jobId} hover sx={{ cursor: 'pointer' }} onClick={() => setOpenJobId(j.jobId)} data-testid={`compute-job-${j.jobId}`}>
+                    <TableRow key={j.jobId} hover sx={{ cursor: 'pointer' }} onClick={() => navigate(`/computations/${j.jobId}`)} data-testid={`compute-job-${j.jobId}`}>
                       <TableCell>
                         <Typography variant="body2">{j.label || botName(j.botId)}</Typography>
                         <Typography variant="caption" color="text.secondary">{botName(j.botId)}</Typography>
@@ -206,6 +170,11 @@ export function ComputationsPage() {
                             </IconButton>
                           </Tooltip>
                         )}
+                        <Tooltip title="Удалить расчёт">
+                          <IconButton size="small" onClick={() => act(() => api.compute.remove(j.jobId))} data-testid={`delete-${j.jobId}`}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                       </TableCell>
                     </TableRow>
                   );
@@ -216,96 +185,6 @@ export function ComputationsPage() {
         </CardContent>
       </Card>
 
-      {/* Детали расчёта: живой топ результатов + применение к стратегии. */}
-      <Dialog open={!!openJob} onClose={() => setOpenJobId(null)} maxWidth="md" fullWidth data-testid="compute-job-dialog">
-        <DialogTitle>
-          {openJob?.label} · {openJob ? STATUS_LABEL[openJob.status].label : ''}
-        </DialogTitle>
-        <DialogContent>
-          {openJob && (
-            <Stack spacing={1.5}>
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', gap: 1 }}>
-                {openJob.status === 'running' && <CircularProgress size={16} />}
-                <Typography variant="body2" sx={{ fontVariantNumeric: 'tabular-nums' }}>
-                  {openJob.done.toLocaleString('ru-RU')} / {openJob.total.toLocaleString('ru-RU')} прогонов
-                </Typography>
-                <Chip size="small" variant="outlined" label={`потоки ${openJob.threadsActive}/${openJob.threadsRequested}`} />
-                <Chip size="small" variant="outlined" label={`время ${fmtDuration(openJob.elapsedMs)}`} />
-              </Stack>
-              <LinearProgress variant="determinate" value={openJob.total ? (openJob.done / openJob.total) * 100 : 0} />
-              {!openStrategy && (
-                <Alert severity="info">Применение к стратегии недоступно: стратегия бота не найдена (возможно, изменена).</Alert>
-              )}
-              <Box sx={{ maxHeight: 380, overflow: 'auto' }}>
-                <Table size="small" stickyHeader>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>#</TableCell>
-                      <TableCell>Параметры</TableCell>
-                      <TableCell align="right">PnL</TableCell>
-                      <TableCell align="right">PnL %</TableCell>
-                      <TableCell align="right">Winrate</TableCell>
-                      <TableCell align="right">Сделок</TableCell>
-                      <TableCell align="right">Просадка</TableCell>
-                      <TableCell width={110} />
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {openJob.topCombos.slice(0, 100).map((c, i) => (
-                      <TableRow key={c.id} hover selected={i === 0}>
-                        <TableCell>{i + 1}</TableCell>
-                        <TableCell>
-                          <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
-                            {Object.entries(c.params).map(([k, v]) => (
-                              <Chip key={k} size="small" variant="outlined" label={`${tuneKeyLabel(k)}: ${v}`} />
-                            ))}
-                          </Stack>
-                        </TableCell>
-                        <TableCell align="right"><PnlValue value={c.stats.pnl} /></TableCell>
-                        <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
-                          {c.stats.pnlPct > 0 ? '+' : ''}{c.stats.pnlPct}%
-                        </TableCell>
-                        <TableCell align="right">{c.stats.winRate}%</TableCell>
-                        <TableCell align="right">{c.stats.trades}</TableCell>
-                        <TableCell align="right">{c.stats.maxDrawdownPct}%</TableCell>
-                        <TableCell>
-                          <Stack direction="row" spacing={0.5}>
-                            <Tooltip title="Применить коэффициенты к текущей стратегии">
-                              <span>
-                                <IconButton size="small" disabled={!openStrategy} onClick={() => applyToStrategy(c)}>
-                                  <AutoFixHighIcon fontSize="small" />
-                                </IconButton>
-                              </span>
-                            </Tooltip>
-                            <Tooltip title="Создать новую стратегию на основе этого прогона">
-                              <span>
-                                <IconButton size="small" disabled={!openStrategy} onClick={() => createNewStrategy(c)}>
-                                  <ContentCopyIcon fontSize="small" />
-                                </IconButton>
-                              </span>
-                            </Tooltip>
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </Box>
-            </Stack>
-          )}
-        </DialogContent>
-        <DialogActions>
-          {openJob && (openJob.status === 'running' || openJob.status === 'queued') && (
-            <Button startIcon={<PauseIcon />} onClick={() => act(() => api.compute.pause(openJob.jobId))}>Пауза</Button>
-          )}
-          {openJob?.status === 'paused' && (
-            <Button startIcon={<PlayArrowIcon />} onClick={() => act(() => api.compute.resume(openJob.jobId))}>Продолжить</Button>
-          )}
-          <Button onClick={() => setOpenJobId(null)}>Закрыть</Button>
-        </DialogActions>
-      </Dialog>
-
-      <Snackbar open={!!msg} autoHideDuration={4000} onClose={() => setMsg(null)} message={msg ?? ''} />
     </Box>
   );
 }

@@ -3,7 +3,7 @@ import {
   Box, Card, CardContent, Stack, Button, TextField, Typography, CircularProgress,
   Alert, Table, TableBody, TableCell, TableHead, TableRow, Chip, Divider, Snackbar,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, InputAdornment,
-  LinearProgress,
+  LinearProgress, MenuItem,
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
@@ -36,6 +36,7 @@ export function AutotuneTab({ bot }: { bot: Bot }) {
   const [maxCombos, setMaxCombos] = useState(1000);
   const [initialBalance, setInitialBalance] = useState(bot.initialBalance);
   const [threads, setThreads] = useState(6);
+  const [searchType, setSearchType] = useState<'grid' | 'refine'>('grid');
   const [applyDialog, setApplyDialog] = useState(false);
 
   // ── Оценка: сколько прогонов и сколько это займёт ─────────────────────────
@@ -147,6 +148,7 @@ export function AutotuneTab({ bot }: { bot: Bot }) {
         maxCombos,
         initialBalance,
         threads,
+        searchType,
       });
       handleSnapshot(snap);
       if (snap.status === 'running' || snap.status === 'queued') {
@@ -244,6 +246,19 @@ export function AutotuneTab({ bot }: { bot: Bot }) {
               inputProps={{ min: 1, max: 64, 'data-testid': 'at-threads' }}
               sx={{ width: 110 }}
             />
+            <TextField
+              select
+              label="Тип перебора" size="small" value={searchType}
+              onChange={(e) => setSearchType(e.target.value as 'grid' | 'refine')}
+              sx={{ minWidth: 190 }}
+              inputProps={{ 'data-testid': 'at-search-type' }}
+              // Обычный — равномерно по всей сетке; уточняющий — раундами:
+              // каждый следующий раунд сужается вокруг лучших результатов.
+              helperText={searchType === 'refine' ? 'Раунды: сетка сужается вокруг лучших' : undefined}
+            >
+              <MenuItem value="grid">Обычный перебор</MenuItem>
+              <MenuItem value="refine">Уточняющий (быстрый)</MenuItem>
+            </TextField>
             <Button
               variant="outlined"
               startIcon={estimating ? <CircularProgress size={16} color="inherit" /> : <TimerOutlinedIcon />}

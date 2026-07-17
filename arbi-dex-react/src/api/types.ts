@@ -163,6 +163,8 @@ export interface AutotuneStartParams {
   initialBalance?: number;
   /** How many pool threads this job may occupy. */
   threads?: number;
+  /** Sweep type: 'grid' (plain) or 'refine' (coarse-to-fine rounds). */
+  searchType?: 'grid' | 'refine';
 }
 
 /** The API facade implemented by both the mock and the live backend clients. */
@@ -236,6 +238,8 @@ export interface ApiClient {
     jobs(): Promise<AutotuneJob[]>;
     pause(jobId: string): Promise<AutotuneJob>;
     resume(jobId: string): Promise<AutotuneJob>;
+    /** Delete a job (a running one is cancelled, threads return to the pool). */
+    remove(jobId: string): Promise<void>;
     config(): Promise<ComputeConfig>;
     updateConfig(totalThreads: number): Promise<ComputeConfig>;
   };

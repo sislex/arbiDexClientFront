@@ -160,6 +160,7 @@ export const liveApi: ApiClient = {
           maxCombos: params.maxCombos,
           initialBalance: params.initialBalance,
           threads: params.threads,
+          searchType: params.searchType,
         },
       });
     },
@@ -216,6 +217,9 @@ export const liveApi: ApiClient = {
     },
     resume(jobId) {
       return request(`/compute/jobs/${jobId}/resume`, { method: 'POST' });
+    },
+    remove(jobId) {
+      return request<void>(`/compute/jobs/${jobId}`, { method: 'DELETE' });
     },
     config() {
       return request('/compute/config');
