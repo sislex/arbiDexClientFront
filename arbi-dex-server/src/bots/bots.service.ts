@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Bot } from './entities/bot.entity';
+import { BotTrade } from './entities/bot-trade.entity';
 import { CreateBotDto, UpdateBotDto } from './dto/bot.dto';
 import { MarketConfigsService } from '../market-configs/market-configs.service';
 import { StrategyConfigsService } from '../strategy-configs/strategy-configs.service';
@@ -52,18 +53,62 @@ export interface BotStepResult extends TradingConditionsStepResult {
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v, lo), hi);
 
+/** Итоги live-торговли бота, посчитанные по журналу сделок (bot_trades). */
+export interface BotLiveStats {
+  /** Успешные live-сделки (покупки + продажи). */
+  tradesCount: number;
+  /** Зафейленные попытки (проскальзывание, нет средств, сбой данных…). */
+  failedCount: number;
+  /** Реализованный PnL — сумма PnL закрывающих продаж, в валюте баланса. */
+  pnl: number;
+  /** PnL в процентах от стартового депозита (initialBalance). */
+  pnlPct: number;
+}
+
 @Injectable()
 export class BotsService {
   constructor(
     @InjectRepository(Bot)
     private readonly repo: Repository<Bot>,
+    @InjectRepository(BotTrade)
+    private readonly tradesRepo: Repository<BotTrade>,
     private readonly marketConfigs: MarketConfigsService,
     private readonly strategyConfigs: StrategyConfigsService,
     private readonly autotuneJobs: AutotuneJobsService,
   ) {}
 
-  findAll(userId: string): Promise<Bot[]> {
-    return this.repo.find({ where: { userId }, order: { createdAt: 'DESC' } });
+  /**
+   * Список ботов + live-итоги по журналу сделок. Агрегаты в самой записи бота
+   * (pnl/tradesCount) исторически смешивали бэктесты и live — для колонок
+   * «результаты торговли» считаем только реальные записи журнала.
+   */
+  async findAll(userId: string): Promise<(Bot & { live: BotLiveStats })[]> {
+    const bots = await this.repo.find({ where: { userId }, order: { createdAt: 'DESC' } });
+    if (bots.length === 0) return [];
+    const rows: { botId: string; trades: string; failed: string; pnl: string | null }[] =
+      await this.tradesRepo
+        .createQueryBuilder('t')
+        .select('t.botId', 'botId')
+        .addSelect(`COUNT(*) FILTER (WHERE t.status = 'success')`, 'trades')
+        .addSelect(`COUNT(*) FILTER (WHERE t.status = 'failed')`, 'failed')
+        .addSelect(`COALESCE(SUM(t.pnl) FILTER (WHERE t.status = 'success'), 0)`, 'pnl')
+        .where('t.botId IN (:...ids)', { ids: bots.map((b) => b.id) })
+        .groupBy('t.botId')
+        .getRawMany();
+    const byBot = new Map(rows.map((r) => [r.botId, r]));
+    return bots.map((b) => {
+      const r = byBot.get(b.id);
+      const pnl = r ? Number(r.pnl ?? 0) : 0;
+      return {
+        ...b,
+        live: {
+          tradesCount: r ? Number(r.trades) : 0,
+          failedCount: r ? Number(r.failed) : 0,
+          pnl,
+          pnlPct: b.initialBalance > 0 ? (pnl / b.initialBalance) * 100 : 0,
+        },
+      };
+    });
   }
 
   async findOne(userId: string, id: string): Promise<Bot> {

@@ -94,6 +94,17 @@ export interface Bot {
   lastSignalAt?: number;
   /** Pause after a failed trade until this moment, unix ms. */
   failCooldownUntil?: number;
+  /** Live-trading totals computed from the trade journal (server list only). */
+  live?: {
+    /** Successful live trades (buys + sells). */
+    tradesCount: number;
+    /** Failed attempts (slippage, missing funds, data outages…). */
+    failedCount: number;
+    /** Realised PnL — sum of closing sells' PnL, in the balance currency. */
+    pnl: number;
+    /** PnL as % of the initial deposit. */
+    pnlPct: number;
+  };
   createdAt: string;
   updatedAt: string;
 }

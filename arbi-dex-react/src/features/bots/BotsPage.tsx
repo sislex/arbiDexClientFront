@@ -59,8 +59,9 @@ export function BotsPage() {
                 <TableCell>Режим</TableCell>
                 <TableCell>Конфигурация рынков</TableCell>
                 <TableCell>Стратегия</TableCell>
+                <TableCell align="right">Депозит</TableCell>
                 <TableCell align="right">Баланс</TableCell>
-                <TableCell align="right">PnL</TableCell>
+                <TableCell align="right">Результат</TableCell>
                 <TableCell align="right">Сделок</TableCell>
                 <TableCell align="right">Winrate</TableCell>
                 <TableCell align="right" />
@@ -75,9 +76,29 @@ export function BotsPage() {
                   <TableCell>{b.mode === 'real-live' ? 'Реальный' : b.mode === 'demo-live' ? 'Демо' : '—'}</TableCell>
                   <TableCell>{marketConfigs.find((m) => m.id === b.marketConfigId)?.name ?? '—'}</TableCell>
                   <TableCell>{strategyConfigs.find((s) => s.id === b.strategyConfigId)?.name ?? '—'}</TableCell>
+                  <TableCell align="right">{fmtMoney(b.initialBalance, cashAsset(b))}</TableCell>
                   <TableCell align="right">{fmtMoney(b.balance, cashAsset(b))}</TableCell>
-                  <TableCell align="right"><PnlValue value={b.pnl} pct={b.pnlPct} /></TableCell>
-                  <TableCell align="right">{b.tradesCount}</TableCell>
+                  {/* Итог live-торговли из журнала сделок (реализованный PnL);
+                      в мок-режиме поля live нет — показываем агрегаты бота. */}
+                  <TableCell align="right">
+                    <PnlValue value={b.live?.pnl ?? b.pnl} pct={b.live?.pnlPct ?? b.pnlPct} />
+                  </TableCell>
+                  <TableCell align="right">
+                    {b.live ? (
+                      <Tooltip title={`Успешных: ${b.live.tradesCount} · неудачных: ${b.live.failedCount}`}>
+                        <span>
+                          {b.live.tradesCount}
+                          {b.live.failedCount > 0 && (
+                            <Typography component="span" variant="caption" color="error.main">
+                              {' '}(+{b.live.failedCount})
+                            </Typography>
+                          )}
+                        </span>
+                      </Tooltip>
+                    ) : (
+                      b.tradesCount
+                    )}
+                  </TableCell>
                   <TableCell align="right">{b.winRate}%</TableCell>
                   <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                     <Tooltip title="Изменить">
@@ -111,7 +132,7 @@ export function BotsPage() {
               ))}
               {bots.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={11}>
+                  <TableCell colSpan={12}>
                     <Typography color="text.secondary" sx={{ py: 2 }}>
                       Пока нет ботов. Нажмите «Добавить бота», чтобы создать первого.
                     </Typography>
