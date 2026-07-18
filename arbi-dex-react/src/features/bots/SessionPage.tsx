@@ -15,7 +15,7 @@ import { fetchBot } from '../../store/botsSlice';
 import { fetchMarketConfigs } from '../../store/marketConfigsSlice';
 import { api, IS_LIVE } from '../../api';
 import { tokenAsset } from './botAssets';
-import { LiveTradesTable } from './LiveTradesTable';
+import { LiveTradesTable, TradesMarkdownActions } from './LiveTradesTable';
 import { LiveTab } from './LiveTab';
 
 /**
@@ -191,9 +191,20 @@ export function SessionPage() {
 
       <Card>
         <CardContent>
-          <Typography variant="subtitle1" sx={{ mb: 1 }}>
-            Сделки сессии ({trades.length})
-          </Typography>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+            <Typography variant="subtitle1">Сделки сессии ({trades.length})</Typography>
+            <Box sx={{ flexGrow: 1 }} />
+            <TradesMarkdownActions
+              trades={trades}
+              markdownOpts={{
+                title: `Сделки — ${bot.name}, сессия ${fmtTime(session.startedAt / 1000)} — ${fmtTime(session.endedAt / 1000)}`,
+                displaySide: toDisplaySide,
+                displayAsset: displayAsset || tokenAsset(bot),
+                cashAsset: bot.quoteAsset,
+              }}
+              fileName={`${bot.name.replace(/[^\wа-яА-ЯёЁ-]+/g, '_')}-session-trades.md`}
+            />
+          </Stack>
           <LiveTradesTable
             trades={trades}
             displaySide={toDisplaySide}

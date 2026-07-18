@@ -26,7 +26,7 @@ import { assembleMarketPreview, type TradingPoint } from '../../api/assemble';
 import { marketLabelFromId } from '../../api/live';
 import type { PreviewSeries } from '../../api/types';
 import { StepResultPanel } from './StepResultPanel';
-import { LiveTradesTable } from './LiveTradesTable';
+import { LiveTradesTable, TradesMarkdownActions } from './LiveTradesTable';
 import { fmtTime } from '../../components/format';
 
 /** The chart keeps at most the last 30 minutes of live data. */
@@ -515,11 +515,12 @@ export function LiveTab({ bot }: { bot: Bot }) {
                 variant="contained"
                 color="success"
                 startIcon={<ShoppingCartIcon />}
-                // Демо: «купить актив графика» возможен, когда бот держит валюту,
-                // которой за него платят (бот-side buy → нет позиции, sell → есть).
+                // Модель позиции едина для демо и реала: «купить актив графика»
+                // доступно, когда бот держит валюту, которой за него платят
+                // (бот-side buy → нет позиции, sell → есть позиция).
                 disabled={
                   !canTrade || tradePending ||
-                  (!isReal && (toBotSide('buy') === 'buy' ? bot.openPosition : !bot.openPosition))
+                  (toBotSide('buy') === 'buy' ? bot.openPosition : !bot.openPosition)
                 }
                 onClick={() => doTrade('buy')}
                 data-testid="trade-buy"
@@ -532,7 +533,7 @@ export function LiveTab({ bot }: { bot: Bot }) {
                 startIcon={<SellIcon />}
                 disabled={
                   !canTrade || tradePending ||
-                  (!isReal && (toBotSide('sell') === 'buy' ? bot.openPosition : !bot.openPosition))
+                  (toBotSide('sell') === 'buy' ? bot.openPosition : !bot.openPosition)
                 }
                 onClick={() => doTrade('sell')}
                 data-testid="trade-sell"
@@ -627,9 +628,24 @@ export function LiveTab({ bot }: { bot: Bot }) {
       {IS_LIVE && (
         <Card sx={{ mt: 2 }}>
           <CardContent>
-            <Typography variant="subtitle1" sx={{ mb: 1 }}>
-              Сделки{startedMs ? ' с момента запуска' : ''} ({visibleTrades.length})
-            </Typography>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+              <Typography variant="subtitle1">
+                Сделки{startedMs ? ' с момента запуска' : ''} ({visibleTrades.length})
+              </Typography>
+              <Box sx={{ flexGrow: 1 }} />
+              <TradesMarkdownActions
+                trades={visibleTrades}
+                markdownOpts={{
+                  title: `Сделки — ${bot.name} (${isReal ? 'реальная торговля' : 'демо'})${
+                    startedMs ? `, сессия с ${fmtTime(startedMs / 1000)}` : ''
+                  }`,
+                  displaySide: toDisplaySide,
+                  displayAsset,
+                  cashAsset: bot.quoteAsset,
+                }}
+                fileName={`${bot.name.replace(/[^\wа-яА-ЯёЁ-]+/g, '_')}-trades.md`}
+              />
+            </Stack>
             <LiveTradesTable
               trades={visibleTrades}
               displaySide={toDisplaySide}

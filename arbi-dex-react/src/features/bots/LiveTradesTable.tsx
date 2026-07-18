@@ -1,4 +1,8 @@
-import { Table, TableBody, TableCell, TableHead, TableRow, Chip, Box, Typography, Link } from '@mui/material';
+import { useState } from 'react';
+import { Table, TableBody, TableCell, TableHead, TableRow, Chip, Box, Typography, Link, Button, Stack } from '@mui/material';
+import DownloadIcon from '@mui/icons-material/Download';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import DoneIcon from '@mui/icons-material/Done';
 import type { LiveTrade, Side } from '../../domain/types';
 import { PnlValue } from '../../components/PnlValue';
 
@@ -11,6 +15,96 @@ function fmtTradeTime(unixMs: number): string {
     minute: '2-digit',
     second: '2-digit',
   });
+}
+
+/** Журнал сделок как markdown-таблица (для выгрузки в файл). */
+export function tradesToMarkdown(
+  trades: LiveTrade[],
+  opts: { title: string; displaySide: (s: Side) => Side; displayAsset: string; cashAsset: string },
+): string {
+  const esc = (s: string): string => s.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+  const lines = [
+    `# ${opts.title}`,
+    '',
+    '| Время | Сторона | Статус | Цена | Вход | Выход | PnL | Транзакция / ошибка |',
+    '|---|---|---|---:|---:|---:|---:|---|',
+  ];
+  for (const t of trades) {
+    const side = opts.displaySide(t.side) === 'buy' ? `Покупка ${opts.displayAsset}` : `Продажа ${opts.displayAsset}`;
+    lines.push(
+      `| ${fmtTradeTime(t.time)} | ${side} | ${t.status === 'success' ? 'успех' : 'отклонена'} | ` +
+        `${t.price != null ? t.price : '—'} | ${t.amountIn} | ${t.amountOut ?? '—'} | ` +
+        `${t.pnl != null ? `${t.pnl} ${opts.cashAsset}` : '—'} | ` +
+        `${t.txUrl ? `[tx](${t.txUrl})` : t.error ? esc(t.error) : t.mode === 'demo' ? 'демо' : '—'} |`,
+    );
+  }
+  return lines.join('\n') + '\n';
+}
+
+/**
+ * Кнопки выгрузки журнала: скачать markdown-файл и скопировать markdown в
+ * буфер обмена (с короткой галочкой-подтверждением).
+ */
+export function TradesMarkdownActions({
+  trades,
+  markdownOpts,
+  fileName,
+}: {
+  trades: LiveTrade[];
+  markdownOpts: { title: string; displaySide: (s: Side) => Side; displayAsset: string; cashAsset: string };
+  fileName: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const buildMd = () => tradesToMarkdown(trades, markdownOpts);
+
+  const download = () => {
+    const blob = new Blob([buildMd()], { type: 'text/markdown;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(buildMd());
+    } catch {
+      // Буфер недоступен (нет фокуса/разрешения) — fallback через textarea.
+      const ta = document.createElement('textarea');
+      ta.value = buildMd();
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <Stack direction="row" spacing={1}>
+      <Button
+        size="small"
+        startIcon={copied ? <DoneIcon /> : <ContentCopyIcon />}
+        color={copied ? 'success' : 'primary'}
+        disabled={trades.length === 0}
+        onClick={copy}
+        data-testid="trades-copy-md"
+      >
+        {copied ? 'Скопировано' : 'Копировать markdown'}
+      </Button>
+      <Button
+        size="small"
+        startIcon={<DownloadIcon />}
+        disabled={trades.length === 0}
+        onClick={download}
+        data-testid="trades-download-md"
+      >
+        Скачать markdown
+      </Button>
+    </Stack>
+  );
 }
 
 /**
