@@ -11,6 +11,7 @@ import { BotDetailPage } from '../features/bots/BotDetailPage';
 import { AddBotPage } from '../features/bots/AddBotPage';
 import { BotsPage } from '../features/bots/BotsPage';
 import { EditBotPage } from '../features/bots/EditBotPage';
+import { SessionPage } from '../features/bots/SessionPage';
 import { ContractsPage } from '../features/settings/ContractsPage';
 import { TokensPage } from '../features/settings/TokensPage';
 import { ComputeSettingsPage } from '../features/settings/ComputeSettingsPage';
@@ -39,6 +40,7 @@ export function AppRoutes() {
         <Route path="/bots/new" element={<AddBotPage />} />
         <Route path="/bots/:id" element={<BotDetailPage />} />
         <Route path="/bots/:id/edit" element={<EditBotPage />} />
+        <Route path="/bots/:id/sessions/:sessionId" element={<SessionPage />} />
         <Route path="/computations" element={<ComputationsPage />} />
         <Route path="/computations/:jobId" element={<ComputationJobPage />} />
         <Route path="/settings" element={<Navigate to="/settings/quoters" replace />} />

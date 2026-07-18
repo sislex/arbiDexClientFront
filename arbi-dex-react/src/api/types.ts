@@ -4,6 +4,7 @@ import type {
   AutotuneResult,
   BacktestResult,
   Bot,
+  BotSession,
   ComputeConfig,
   ComputeNode,
   ExecutorBalances,
@@ -199,8 +200,13 @@ export interface ApiClient {
       id: string,
       params: { side: Side; expectedPrice?: number; amount?: number },
     ): Promise<{ trade: LiveTrade; bot: Bot }>;
-    /** Live-trade log of the bot (successful and failed). */
-    trades(id: string): Promise<LiveTrade[]>;
+    /** Live-trade log of the bot (successful and failed); optional time window
+     * [from, to] in unix ms — e.g. a session window. */
+    trades(id: string, params?: { from?: number; to?: number }): Promise<LiveTrade[]>;
+    /** Trading sessions (newest first) with journal-based totals. */
+    sessions(id: string): Promise<BotSession[]>;
+    /** One trading session with totals. */
+    session(id: string, sessionId: string): Promise<BotSession>;
     /** Executor contract balances for the bot's pair tokens (real mode). */
     executorBalance(id: string): Promise<ExecutorBalances>;
     /** Reset the demo account: balance → initial, position/PnL/counters → 0,

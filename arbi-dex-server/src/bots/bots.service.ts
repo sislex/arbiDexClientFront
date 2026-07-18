@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Bot } from './entities/bot.entity';
 import { BotTrade } from './entities/bot-trade.entity';
+import { BotSession } from './entities/bot-session.entity';
 import { CreateBotDto, UpdateBotDto } from './dto/bot.dto';
 import { MarketConfigsService } from '../market-configs/market-configs.service';
 import { StrategyConfigsService } from '../strategy-configs/strategy-configs.service';
@@ -53,7 +54,7 @@ export interface BotStepResult extends TradingConditionsStepResult {
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v, lo), hi);
 
-/** Итоги live-торговли бота, посчитанные по журналу сделок (bot_trades). */
+/** Итоги live-торговли по журналу сделок за окно сессии. */
 export interface BotLiveStats {
   /** Успешные live-сделки (покупки + продажи). */
   tradesCount: number;
@@ -65,6 +66,12 @@ export interface BotLiveStats {
   pnlPct: number;
 }
 
+/** Сессия с посчитанными по журналу итогами. */
+export interface BotSessionWithStats extends BotSession, BotLiveStats {
+  /** Сессия активна (endedAt = 0). */
+  active: boolean;
+}
+
 @Injectable()
 export class BotsService {
   constructor(
@@ -72,43 +79,117 @@ export class BotsService {
     private readonly repo: Repository<Bot>,
     @InjectRepository(BotTrade)
     private readonly tradesRepo: Repository<BotTrade>,
+    @InjectRepository(BotSession)
+    private readonly sessionsRepo: Repository<BotSession>,
     private readonly marketConfigs: MarketConfigsService,
     private readonly strategyConfigs: StrategyConfigsService,
     private readonly autotuneJobs: AutotuneJobsService,
   ) {}
 
-  /**
-   * Список ботов + live-итоги по журналу сделок. Агрегаты в самой записи бота
-   * (pnl/tradesCount) исторически смешивали бэктесты и live — для колонок
-   * «результаты торговли» считаем только реальные записи журнала.
-   */
-  async findAll(userId: string): Promise<(Bot & { live: BotLiveStats })[]> {
-    const bots = await this.repo.find({ where: { userId }, order: { createdAt: 'DESC' } });
-    if (bots.length === 0) return [];
-    const rows: { botId: string; trades: string; failed: string; pnl: string | null }[] =
+  /** Итоги торговли по журналу за окно времени [from, to] (unix ms). */
+  private async tradeStats(botId: string, from: number, to: number, initialBalance: number): Promise<BotLiveStats> {
+    const r: { trades: string; failed: string; pnl: string | null } | undefined =
       await this.tradesRepo
         .createQueryBuilder('t')
-        .select('t.botId', 'botId')
-        .addSelect(`COUNT(*) FILTER (WHERE t.status = 'success')`, 'trades')
+        .select(`COUNT(*) FILTER (WHERE t.status = 'success')`, 'trades')
         .addSelect(`COUNT(*) FILTER (WHERE t.status = 'failed')`, 'failed')
         .addSelect(`COALESCE(SUM(t.pnl) FILTER (WHERE t.status = 'success'), 0)`, 'pnl')
-        .where('t.botId IN (:...ids)', { ids: bots.map((b) => b.id) })
-        .groupBy('t.botId')
-        .getRawMany();
-    const byBot = new Map(rows.map((r) => [r.botId, r]));
-    return bots.map((b) => {
-      const r = byBot.get(b.id);
-      const pnl = r ? Number(r.pnl ?? 0) : 0;
-      return {
-        ...b,
-        live: {
-          tradesCount: r ? Number(r.trades) : 0,
-          failedCount: r ? Number(r.failed) : 0,
-          pnl,
-          pnlPct: b.initialBalance > 0 ? (pnl / b.initialBalance) * 100 : 0,
-        },
-      };
-    });
+        .where('t.botId = :botId AND t.time >= :from AND t.time <= :to', { botId, from, to })
+        .getRawOne();
+    const pnl = Number(r?.pnl ?? 0);
+    return {
+      tradesCount: Number(r?.trades ?? 0),
+      failedCount: Number(r?.failed ?? 0),
+      pnl,
+      pnlPct: initialBalance > 0 ? (pnl / initialBalance) * 100 : 0,
+    };
+  }
+
+  private withStats(s: BotSession, stats: BotLiveStats): BotSessionWithStats {
+    return { ...s, ...stats, active: s.endedAt === 0 };
+  }
+
+  /** Активная сессия бота, если есть. */
+  private activeSession(botId: string): Promise<BotSession | null> {
+    return this.sessionsRepo.findOne({ where: { botId, endedAt: 0 }, order: { startedAt: 'DESC' } });
+  }
+
+  /** Закрыть активные сессии бота (остановка / повторный запуск). */
+  async closeSessions(botId: string, at = Date.now()): Promise<void> {
+    await this.sessionsRepo.update({ botId, endedAt: 0 }, { endedAt: at });
+  }
+
+  /** Открыть новую сессию (бот переведён в running). */
+  async openSession(bot: Bot, at = Date.now()): Promise<BotSession> {
+    await this.closeSessions(bot.id, at);
+    return this.sessionsRepo.save(
+      this.sessionsRepo.create({
+        userId: bot.userId,
+        botId: bot.id,
+        startedAt: at,
+        endedAt: 0,
+        startBalance: bot.balance,
+        mode: bot.mode,
+      }),
+    );
+  }
+
+  /**
+   * Гарантировать активную сессию у запущенного бота — для ботов, запущенных
+   * до появления сессий (движок вызывает на каждом тике, лишних записей нет).
+   */
+  async ensureSession(bot: Bot): Promise<void> {
+    const active = await this.activeSession(bot.id);
+    if (!active) {
+      await this.openSession(bot, bot.startedAt > 0 ? bot.startedAt : Date.now());
+    }
+  }
+
+  /** Сессии бота (новые сверху) с итогами по журналу сделок. */
+  async listSessions(userId: string, botId: string): Promise<BotSessionWithStats[]> {
+    const bot = await this.findOne(userId, botId);
+    const sessions = await this.sessionsRepo.find({ where: { botId }, order: { startedAt: 'DESC' } });
+    return Promise.all(
+      sessions.map(async (s) =>
+        this.withStats(s, await this.tradeStats(botId, s.startedAt, s.endedAt || Date.now(), bot.initialBalance)),
+      ),
+    );
+  }
+
+  /** Одна сессия с итогами. */
+  async getSession(userId: string, botId: string, sessionId: string): Promise<BotSessionWithStats> {
+    const bot = await this.findOne(userId, botId);
+    const s = await this.sessionsRepo.findOne({ where: { id: sessionId, botId } });
+    if (!s) throw new NotFoundException('Сессия не найдена');
+    return this.withStats(s, await this.tradeStats(botId, s.startedAt, s.endedAt || Date.now(), bot.initialBalance));
+  }
+
+  /**
+   * Список ботов + итоги ТЕКУЩЕЙ сессии (для остановленных — последней) по
+   * журналу сделок. Агрегаты в записи бота исторически смешивали бэктесты и
+   * live, поэтому для «результатов торговли» считаем только журнал.
+   */
+  async findAll(userId: string): Promise<(Bot & { live: BotLiveStats & { sessionId: string | null; sessionStartedAt: number | null; sessionActive: boolean } })[]> {
+    const bots = await this.repo.find({ where: { userId }, order: { createdAt: 'DESC' } });
+    return Promise.all(
+      bots.map(async (b) => {
+        const session =
+          (await this.activeSession(b.id)) ??
+          (await this.sessionsRepo.findOne({ where: { botId: b.id }, order: { startedAt: 'DESC' } }));
+        const stats = session
+          ? await this.tradeStats(b.id, session.startedAt, session.endedAt || Date.now(), b.initialBalance)
+          : { tradesCount: 0, failedCount: 0, pnl: 0, pnlPct: 0 };
+        return {
+          ...b,
+          live: {
+            ...stats,
+            sessionId: session?.id ?? null,
+            sessionStartedAt: session?.startedAt ?? null,
+            sessionActive: session ? session.endedAt === 0 : false,
+          },
+        };
+      }),
+    );
   }
 
   async findOne(userId: string, id: string): Promise<Bot> {
@@ -160,10 +241,11 @@ export class BotsService {
     // непереданные равны undefined и затирали бота (balance и т.п. пропадали
     // из ответа, фронт падал). Копируем только реально переданные значения.
     const patch = Object.fromEntries(Object.entries(dto).filter(([, v]) => v !== undefined));
-    // Запуск бота: с этого момента live-вкладка показывает график и сделки.
-    if (dto.status === 'running' && bot.status !== 'running') {
-      bot.startedAt = Date.now();
-    }
+    // Переходы статуса управляют сессиями: запуск открывает новую сессию,
+    // остановка закрывает активную. startedAt — начало текущей сессии.
+    const starting = dto.status === 'running' && bot.status !== 'running';
+    const stopping = dto.status !== undefined && dto.status !== 'running' && bot.status === 'running';
+    if (starting) bot.startedAt = Date.now();
     Object.assign(bot, patch);
     if (resetAccount && dto.balance === undefined) {
       bot.balance = bot.initialBalance;
@@ -173,7 +255,10 @@ export class BotsService {
       bot.pnl = 0;
       bot.pnlPct = 0;
     }
-    return this.repo.save(bot);
+    const saved = await this.repo.save(bot);
+    if (starting) await this.openSession(saved, saved.startedAt);
+    if (stopping) await this.closeSessions(saved.id);
+    return saved;
   }
 
   async remove(userId: string, id: string): Promise<void> {

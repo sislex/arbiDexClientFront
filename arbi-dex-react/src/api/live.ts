@@ -136,8 +136,14 @@ export const liveApi: ApiClient = {
         body: { side: params.side, expectedPrice: params.expectedPrice, amount: params.amount },
       });
     },
-    trades(id) {
-      return request(`/bots/${id}/trades`);
+    trades(id, params = {}) {
+      return request(`/bots/${id}/trades`, { query: { from: params.from, to: params.to } });
+    },
+    sessions(id) {
+      return request(`/bots/${id}/sessions`);
+    },
+    session(id, sessionId) {
+      return request(`/bots/${id}/sessions/${sessionId}`);
     },
     executorBalance(id) {
       return request(`/bots/${id}/executor-balance`);

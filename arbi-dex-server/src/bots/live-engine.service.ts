@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Bot } from './entities/bot.entity';
 import { LiveTradingService } from './live-trading.service';
+import { BotsService } from './bots.service';
 import { MarketConfigsService } from '../market-configs/market-configs.service';
 import { StrategyConfigsService } from '../strategy-configs/strategy-configs.service';
 import { toEngineStrategy } from '../demo/engine/strategy-engine.mapper';
@@ -42,6 +43,7 @@ export class LiveEngineService implements OnModuleInit, OnModuleDestroy {
     @InjectRepository(Bot)
     private readonly botsRepo: Repository<Bot>,
     private readonly liveTrading: LiveTradingService,
+    private readonly botsService: BotsService,
     private readonly marketConfigs: MarketConfigsService,
     private readonly strategyConfigs: StrategyConfigsService,
   ) {}
@@ -99,6 +101,8 @@ export class LiveEngineService implements OnModuleInit, OnModuleDestroy {
       liveness.startedAt = bot.startedAt;
     }
     await this.botsRepo.update(bot.id, liveness);
+    // Боты, запущенные до появления сессий, получают сессию задним числом.
+    await this.botsService.ensureSession(bot);
 
     // После неудачной сделки (нет средств на executor, проскальзывание…) бот
     // выдерживает паузу, чтобы не забивать журнал ретраями каждый тик.

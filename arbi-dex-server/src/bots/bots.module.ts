@@ -11,6 +11,7 @@ import { AutotuneJobsService } from './autotune-jobs.service';
 import { AutotuneProgressGateway } from './autotune-progress.gateway';
 import { Bot } from './entities/bot.entity';
 import { BotTrade } from './entities/bot-trade.entity';
+import { BotSession } from './entities/bot-session.entity';
 import { MarketConfigsModule } from '../market-configs/market-configs.module';
 import { StrategyConfigsModule } from '../strategy-configs/strategy-configs.module';
 import { MarketDataModule } from '../market-data/market-data.module';
@@ -19,7 +20,7 @@ import { SettingsModule } from '../settings/settings.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Bot, BotTrade]),
+    TypeOrmModule.forFeature([Bot, BotTrade, BotSession]),
     MarketConfigsModule,
     StrategyConfigsModule,
     MarketDataModule,

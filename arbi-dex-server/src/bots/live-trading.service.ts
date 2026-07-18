@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Between, Repository } from 'typeorm';
 import { ethers } from 'ethers';
 import { Bot } from './entities/bot.entity';
 import { BotTrade, BotTradeMode } from './entities/bot-trade.entity';
@@ -122,13 +122,22 @@ export class LiveTradingService {
     return this.botsRepo.save(bot);
   }
 
-  /** Live-сделки бота (успешные и зафейленные) в хронологическом порядке. */
-  async listTrades(userId: string, botId: string, limit = 300): Promise<BotTrade[]> {
+  /** Live-сделки бота (успешные и зафейленные) в хронологическом порядке;
+   * опционально — только окно [from, to] (unix ms, например окно сессии). */
+  async listTrades(
+    userId: string,
+    botId: string,
+    opts: { from?: number; to?: number; limit?: number } = {},
+  ): Promise<BotTrade[]> {
     await this.findBot(userId, botId);
+    const where: Record<string, unknown> = { botId };
+    if (opts.from != null || opts.to != null) {
+      where.time = Between(opts.from ?? 0, opts.to ?? Number.MAX_SAFE_INTEGER);
+    }
     const rows = await this.tradesRepo.find({
-      where: { botId },
+      where,
       order: { time: 'DESC' },
-      take: limit,
+      take: opts.limit ?? 300,
     });
     return rows.reverse();
   }

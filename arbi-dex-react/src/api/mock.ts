@@ -106,6 +106,8 @@ export const mockApi: ApiClient = {
     trade: () =>
       Promise.reject(new Error('Торговля доступна только в live-режиме (нужен квотер/экзекутор на сервере)')),
     trades: () => delay([]),
+    sessions: () => delay([]),
+    session: () => Promise.reject(new Error('Сессии доступны только в live-режиме')),
     executorBalance: () =>
       Promise.reject(new Error('Балансы executor доступны только в live-режиме')),
     resetAccount: (id: string) => {

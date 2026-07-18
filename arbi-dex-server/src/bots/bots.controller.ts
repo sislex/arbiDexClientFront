@@ -108,8 +108,42 @@ export class BotsController {
   @Get(':id/trades')
   @ApiOperation({ summary: 'Журнал live-сделок бота (успешные и зафейленные)' })
   @ApiParam({ name: 'id' })
-  trades(@CurrentUser() user: User, @Param('id') id: string) {
-    return this.liveTrading.listTrades(user.id, id);
+  @ApiQuery({ name: 'from', required: false, description: 'Начало окна, unix ms' })
+  @ApiQuery({ name: 'to', required: false, description: 'Конец окна, unix ms' })
+  trades(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.liveTrading.listTrades(user.id, id, {
+      from: from ? Number(from) : undefined,
+      to: to ? Number(to) : undefined,
+    });
+  }
+
+  @Get(':id/sessions')
+  @ApiOperation({
+    summary: 'Торговые сессии бота (новые сверху) с итогами по журналу сделок',
+    description:
+      'Сессия открывается при запуске бота (status → running) и закрывается при остановке. ' +
+      'Итоги (сделки, PnL, PnL % от депозита) считаются по журналу за окно сессии.',
+  })
+  @ApiParam({ name: 'id' })
+  sessions(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.service.listSessions(user.id, id);
+  }
+
+  @Get(':id/sessions/:sessionId')
+  @ApiOperation({ summary: 'Одна торговая сессия с итогами' })
+  @ApiParam({ name: 'id' })
+  @ApiParam({ name: 'sessionId' })
+  session(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Param('sessionId') sessionId: string,
+  ) {
+    return this.service.getSession(user.id, id, sessionId);
   }
 
   @Post(':id/reset-account')

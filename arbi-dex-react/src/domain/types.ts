@@ -94,7 +94,7 @@ export interface Bot {
   lastSignalAt?: number;
   /** Pause after a failed trade until this moment, unix ms. */
   failCooldownUntil?: number;
-  /** Live-trading totals computed from the trade journal (server list only). */
+  /** Current (or last) session totals from the trade journal (server list only). */
   live?: {
     /** Successful live trades (buys + sells). */
     tradesCount: number;
@@ -104,9 +104,33 @@ export interface Bot {
     pnl: number;
     /** PnL as % of the initial deposit. */
     pnlPct: number;
+    /** The session the totals belong to (null — the bot never ran). */
+    sessionId: string | null;
+    sessionStartedAt: number | null;
+    sessionActive: boolean;
   };
   createdAt: string;
   updatedAt: string;
+}
+
+/** A trading session: opened when the bot starts, closed when it stops. */
+export interface BotSession {
+  id: string;
+  botId: string;
+  /** Session start, unix ms. */
+  startedAt: number;
+  /** Session end, unix ms; 0 — still active. */
+  endedAt: number;
+  /** Free balance at session start (balance currency). */
+  startBalance: number;
+  /** Bot mode at start (demo-live / real-live). */
+  mode: string;
+  active: boolean;
+  /** Totals over the session window, from the trade journal. */
+  tradesCount: number;
+  failedCount: number;
+  pnl: number;
+  pnlPct: number;
 }
 
 // ── Quotes / market steps ─────────────────────────────────────────────────────

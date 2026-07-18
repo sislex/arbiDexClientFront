@@ -20,10 +20,11 @@ import { OverviewTab } from './OverviewTab';
 import { BacktestTab } from './BacktestTab';
 import { LiveTab } from './LiveTab';
 import { AutotuneTab } from './AutotuneTab';
+import { SessionsTab } from './SessionsTab';
 
-const TABS = ['Обзор', 'Бэктест', 'Реальное время', 'Авто-подбор'] as const;
+const TABS = ['Обзор', 'Бэктест', 'Реальное время', 'Сессии', 'Авто-подбор'] as const;
 /** URL slugs for the tabs (`?tab=backtest`) — shareable and HMR/reload-proof. */
-const TAB_KEYS = ['overview', 'backtest', 'live', 'autotune'] as const;
+const TAB_KEYS = ['overview', 'backtest', 'live', 'sessions', 'autotune'] as const;
 
 export function BotDetailPage() {
   const { id } = useParams();
@@ -104,7 +105,8 @@ export function BotDetailPage() {
       {tab === 0 && <OverviewTab bot={bot} />}
       {tab === 1 && <BacktestTab bot={bot} />}
       {tab === 2 && <LiveTab bot={bot} />}
-      {tab === 3 && <AutotuneTab bot={bot} />}
+      {tab === 3 && <SessionsTab bot={bot} />}
+      {tab === 4 && <AutotuneTab bot={bot} />}
     </Box>
   );
 }
