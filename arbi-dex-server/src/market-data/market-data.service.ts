@@ -51,23 +51,35 @@ export class MarketDataService {
 
     const url = `${this.marketDataUrl}/store/key/${encodeURIComponent(key)}`;
 
-    try {
-      const response = await firstValueFrom(
-        this.httpService.get<StoreKeyResponse>(url),
-      );
-      const value = response.data?.value;
-      if (!value || !value.poolAddress) {
-        throw new BadRequestException(`Пул не найден для ключа ${key}`);
+    // Разовая недоступность стора не должна срывать сделку: сигнал стратегии
+    // уже пойман, следующий может не повториться. Несколько попыток с паузой.
+    const attempts = 3;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const response = await firstValueFrom(
+          this.httpService.get<StoreKeyResponse>(url),
+        );
+        const value = response.data?.value;
+        if (!value || !value.poolAddress) {
+          throw new BadRequestException(`Пул не найден для ключа ${key}`);
+        }
+        return value;
+      } catch (error) {
+        if (attempt < attempts) {
+          this.logger.warn(
+            `Пул ${key}: попытка ${attempt}/${attempts} не удалась (${(error as Error).message}) — повтор…`,
+          );
+          await new Promise((r) => setTimeout(r, 1000 * attempt));
+          continue;
+        }
+        if (error instanceof BadRequestException) throw error;
+        this.logger.error(
+          `Не удалось получить данные пула (${url}): ${(error as Error).message}`,
+        );
+        throw new BadRequestException(
+          `Не удалось получить данные пула от arbiDexMarketData (${this.marketDataUrl}).`,
+        );
       }
-      return value;
-    } catch (error) {
-      if (error instanceof BadRequestException) throw error;
-      this.logger.error(
-        `Не удалось получить данные пула (${url}): ${(error as Error).message}`,
-      );
-      throw new BadRequestException(
-        `Не удалось получить данные пула от arbiDexMarketData (${this.marketDataUrl}).`,
-      );
     }
   }
 

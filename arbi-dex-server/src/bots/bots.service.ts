@@ -284,9 +284,9 @@ export class BotsService {
    * actual/required) and the resulting signals (`transaction.buy/sell/forcedSell`).
    *
    * Read-only: does not touch the bot's demo account. Sell triggers (stop-loss /
-   * trailing TP / max holding) need an open position — pass `entryPrice` (and
-   * optionally `openedAt`, defaults to the first step) to simulate one; without
-   * it they report `passed: false`.
+   * trailing TP / max holding) need an open position: pass `entryPrice` (and
+   * optionally `openedAt`) to simulate one, otherwise the bot's real open
+   * position is used; with no position at all they report `passed: false`.
    */
   async stepResult(
     userId: string,
@@ -317,6 +317,9 @@ export class BotsService {
       quotes: { buyQuote: q.buyQuote, sellQuote: q.sellQuote, avgObservedQuote: q.avgObservedQuote },
     }));
 
+    // Позиция: явная (симуляция из плеера бэктеста) или реальная позиция
+    // бота — иначе sell-триггеры (стоп-лосс/trailing TP) на live-вкладке
+    // всегда показывали «нет позиции», а buy-сигнал выглядел исполнимым.
     const position: PositionState | null =
       opts.entryPrice != null
         ? {
@@ -324,7 +327,13 @@ export class BotsService {
             size: opts.size ?? 0,
             openedAt: opts.openedAt ?? steps[0].time,
           }
-        : null;
+        : bot.openPosition && bot.positionSize > 0
+          ? {
+              entryPrice: bot.entryPrice,
+              size: bot.positionSize,
+              openedAt: bot.positionOpenedAt > 0 ? bot.positionOpenedAt : steps[0].time,
+            }
+          : null;
 
     // prepareSteps trims the history down to the minimal window the bot's
     // conditions actually need (max over their WindowRequirements).

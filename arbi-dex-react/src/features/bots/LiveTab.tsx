@@ -405,6 +405,12 @@ export function LiveTab({ bot }: { bot: Bot }) {
           {(bot.lastSignalAt ?? 0) > 0 && <> Последний сигнал: {fmtTime(bot.lastSignalAt! / 1000)}.</>}
           {cooldownActive && <> Пауза после неудачной сделки до {fmtTime(bot.failCooldownUntil! / 1000)}.</>}
           {(bot.startedAt ?? 0) > 0 && <> Запущен: {fmtTime(bot.startedAt! / 1000)}.</>}
+          {bot.openPosition && (
+            <> Позиция открыта — сигналы покупки игнорируются, движок ждёт сигнала продажи.</>
+          )}
+          {!bot.openPosition && bot.balance <= 0 && (
+            <> Баланс нулевой — покупки невозможны, обнулите счёт или пополните баланс.</>
+          )}
         </Alert>
       )}
 
