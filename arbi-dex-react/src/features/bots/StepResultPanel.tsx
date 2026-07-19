@@ -51,8 +51,9 @@ export function StepResultPanel({
   result: BotStepResult | null;
   loading: boolean;
   error: string | null;
-  /** Where the breakdown came from: a recorded backtest run or a live API call. */
-  source?: 'backtest' | 'api' | null;
+  /** Where the breakdown came from: a recorded backtest run, the trade's
+   * decision record from the journal, or a live API call. */
+  source?: 'backtest' | 'history' | 'api' | null;
   /** Re-evaluate the selected step via the API. */
   onRecalc?: () => void;
 }) {
@@ -66,7 +67,7 @@ export function StepResultPanel({
             <Chip
               size="small"
               variant="outlined"
-              label={source === 'backtest' ? 'из бэктеста' : 'из API'}
+              label={source === 'backtest' ? 'из бэктеста' : source === 'history' ? 'из истории сделки' : 'из API'}
               data-testid="step-source"
             />
           )}

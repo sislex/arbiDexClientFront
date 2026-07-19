@@ -150,7 +150,22 @@ export class LiveEngineService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(
       `Бот ${bot.name} (${bot.mode}): сигнал ${side}${result.transaction.forcedSell ? ' (forced)' : ''} по ${expectedPrice}`,
     );
-    const { trade } = await this.liveTrading.trade(bot.userId, bot.id, { side, expectedPrice });
+    // Разбор шага, на котором принято решение, уезжает в журнал сделки —
+    // потом его можно посмотреть «из истории», как записи шагов в бэктесте.
+    const decisionStep = {
+      ...result,
+      step: { time: last.time, buyQuote: last.buyQuote, sellQuote: last.sellQuote, avgObservedQuote: last.avgObservedQuote },
+      index: steps.length - 1,
+      totalSteps: steps.length,
+      windowSteps: params.steps.length,
+      tookMs: 0,
+    };
+    const { trade } = await this.liveTrading.trade(
+      bot.userId,
+      bot.id,
+      { side, expectedPrice },
+      { stepResult: decisionStep },
+    );
     this.logger.log(
       `Бот ${bot.name}: сделка ${side} → ${trade.status}${trade.price != null ? ` по ${trade.price}` : ''}${trade.error ? ` (${trade.error})` : ''}`,
     );

@@ -186,7 +186,12 @@ export class LiveTradingService {
     return { network, executorAddress, balances };
   }
 
-  async trade(userId: string, botId: string, dto: TradeRequestDto): Promise<BotTradeResult> {
+  async trade(
+    userId: string,
+    botId: string,
+    dto: TradeRequestDto,
+    extras: { stepResult?: Record<string, unknown> } = {},
+  ): Promise<BotTradeResult> {
     const bot = await this.findBot(userId, botId);
     if (bot.mode === 'idle') {
       throw new BadRequestException('Бот выключен — включите демо или реальный режим в настройках.');
@@ -370,6 +375,7 @@ export class LiveTradingService {
       error,
       txHash,
       txUrl,
+      stepResult: extras.stepResult ?? null,
     });
     await this.tradesRepo.save(trade);
 

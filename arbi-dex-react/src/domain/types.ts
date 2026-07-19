@@ -181,6 +181,9 @@ export interface LiveTrade {
   error: string | null;
   txHash: string;
   txUrl: string;
+  /** Step breakdown recorded at decision time (engine trades only) — shown
+   * «из истории» like backtest step records; null for manual button trades. */
+  stepResult?: Record<string, unknown> | null;
 }
 
 export interface BacktestStats {

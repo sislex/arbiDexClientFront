@@ -45,6 +45,11 @@ function fmtAmount(v: number): string {
   return Math.abs(v) >= 1 ? v.toFixed(2) : v === 0 ? '0' : v.toPrecision(4);
 }
 
+/** Step time with seconds for the pinned-step chip. */
+function fmtStepTime(sec: number): string {
+  return new Date(sec * 1000).toLocaleTimeString('ru-RU');
+}
+
 /** Pull the human message out of an API error (`POST … 400 … {"message":…}`). */
 function apiErrorMessage(e: unknown): string {
   const raw = e instanceof Error ? e.message : String(e);
@@ -192,12 +197,18 @@ export function LiveTab({ bot }: { bot: Bot }) {
   const [stepResult, setStepResult] = useState<BotStepResult | null>(null);
   const [stepLoading, setStepLoading] = useState(false);
   const [stepError, setStepError] = useState<string | null>(null);
+  // Закреплённый шаг (клик по сделке/графику): панель разбора держит его и не
+  // следует за последним шагом, пока не нажать «К последнему шагу».
+  const [pinnedTime, setPinnedTime] = useState<number | null>(null);
+  // Откуда разбор: у сделок движка — записанное решение из журнала
+  // («из истории»), иначе — расчёт через API.
+  const [stepSource, setStepSource] = useState<'history' | 'api'>('api');
   const lastInspectedStep = useRef<number | null>(null);
   const lastCallAt = useRef(0);
   const inFlight = useRef(false);
   const lastTime = quotes[quotes.length - 1]?.time ?? null;
   useEffect(() => {
-    if (lastTime == null || !IS_LIVE) return;
+    if (lastTime == null || !IS_LIVE || pinnedTime != null) return;
     if (lastInspectedStep.current === lastTime) return;
     const now = Date.now();
     if (inFlight.current || now - lastCallAt.current < INSPECT_MIN_MS) return;
@@ -209,6 +220,7 @@ export function LiveTab({ bot }: { bot: Bot }) {
       .stepResult(bot.id, { time: lastTime * 1000 })
       .then((r) => {
         setStepResult(r);
+        setStepSource('api');
         setStepError(null);
       })
       .catch((e) => {
@@ -218,7 +230,39 @@ export function LiveTab({ bot }: { bot: Bot }) {
         inFlight.current = false;
         setStepLoading(false);
       });
-  }, [lastTime, bot.id]);
+  }, [lastTime, bot.id, pinnedTime]);
+
+  // Разбор конкретного шага (клик по сделке в журнале или точке графика):
+  // закрепляет шаг в панели и подсвечивает его на графике — как в бэктесте.
+  // `stored` — записанное при сделке решение движка: показывается сразу
+  // («из истории»), пересчитать через API можно кнопкой в панели.
+  const inspectStep = (sec: number, stored?: BotStepResult | null) => {
+    setPinnedTime(sec);
+    setSelectedTradeTime(sec);
+    if (stored) {
+      setStepResult(stored);
+      setStepSource('history');
+      setStepError(null);
+      return;
+    }
+    setStepLoading(true);
+    api.bots
+      .stepResult(bot.id, { time: Math.round(sec * 1000) })
+      .then((r) => {
+        setStepResult(r);
+        setStepSource('api');
+        setStepError(null);
+      })
+      .catch((e) => setStepError((e as Error).message))
+      .finally(() => setStepLoading(false));
+  };
+
+  // «К последнему шагу»: снять закрепление, панель снова следует за потоком.
+  const unpinStep = () => {
+    setPinnedTime(null);
+    setSelectedTradeTime(null);
+    lastInspectedStep.current = null; // форсируем свежий разбор последнего шага
+  };
 
   const last = chartQuotes[chartQuotes.length - 1];
 
@@ -596,6 +640,20 @@ export function LiveTab({ bot }: { bot: Bot }) {
                 {streaming && (
                   <Chip size="small" color="success" variant="outlined" label="● LIVE" data-testid="live-indicator" sx={{ fontWeight: 700 }} />
                 )}
+                {pinnedTime != null && (
+                  <>
+                    <Chip
+                      size="small"
+                      color="info"
+                      variant="outlined"
+                      label={`разбор шага: ${fmtStepTime(pinnedTime)}`}
+                      data-testid="pinned-step-chip"
+                    />
+                    <Button size="small" onClick={unpinStep} data-testid="unpin-step">
+                      К последнему шагу
+                    </Button>
+                  </>
+                )}
                 <Box sx={{ flexGrow: 1 }} />
                 <Typography variant="caption" color="text.secondary">
                   {startedMs ? `с запуска (${fmtTime(startedMs / 1000)})` : 'последние 30 минут'}
@@ -614,13 +672,22 @@ export function LiveTab({ bot }: { bot: Bot }) {
                   hasTradingMarket={!!marketConfig?.tradingMarketId}
                   height={340}
                   defaultWeighted
-                  selectedTime={selectedTradeTime ?? last?.time ?? null}
+                  selectedTime={pinnedTime ?? selectedTradeTime ?? last?.time ?? null}
+                  onTimeClick={inspectStep}
                 />
               )}
             </CardContent>
           </Card>
         </Box>
-        <StepResultPanel result={stepResult} loading={stepLoading} error={stepError} source={stepResult ? 'api' : null} />
+        <StepResultPanel
+          result={stepResult}
+          loading={stepLoading}
+          error={stepError}
+          source={stepResult ? stepSource : null}
+          // Пересчитать закреплённый шаг через API (для «из истории» — сверка
+          // записанного решения с текущим расчётом, как в бэктесте).
+          onRecalc={pinnedTime != null ? () => inspectStep(pinnedTime) : undefined}
+        />
       </Stack>
 
       {/* Журнал live-сделок — как таблица сделок в бэктесте, но с фактическим
@@ -651,7 +718,7 @@ export function LiveTab({ bot }: { bot: Bot }) {
               displaySide={toDisplaySide}
               displayAsset={displayAsset}
               onRowClick={(t) => {
-                // Маркеры прибиты к ближайшему шагу — подсветку ставим туда же.
+                // Маркеры прибиты к ближайшему шагу — подсветка и разбор туда же.
                 const sec = Math.round(t.time / 1000);
                 const times = chartQuotes.map((q) => q.time);
                 if (times.length === 0) return;
@@ -664,7 +731,7 @@ export function LiveTab({ bot }: { bot: Bot }) {
                     nearest = ts;
                   }
                 }
-                setSelectedTradeTime(nearest);
+                inspectStep(nearest, t.stepResult as BotStepResult | null | undefined);
               }}
             />
           </CardContent>

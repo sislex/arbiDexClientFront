@@ -78,6 +78,14 @@ export class BotTrade {
   @Column({ type: 'varchar', length: 255, default: '' })
   txUrl: string;
 
+  /**
+   * Разбор шага, на котором движок принял решение (processStep: сигналы +
+   * условия по сторонам) — «из истории», как записи шагов в бэктесте.
+   * null у ручных сделок кнопками и у сделок до появления поля.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  stepResult: Record<string, unknown> | null;
+
   @CreateDateColumn()
   createdAt: Date;
 }
