@@ -12,6 +12,7 @@ import { StrategiesPage } from './pages/Strategies'
 import { StrategyEditorPage } from './pages/StrategyEditorPage'
 import { BotsPage } from './pages/Bots'
 import { BotEditorPage } from './pages/BotEditorPage'
+import { BotEditRoute } from './pages/BotEditRoute'
 import { BotDetailPage } from './pages/BotDetail'
 import { BotHistoryPage } from './pages/BotHistory'
 import { LiveTradingPage } from './pages/LiveTrading'
@@ -39,7 +40,7 @@ export default function App() {
                   <Route path="strategies/:id/edit" element={<StrategyEditorPage />} />
                   <Route path="strategies" element={<StrategiesPage />} />
                   <Route path="bots/new" element={<BotEditorPage />} />
-                  <Route path="bots/:id/edit" element={<BotEditorPage />} />
+                  <Route path="bots/:id/edit" element={<BotEditRoute />} />
                   <Route path="bots" element={<BotsPage />} />
                   <Route path="bots/:id/history" element={<BotHistoryPage />} />
                   <Route path="bots/:id" element={<BotDetailPage />} />

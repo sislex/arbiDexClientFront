@@ -19,6 +19,7 @@ import { type Bot } from '../data/mockData'
 import { loadBots } from '../lib/botsStorage'
 import { useTableSort } from '../hooks/useTableSort'
 import { useUndoDelete } from '../context/UndoDeleteContext'
+import { useAuth } from '../context/AuthContext'
 import { cn, formatCurrency, formatPercent } from '../lib/utils'
 
 type BotSortKey = 'name' | 'pair' | 'strategy' | 'roi' | 'winRate' | 'drawdown' | 'status'
@@ -55,6 +56,7 @@ function getBotSortValue(bot: Bot, key: BotSortKey) {
 
 export function BotsPage() {
   const navigate = useNavigate()
+  const { isAuthenticated } = useAuth()
   const [bots, setBots] = useState<Bot[]>(() => loadBots())
   const [statusTab, setStatusTab] = useState('all')
   const [pairTab, setPairTab] = useState('all')
@@ -77,15 +79,14 @@ export function BotsPage() {
     ]
   }, [bots])
 
-  const statusOptions = useMemo(
-    () => [
+  const statusOptions = useMemo(() => {
+    return [
       { value: 'all', label: `Все (${bots.length})` },
       { value: 'active', label: `Активные (${bots.filter((b) => b.status === 'active').length})` },
       { value: 'paused', label: `Пауза (${bots.filter((b) => b.status === 'paused').length})` },
       { value: 'stopped', label: `Остановлены (${bots.filter((b) => b.status === 'stopped').length})` },
-    ],
-    [bots],
-  )
+    ]
+  }, [bots])
 
   const filtered = useMemo(
     () =>
@@ -125,6 +126,12 @@ export function BotsPage() {
         }
       />
       <PageContent className="space-y-5">
+        {!isAuthenticated && (
+          <Card className="px-4 py-3 text-sm text-muted">
+            Войдите через кошелёк, чтобы новые боты сохранялись на сервер и был доступен бэктест.{' '}
+            <Link to="/login" className="text-accent-cyan hover:underline">Войти</Link>
+          </Card>
+        )}
         <div className="flex items-center gap-3">
           <SearchInput
             value={search}
@@ -171,7 +178,11 @@ export function BotsPage() {
                     >
                       <td className={TABLE_CELL}>
                         <p className="font-semibold text-white truncate">{bot.name}</p>
-                        <p className="text-[11px] text-muted mt-0.5 truncate">{formatCurrency(bot.balance)} · {bot.runtime}</p>
+                        <p className="text-[11px] text-muted mt-0.5 truncate">
+                          {formatCurrency(bot.balance)} · {bot.runtime}
+                          {isAuthenticated && bot.serverBotId ? ' · на сервере' : ''}
+                          {isAuthenticated && !bot.serverBotId ? ' · не синхронизирован' : ''}
+                        </p>
                       </td>
                       <td className={cn(TABLE_CELL, 'text-muted truncate')}>{bot.pair}</td>
                       <td className={cn(TABLE_CELL, 'text-muted truncate')}>{bot.strategy}</td>

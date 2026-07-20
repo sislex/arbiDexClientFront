@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { UndoDeleteToast } from '../components/ui/UndoDeleteToast'
 import { loadBots, saveBots } from '../lib/botsStorage'
+import { deleteServerBot } from '../services/botsApi'
 import { loadStrategies, saveStrategies } from '../lib/strategiesStorage'
 import { removeStrategyRulesForId } from '../lib/strategyRulesStorage'
 import { loadTradingPairs, saveTradingPairs } from '../lib/tradingPairsStorage'
@@ -55,9 +56,14 @@ function entityKey(entityType: DeleteEntityType, entityId: string): string {
 
 function commitEntityDelete(entityType: DeleteEntityType, entityId: string) {
   switch (entityType) {
-    case 'bot':
+    case 'bot': {
+      const bot = loadBots().find((item) => item.id === entityId)
+      if (bot?.serverBotId) {
+        void deleteServerBot(bot.serverBotId).catch(() => {})
+      }
       saveBots(loadBots().filter((item) => item.id !== entityId))
       break
+    }
     case 'pair':
       saveTradingPairs(loadTradingPairs().filter((item) => item.id !== entityId))
       break

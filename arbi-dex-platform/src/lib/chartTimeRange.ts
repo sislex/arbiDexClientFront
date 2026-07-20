@@ -16,6 +16,15 @@ export function periodMs(period: ChartPeriod): number {
   return CHART_PERIOD_OPTIONS.find((p) => p.id === period)?.ms ?? CHART_PERIOD_OPTIONS[0].ms
 }
 
+/** Pick axis/window semantics from the actual loaded history span. */
+export function inferChartPeriodFromSpan(spanMs: number): ChartPeriod {
+  const day = 24 * 60 * 60 * 1000
+  if (spanMs > 180 * day) return '1y'
+  if (spanMs > 3 * day) return '1w'
+  if (spanMs > 6 * 60 * 60 * 1000) return '1d'
+  return '1h'
+}
+
 /** Точки в пределах выбранного периода от последней метки времени */
 export function filterChartDataByPeriod(data: ChartPoint[], period: ChartPeriod): ChartPoint[] {
   if (data.length === 0) return []

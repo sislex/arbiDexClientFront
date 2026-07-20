@@ -178,6 +178,12 @@ export interface Bot {
   minStopBudget?: number
   peakStopPercent?: number
   profitCurrency?: string
+  /** When set, demo mode uses arbi-dex-server backtest/step-result APIs. */
+  serverBotId?: string
+  /** Cached server market config used for backtest sync. */
+  marketConfigId?: string
+  /** Cached server strategy config used for backtest sync. */
+  strategyConfigId?: string
 }
 
 export const BOTS: Bot[] = [

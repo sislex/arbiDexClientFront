@@ -77,6 +77,10 @@ export function LiveStrategySimulationPage({
         chartPeriod={chartPeriod}
         onChartPeriodChange={setChartPeriod}
         showPlayer={showPlayer}
+        simulationActions={{
+          showBacktest: false,
+          onAnalyzeStep: () => live.refreshStepAnalysis(),
+        }}
       />
     </div>
   )

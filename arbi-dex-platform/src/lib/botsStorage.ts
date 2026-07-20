@@ -27,6 +27,9 @@ function normalizeBot(raw: Bot): Bot {
     minStopBudget: raw.minStopBudget ?? Math.min(balance, 300),
     peakStopPercent: raw.peakStopPercent ?? 10,
     profitCurrency: raw.profitCurrency ?? 'USDT',
+    serverBotId: raw.serverBotId,
+    marketConfigId: raw.marketConfigId,
+    strategyConfigId: raw.strategyConfigId,
   }
 }
 

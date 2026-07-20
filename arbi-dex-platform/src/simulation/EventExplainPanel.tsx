@@ -1,5 +1,6 @@
 import { useSimulatorI18n } from "./useSimulatorI18n";
 import { getConditionLabel } from "./conditionLabels";
+import { formatConditionOutcome } from "../lib/conditionsCatalog";
 import type { SimulationLogEvent } from "./simulationViewerTypes";
 
 interface EventExplainPanelProps {
@@ -88,9 +89,21 @@ export function EventExplainPanel({
                               color: item.passed ? "#10B981" : "#E5383B",
                             }}
                           >
-                            {item.passed ? "true" : "false"}
+                            {item.passed ? "да" : "нет"}
                           </span>
                         </div>
+                        {(item.current !== undefined || item.required !== undefined) && (
+                          <div
+                            className="mt-0.5"
+                            style={{
+                              fontSize: "10px",
+                              color: isDark ? "#6B7A8D" : "#5A6A7A",
+                              fontFamily: "var(--font-mono)",
+                            }}
+                          >
+                            {formatConditionOutcome(item.id, item.current, item.required)}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

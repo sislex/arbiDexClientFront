@@ -17,6 +17,17 @@ export interface SimulationEventDetail {
   executionDelayMs?: string;
   slippagePct?: string;
   evaluations?: EngineConditionEvaluation[];
+  stepIndex?: number;
+  totalSteps?: number;
+  windowSteps?: number;
+  stepTime?: number;
+  buyQuote?: number;
+  sellQuote?: number;
+  avgQuote?: number;
+  transactionBuy?: boolean;
+  transactionSell?: boolean;
+  forcedSell?: boolean;
+  tookMs?: number;
 }
 
 export interface SimulationLogEvent {

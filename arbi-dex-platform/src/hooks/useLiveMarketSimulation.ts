@@ -236,6 +236,7 @@ export function useLiveMarketSimulation({
   const [isPlaying, setIsPlaying] = useState(false)
   const [playIdx, setPlayIdx] = useState(0)
   const [speed, setSpeed] = useState(1)
+  const [stepRefreshKey, setStepRefreshKey] = useState(0)
 
   const fullDataRef = useRef(fullData)
   const periodRef = useRef(period)
@@ -500,7 +501,14 @@ export function useLiveMarketSimulation({
     processedIdxRef.current = targetIdx
     setEvents([...engineLogRef.current])
     if (latestStepResult) setStepResult(latestStepResult)
-  }, [enabled, playIdx, chartData, strategy, networks, tradingNetworkIds, loading])
+  }, [enabled, playIdx, chartData, strategy, networks, tradingNetworkIds, loading, stepRefreshKey])
+
+  const refreshStepAnalysis = useCallback(() => {
+    const idx = playIdxRef.current
+    if (idx <= 0) return
+    processedIdxRef.current = Math.max(0, idx - 1)
+    setStepRefreshKey((k) => k + 1)
+  }, [])
 
   const lastPrice =
     chartData.length > 0 ? chartData[chartData.length - 1].avg?.toFixed(2) ?? '—' : '—'
@@ -531,5 +539,6 @@ export function useLiveMarketSimulation({
     tradingNetworkIds,
     token1Label: tokens.token1,
     token2Label: tokens.token2,
+    refreshStepAnalysis,
   }
 }

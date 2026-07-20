@@ -23,7 +23,8 @@ import {
 import { useSimulatorI18n } from "./useSimulatorI18n";
 import { ChartPeriodSelector } from "../components/charts/ChartPeriodSelector";
 import { ChartViewportControls } from "../components/charts/ChartViewportControls";
-import { filterChartDataWithBuffer, strictPeriodBounds, type ChartPeriod } from "../lib/chartTimeRange";
+import { filterChartDataWithBuffer, strictPeriodBounds, inferChartPeriodFromSpan, formatChartAxisLabel, type ChartPeriod } from "../lib/chartTimeRange";
+import type { ChartPeriodPickMode } from "../hooks/useBotPeriod";
 import { useChartViewport } from "../hooks/useChartViewport";
 import type { ChartPoint } from "../services/chartDataService";
 import { ChartErrorBoundary } from "./ChartErrorBoundary";
@@ -57,6 +58,16 @@ export interface SimulationWorkspaceHeader {
   badge?: React.ReactNode;
 }
 
+export interface SimulationWorkspaceActions {
+  onRunBacktest?: () => void
+  onAnalyzeStep?: () => void
+  backtestLoading?: boolean
+  stepAnalyzing?: boolean
+  backtestDone?: boolean
+  stepSource?: 'backtest' | 'api' | null
+  showBacktest?: boolean
+}
+
 export interface StrategySimulationWorkspaceProps {
   chartData: SimulationChartPoint[];
   /** Полная загруженная история для viewport (как fullData в графике пары). */
@@ -82,7 +93,17 @@ export interface StrategySimulationWorkspaceProps {
   chartPeriod?: ChartPeriod;
   onChartPeriodChange?: (period: ChartPeriod) => void;
   /** Панель Player (scrubber, play/pause). В live-торговле — выключить. */
-  showPlayer?: boolean;
+  showPlayer?: boolean
+  simulationActions?: SimulationWorkspaceActions
+  chartToolbar?: React.ReactNode
+  stepLoading?: boolean
+  stepError?: string | null
+  onStepRecalc?: () => void
+  /** When true, backtest toolbar is shown in a collapsible panel. */
+  collapsibleBacktestPanel?: boolean
+  /** Backtest period pick on chart: first short click = start, second = end. */
+  chartPeriodPickMode?: ChartPeriodPickMode
+  onChartPeriodPick?: (time: number) => void
 }
 
 type VisKey = string;
@@ -100,6 +121,24 @@ interface HoverCrosshair {
 }
 
 const CHART_PLOT_PADDING = { top: 8, right: 16, bottom: 8, left: 8 };
+const CHART_CLICK_MOVE_THRESHOLD_PX = 5;
+
+function timestampAtChartClientX(
+  clientX: number,
+  rect: DOMRect,
+  xDomain: [number, number],
+  visibleData: readonly { t: number }[],
+): number | null {
+  const plotLeft = CHART_PLOT_PADDING.left;
+  const plotRight = CHART_PLOT_PADDING.right;
+  const plotWidth = Math.max(1, rect.width - plotLeft - plotRight);
+  const xRaw = clientX - rect.left;
+  const xClamped = Math.min(plotLeft + plotWidth, Math.max(plotLeft, xRaw));
+  const ratio = (xClamped - plotLeft) / plotWidth;
+  const tsAtCursor = xDomain[0] + ratio * (xDomain[1] - xDomain[0]);
+  const point = findNearestPointByTime(visibleData, tsAtCursor);
+  return point?.t ?? null;
+}
 
 function findNearestPointByTime<T extends { t: number }>(points: readonly T[], targetTs: number): T | null {
   if (points.length === 0) return null;
@@ -151,6 +190,14 @@ export function StrategySimulationWorkspace({
   chartPeriod,
   onChartPeriodChange,
   showPlayer = true,
+  simulationActions,
+  chartToolbar,
+  stepLoading = false,
+  stepError = null,
+  onStepRecalc,
+  collapsibleBacktestPanel = false,
+  chartPeriodPickMode = 'idle',
+  onChartPeriodPick,
 }: StrategySimulationWorkspaceProps) {
   const { t } = useSimulatorI18n();
   const tradingNetworkIds = useMemo(
@@ -229,10 +276,21 @@ export function StrategySimulationWorkspace({
   const playerResizeStartHeightRef = useRef(128);
   const stepResizeStartYRef = useRef(0);
   const stepResizeStartHeightRef = useRef(STEP_RESULT_DEFAULT_HEIGHT_PX);
+  const chartPickPendingRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const chartPickDragStartedRef = useRef(false);
 
   playIdxRef.current = playIdx;
 
-  const effectiveChartPeriod: ChartPeriod = chartPeriod ?? "1h";
+  const dataSpanMs = useMemo(() => {
+    const base = chartFullData && chartFullData.length > 0 ? chartFullData : chartData;
+    if (base.length < 2) return 0;
+    return base[base.length - 1].t - base[0].t;
+  }, [chartData, chartFullData]);
+
+  const effectiveChartPeriod: ChartPeriod = useMemo(
+    () => (chartPeriod !== undefined ? chartPeriod : inferChartPeriodFromSpan(dataSpanMs)),
+    [chartPeriod, dataSpanMs],
+  );
 
   const playHeadTs = useMemo(() => {
     if (chartData.length === 0) return undefined;
@@ -246,14 +304,23 @@ export function StrategySimulationWorkspace({
     return base.filter((point) => point.t <= playHeadTs);
   }, [chartFullData, chartData, playHeadTs]);
 
-  const periodData = useMemo(
-    () => filterChartDataWithBuffer(chartSource as ChartPoint[], effectiveChartPeriod),
-    [chartSource, effectiveChartPeriod],
-  );
-  const clampBounds = useMemo(
-    () => strictPeriodBounds(chartSource as ChartPoint[], effectiveChartPeriod),
-    [chartSource, effectiveChartPeriod],
-  );
+  const periodData = useMemo(() => {
+    const source = chartSource as ChartPoint[];
+    if (chartPeriod !== undefined) {
+      return filterChartDataWithBuffer(source, effectiveChartPeriod);
+    }
+    return source;
+  }, [chartSource, chartPeriod, effectiveChartPeriod]);
+  const clampBounds = useMemo(() => {
+    const source = chartSource as ChartPoint[];
+    if (source.length === 0) {
+      return strictPeriodBounds(source, effectiveChartPeriod);
+    }
+    if (chartPeriod !== undefined) {
+      return strictPeriodBounds(source, effectiveChartPeriod);
+    }
+    return { min: source[0].t, max: source[source.length - 1].t };
+  }, [chartSource, chartPeriod, effectiveChartPeriod]);
   const {
     visibleData: viewportVisibleData,
     renderData: viewportRenderData,
@@ -278,6 +345,11 @@ export function StrategySimulationWorkspace({
     if (chartPeriod === undefined) return;
     resetViewport();
   }, [chartPeriod, resetViewport]);
+
+  useEffect(() => {
+    if (chartPeriod !== undefined) return;
+    resetViewport();
+  }, [chartData.length, chartData[0]?.t, chartData[chartData.length - 1]?.t, chartPeriod, resetViewport]);
 
   useEffect(() => {
     setVisibility((prev) => {
@@ -568,8 +640,65 @@ export function StrategySimulationWorkspace({
     const target = e.target as HTMLElement | null;
     if (target?.closest("button")) return;
     setHoverCrosshair(null);
+
+    if (chartPeriodPickMode !== "idle" && onChartPeriodPick) {
+      chartPickPendingRef.current = { clientX: e.clientX, clientY: e.clientY };
+      chartPickDragStartedRef.current = false;
+      return;
+    }
+
     handlePanStart(e);
   };
+
+  const handleChartMouseMoveWithPick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const pending = chartPickPendingRef.current;
+    if (
+      pending &&
+      chartPeriodPickMode !== "idle" &&
+      !chartPickDragStartedRef.current
+    ) {
+      const dx = e.clientX - pending.clientX;
+      const dy = e.clientY - pending.clientY;
+      if (Math.hypot(dx, dy) > CHART_CLICK_MOVE_THRESHOLD_PX) {
+        chartPickDragStartedRef.current = true;
+        handlePanStart({
+          ...e,
+          clientX: pending.clientX,
+          clientY: pending.clientY,
+          button: 0,
+          preventDefault: () => {},
+        });
+      }
+    }
+    handleChartMouseMove(e);
+  };
+
+  useEffect(() => {
+    const onMouseUp = () => {
+      const pending = chartPickPendingRef.current;
+      if (
+        pending &&
+        chartPeriodPickMode !== "idle" &&
+        onChartPeriodPick &&
+        !chartPickDragStartedRef.current
+      ) {
+        const panel = chartPanelRef.current;
+        if (panel && visibleData.length > 0) {
+          const ts = timestampAtChartClientX(
+            pending.clientX,
+            panel.getBoundingClientRect(),
+            xDomain,
+            visibleData,
+          );
+          if (ts != null) onChartPeriodPick(ts);
+        }
+      }
+      chartPickPendingRef.current = null;
+      chartPickDragStartedRef.current = false;
+    };
+    window.addEventListener("mouseup", onMouseUp);
+    return () => window.removeEventListener("mouseup", onMouseUp);
+  }, [chartPeriodPickMode, onChartPeriodPick, visibleData, xDomain]);
 
   const borderColor = isDark ? "#1E2D40" : "#D1D9E0";
   const textPrimary = isDark ? "#E8EDF2" : "#0F1923";
@@ -585,10 +714,15 @@ export function StrategySimulationWorkspace({
   const inputBg = isDark ? "#1A2333" : "#E8ECF0";
   const accent = isDark ? "#F5C400" : "#D4A900";
 
+  const hasMeaningfulAvg = useMemo(
+    () => visibleData.some((point) => typeof point.avg === "number" && point.avg > 0),
+    [visibleData],
+  );
+
   const hasRenderableSeries = useMemo(() => {
-    if (visibility.avg) return true;
+    if (visibility.avg && hasMeaningfulAvg) return true;
     return networks.some((net) => visibility[`${net.id}_buy`] || visibility[`${net.id}_sell`]);
-  }, [visibility, networks]);
+  }, [visibility, networks, hasMeaningfulAvg]);
 
   const hoverYDomain = useMemo(() => {
     let min = Number.POSITIVE_INFINITY;
@@ -599,7 +733,7 @@ export function StrategySimulationWorkspace({
       if (value > max) max = value;
     };
     for (const point of visibleData) {
-      if (visibility.avg) pushValue(point.avg);
+      if (visibility.avg && typeof point.avg === "number" && point.avg > 0) pushValue(point.avg);
       for (const net of networks) {
         if (visibility[`${net.id}_buy`]) pushValue(point[`${net.id}_buy`]);
         if (visibility[`${net.id}_sell`]) pushValue(point[`${net.id}_sell`]);
@@ -633,7 +767,7 @@ export function StrategySimulationWorkspace({
     }
 
     let price: number | null = null;
-    if (visibility.avg && typeof point.avg === "number" && Number.isFinite(point.avg)) {
+    if (visibility.avg && typeof point.avg === "number" && Number.isFinite(point.avg) && point.avg > 0) {
       price = point.avg;
     } else {
       for (const net of networks) {
@@ -715,9 +849,17 @@ export function StrategySimulationWorkspace({
         ts <= (visibleData[visibleData.length - 1]?.t ?? Number.POSITIVE_INFINITY);
       if (!inWindow) continue;
       let y = ev.markerPrice;
-      if (typeof y !== "number" || !Number.isFinite(y)) {
+      if (typeof y !== "number" || !Number.isFinite(y) || y <= 0) {
         const nearest = chartData[ev.dataIdx];
-        y = typeof nearest?.avg === "number" ? nearest.avg : undefined;
+        if (ev.type === "Buy") {
+          y = typeof nearest?.[`${networks[0]?.id}_buy`] === "number" ? Number(nearest[`${networks[0]?.id}_buy`]) : undefined;
+        } else if (ev.type === "Sell") {
+          y = typeof nearest?.[`${networks[0]?.id}_sell`] === "number" ? Number(nearest[`${networks[0]?.id}_sell`]) : undefined;
+        }
+        if ((typeof y !== "number" || !Number.isFinite(y) || y <= 0) && nearest) {
+          const avg = nearest.avg;
+          if (typeof avg === "number" && avg > 0) y = avg;
+        }
       }
       if (typeof y !== "number" || !Number.isFinite(y)) continue;
       const marker = { t: ts, y };
@@ -866,7 +1008,7 @@ export function StrategySimulationWorkspace({
   const agChartOptions = useMemo(() => {
     const series: Record<string, unknown>[] = [];
 
-    if (visibility.avg) {
+    if (visibility.avg && hasMeaningfulAvg) {
       series.push({
         type: "line",
         xKey: "t",
@@ -1015,7 +1157,7 @@ export function StrategySimulationWorkspace({
             formatter: (params: { value?: unknown }) => {
               const ts = Number(params?.value);
               if (!Number.isFinite(ts)) return "";
-              return chartTimeOnly(ts);
+              return formatChartAxisLabel(ts, effectiveChartPeriod);
             },
           },
           crosshair: { enabled: false },
@@ -1040,6 +1182,7 @@ export function StrategySimulationWorkspace({
     chartRenderData,
     xDomain,
     visibility,
+    hasMeaningfulAvg,
     networks,
     tradingNetworkIds,
     averageLineColor,
@@ -1049,6 +1192,7 @@ export function StrategySimulationWorkspace({
     tradeMarkerData,
     tradeExecutionBands,
     isDark,
+    effectiveChartPeriod,
   ]);
 
   const agChartSafeOptions = useMemo(() => {
@@ -1110,7 +1254,71 @@ export function StrategySimulationWorkspace({
     };
   }, [visibleData, averageLineColor, stepLineInterpolation, chartAxisColor, chartTickColor, chartGridColor, isDark]);
 
+  const [backtestPanelOpen, setBacktestPanelOpen] = useState(false);
+
   const lastPriceDisplay = header.lastPrice ?? "—";
+
+  const backtestPanelContent = (chartToolbar || simulationActions) ? (
+    <>
+      {chartToolbar ? <div className="mb-2">{chartToolbar}</div> : null}
+      {simulationActions ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {simulationActions.showBacktest !== false && simulationActions.onRunBacktest && (
+            <button
+              type="button"
+              onClick={simulationActions.onRunBacktest}
+              disabled={simulationActions.backtestLoading}
+              className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+              style={{
+                border: `1px solid ${accent}`,
+                color: '#fff',
+                backgroundColor: accent,
+              }}
+              data-testid="run-backtest"
+            >
+              {simulationActions.backtestLoading ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Play size={14} />
+              )}
+              Запустить бэктест
+            </button>
+          )}
+          {simulationActions.onAnalyzeStep && (
+            <button
+              type="button"
+              onClick={simulationActions.onAnalyzeStep}
+              disabled={simulationActions.stepAnalyzing || playIdx <= 0}
+              className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+              style={{
+                border: `1px solid ${borderColor}`,
+                color: textPrimary,
+                backgroundColor: isDark ? '#111722' : '#FFFFFF',
+              }}
+              data-testid="analyze-step"
+            >
+              {simulationActions.stepAnalyzing ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <SkipForward size={14} />
+              )}
+              Анализ шага
+            </button>
+          )}
+          {simulationActions.stepSource && (
+            <span style={{ fontSize: '11px', color: textSecondary, fontFamily: 'var(--font-mono)' }}>
+              {simulationActions.stepSource === 'backtest' ? 'из бэктеста' : 'через API'}
+            </span>
+          )}
+          {simulationActions.backtestDone === false && (
+            <span style={{ fontSize: '11px', color: textSecondary }}>
+              Сначала загрузятся котировки, затем запустите бэктест
+            </span>
+          )}
+        </div>
+      ) : null}
+    </>
+  ) : null;
 
   return (
     <div className={`flex h-full min-h-0 w-full min-w-0 flex-1 overflow-hidden ${className ?? ""}`}>
@@ -1119,13 +1327,64 @@ export function StrategySimulationWorkspace({
         style={{ borderRight: `1px solid ${borderColor}` }}
       >
         <div className="px-4 pt-3 pb-2 shrink-0" style={{ borderBottom: `1px solid ${borderColor}` }}>
+          {backtestPanelContent && (
+            collapsibleBacktestPanel ? (
+              <div
+                className="mb-3 rounded-lg overflow-visible"
+                style={{
+                  border: `1px solid ${accent}40`,
+                  backgroundColor: isDark ? `${accent}12` : `${accent}08`,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setBacktestPanelOpen((v) => !v)}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold"
+                  style={{ color: textPrimary }}
+                  aria-expanded={backtestPanelOpen}
+                  data-testid="backtest-panel-toggle"
+                >
+                  {backtestPanelOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  <span>Бэктест и настройки</span>
+                  {simulationActions?.backtestLoading && (
+                    <Loader2 size={12} className="animate-spin ml-auto" style={{ color: textSecondary }} />
+                  )}
+                  {!backtestPanelOpen && simulationActions?.backtestDone && (
+                    <span className="ml-auto text-[10px] font-normal" style={{ color: textSecondary }}>
+                      бэктест выполнен
+                    </span>
+                  )}
+                </button>
+                {backtestPanelOpen && (
+                  <div className="border-t px-3 py-2.5" style={{ borderColor: `${accent}30` }}>
+                    {backtestPanelContent}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div
+                className="mb-3 rounded-lg px-3 py-2.5"
+                style={{
+                  border: `1px solid ${accent}40`,
+                  backgroundColor: isDark ? `${accent}12` : `${accent}08`,
+                }}
+              >
+                {backtestPanelContent}
+              </div>
+            )
+          )}
+
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span style={{ fontSize: "14px", fontWeight: 600, color: textPrimary }}>{header.pairLabel}</span>
               <span style={{ fontSize: "11px", color: textSecondary }}>{header.networksLabel}</span>
               {header.badge}
               {loading && <Loader2 size={12} className="animate-spin" style={{ color: textSecondary }} />}
-              {error && <span style={{ fontSize: "11px", color: "#E5383B" }}>API error</span>}
+              {error && (
+                <span style={{ fontSize: "11px", color: "#E5383B" }} title={error}>
+                  {error.length > 48 ? `${error.slice(0, 48)}…` : error}
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2">
               {header.live && (
@@ -1231,11 +1490,13 @@ export function StrategySimulationWorkspace({
 
         <div
           ref={chartPanelRef}
-          className="relative min-h-0 w-full flex-1 select-none touch-none overscroll-none cursor-grab active:cursor-grabbing"
+          className={`relative min-h-0 w-full flex-1 select-none touch-none overscroll-none ${
+            chartPeriodPickMode !== "idle" ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"
+          }`}
           style={{ minWidth: 0 }}
           onWheel={handleWheel}
           onMouseDown={handleChartMouseDown}
-          onMouseMove={handleChartMouseMove}
+          onMouseMove={handleChartMouseMoveWithPick}
           onMouseLeave={() => setHoverCrosshair(null)}
         >
           {showInitialChartLoading ? (
@@ -1657,6 +1918,10 @@ export function StrategySimulationWorkspace({
                 isDark={isDark}
                 token1Label={token1Label}
                 token2Label={token2Label}
+                loading={stepLoading}
+                error={stepError}
+                source={simulationActions?.stepSource ?? null}
+                onRecalc={onStepRecalc}
               />
             </div>
             <div

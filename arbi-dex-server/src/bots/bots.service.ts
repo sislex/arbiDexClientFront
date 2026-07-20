@@ -5,6 +5,7 @@ import { Bot } from './entities/bot.entity';
 import { BotTrade } from './entities/bot-trade.entity';
 import { BotSession } from './entities/bot-session.entity';
 import { CreateBotDto, UpdateBotDto } from './dto/bot.dto';
+import { limitEvalSteps, MAX_BOT_EVAL_STEPS } from './bot-eval.constants';
 import { MarketConfigsService } from '../market-configs/market-configs.service';
 import { StrategyConfigsService } from '../strategy-configs/strategy-configs.service';
 import { runAutotuneParallel, estimateGrid, applyCombo, collectDimensions, sampleGrid, sampleRandom } from '../demo/engine/autotune';
@@ -25,6 +26,13 @@ import type {
   ProcessAllStepsAndRecordResultsOutput,
   TradingConditionsStepResult,
 } from '@sislex/arbi-conditions-libs';
+/** Per-step engine breakdown recorded during a backtest run. */
+export interface BacktestStepRecord {
+  index: number;
+  time: number;
+  result: TradingConditionsStepResult;
+}
+
 /** Result of a bot backtest: the demo `BacktestResult` plus the resolved window. */
 export interface BotBacktestResult extends BacktestResult {
   historyFrom: number;
@@ -34,6 +42,10 @@ export interface BotBacktestResult extends BacktestResult {
   stepResults: ProcessAllStepsAndRecordResultsOutput;
   /** Server-side computation time, ms (data load + engine run). */
   tookMs: number;
+  /** Steps after applying MAX_BOT_EVAL_STEPS cap (may be less than raw quote count). */
+  evaluatedSteps: number;
+  /** True when quotes were trimmed to MAX_BOT_EVAL_STEPS before evaluation. */
+  stepsTruncated: boolean;
 }
 
 /** Engine evaluation of a single step: signals + per-condition breakdown. */
@@ -338,7 +350,9 @@ export class BotsService {
     const to = clamp(opts.to ?? historyTo, historyFrom, historyTo);
     const from = clamp(opts.from ?? to - week, historyFrom, to);
 
-    const { quotes } = await this.marketConfigs.getQuotesRange(userId, bot.marketConfigId, from, to);
+    const { quotes: rawQuotes } = await this.marketConfigs.getQuotesRange(userId, bot.marketConfigId, from, to);
+    const quotes = limitEvalSteps(rawQuotes);
+    const stepsTruncated = rawQuotes.length > MAX_BOT_EVAL_STEPS;
     const strategy = await this.loadStrategy(userId, bot);
     // Опциональные коэффициенты комбо (строка автоподбора) поверх стратегии.
     const strategyData =
@@ -389,6 +403,8 @@ export class BotsService {
       historyTo,
       stepResults,
       tookMs: Date.now() - startedAt,
+      evaluatedSteps: quotes.length,
+      stepsTruncated,
     };
 
     // Update the demo account — но НЕ у запущенного live-бота: его счётом
@@ -434,10 +450,11 @@ export class BotsService {
 
     // All history up to the requested time: the last point is the evaluated
     // step, everything before it is the lookback window.
-    const { quotes } = await this.marketConfigs.getQuotesRange(userId, bot.marketConfigId, historyFrom, time);
-    if (quotes.length === 0) {
+    const { quotes: rawQuotes } = await this.marketConfigs.getQuotesRange(userId, bot.marketConfigId, historyFrom, time);
+    if (rawQuotes.length === 0) {
       throw new NotFoundException('Нет котировок до указанного времени');
     }
+    const quotes = limitEvalSteps(rawQuotes);
 
     const strategy = await this.loadStrategy(userId, bot);
     const { strategy: engineStrategy, gates, triggers } = toEngineStrategy(strategy.buy, strategy.sell);

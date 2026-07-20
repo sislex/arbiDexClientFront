@@ -9,10 +9,13 @@ import { Select } from '../components/ui/SearchInput'
 import {
   getBotById,
   getStrategies,
+  getTradingPairById,
   type Bot,
 } from '../data/mockData'
 import { loadTradingPairs } from '../lib/tradingPairsStorage'
 import { loadBots, saveBots } from '../lib/botsStorage'
+import { syncBotToServer } from '../lib/syncBotToServer'
+import { useAuth } from '../context/AuthContext'
 import {
   botDraftFromSearchParams,
   botDraftToSearchParams,
@@ -61,6 +64,7 @@ export function BotEditorPage() {
   const isNew = !id
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  const { isAuthenticated } = useAuth()
 
   const existingBot = !isNew && id ? getBotById(id) : undefined
   const strategies = getStrategies()
@@ -107,6 +111,8 @@ export function BotEditorPage() {
   const canCreate = isBotDraftComplete(draft)
   const isDirty = hasBotDraftChanged(draft, baselineDraftRef.current)
   const submitEnabled = isNew ? canCreate : isDirty && canCreate
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const toggleStrategy = (strategyId: string) => {
     updateDraft((prev) => ({
@@ -117,63 +123,84 @@ export function BotEditorPage() {
     }))
   }
 
-  const handleSave = () => {
-    if (!submitEnabled) return
+  const handleSave = async () => {
+    if (!submitEnabled || saving) return
 
     const startingBudget = Number(draft.launch.startingBudget)
     const maxTurnover = Number(draft.launch.maxTurnover)
     const minStopBudget = Number(draft.launch.minStopBudget)
     const peakStopPercent = Number(draft.launch.peakStopPercent)
+    const pairSet = getTradingPairById(draft.pairSetId)
 
-    if (isNew) {
-      const selectedItems = strategies.filter((s) => draft.strategyIds.includes(s.id))
-      const multiple = selectedItems.length > 1
-      const newBots: Bot[] = selectedItems.map((s) => ({
-        id: generateSelectionId(),
-        name: resolveBotName(draft.name, draft.pair, s.name, multiple),
+    setSaving(true)
+    setSaveError(null)
+
+    try {
+      if (isNew) {
+        const selectedItems = strategies.filter((s) => draft.strategyIds.includes(s.id))
+        const multiple = selectedItems.length > 1
+        let newBots: Bot[] = selectedItems.map((s) => ({
+          id: generateSelectionId(),
+          name: resolveBotName(draft.name, draft.pair, s.name, multiple),
+          pair: draft.pair,
+          pairSetId: draft.pairSetId,
+          strategy: s.name,
+          strategyId: s.id,
+          balance: startingBudget,
+          roi: 0,
+          profit: 0,
+          winRate: 0,
+          drawdown: 0,
+          trades: 0,
+          lastTrade: '—',
+          runtime: '0d',
+          status: draft.status,
+          startingBudget,
+          maxTurnover,
+          minStopBudget,
+          peakStopPercent,
+          profitCurrency: draft.launch.profitCurrency,
+        }))
+
+        if (isAuthenticated) {
+          newBots = await Promise.all(
+            newBots.map((bot) => syncBotToServer(bot, { pairSet })),
+          )
+        }
+
+        saveBots([...loadBots(), ...newBots])
+        navigate('/bots')
+        return
+      }
+
+      if (!existingBot) return
+      const strategy = strategies.find((s) => s.id === draft.strategyIds[0])
+      let updated: Bot = {
+        ...existingBot,
+        name: draft.name.trim(),
         pair: draft.pair,
         pairSetId: draft.pairSetId,
-        strategy: s.name,
-        strategyId: s.id,
-        balance: startingBudget,
-        roi: 0,
-        profit: 0,
-        winRate: 0,
-        drawdown: 0,
-        trades: 0,
-        lastTrade: '—',
-        runtime: '0d',
+        strategy: strategy?.name ?? existingBot.strategy,
+        strategyId: draft.strategyIds[0] ?? existingBot.strategyId,
         status: draft.status,
         startingBudget,
         maxTurnover,
         minStopBudget,
         peakStopPercent,
         profitCurrency: draft.launch.profitCurrency,
-      }))
-      const all = [...loadBots(), ...newBots]
-      saveBots(all)
-      navigate('/bots')
-      return
-    }
+      }
 
-    if (!existingBot) return
-    const strategy = strategies.find((s) => s.id === draft.strategyIds[0])
-    const updated: Bot = {
-      ...existingBot,
-      name: draft.name.trim(),
-      pair: draft.pair,
-      pairSetId: draft.pairSetId,
-      strategy: strategy?.name ?? existingBot.strategy,
-      strategyId: draft.strategyIds[0] ?? existingBot.strategyId,
-      status: draft.status,
-      startingBudget,
-      maxTurnover,
-      minStopBudget,
-      peakStopPercent,
-      profitCurrency: draft.launch.profitCurrency,
+      if (isAuthenticated) {
+        updated = await syncBotToServer(updated, { pairSet })
+      }
+
+      saveBots(loadBots().map((b) => (b.id === existingBot.id ? updated : b)))
+      navigate('/bots')
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Не удалось сохранить бота на сервере')
+    } finally {
+      setSaving(false)
     }
-    saveBots(loadBots().map((b) => (b.id === existingBot.id ? updated : b)))
-    navigate('/bots')
   }
 
   if (!isNew && id && !existingBot) {
@@ -206,15 +233,25 @@ export function BotEditorPage() {
                 <Button variant="outline">Открыть бота</Button>
               </Link>
             )}
-            <Button onClick={handleSave} disabled={!submitEnabled}>
+            <Button onClick={() => void handleSave()} disabled={!submitEnabled || saving}>
               <Save size={14} />
-              {isNew ? 'Создать' : 'Сохранить'}
+              {saving ? 'Сохранение…' : isNew ? 'Создать' : 'Сохранить'}
             </Button>
           </div>
         }
       />
 
       <PageContent className="flex-1 min-h-0 overflow-y-auto space-y-5 max-w-4xl">
+        {!isAuthenticated && (
+          <Card className="px-4 py-3 text-sm text-muted">
+            Бот сохранится локально.{' '}
+            <Link to="/login" className="text-accent-cyan hover:underline">Войдите через кошелёк</Link>
+            , чтобы также создать его на сервере и запускать бэктест.
+          </Card>
+        )}
+        {saveError && (
+          <Card className="px-4 py-3 text-sm text-error">{saveError}</Card>
+        )}
         {!isNew && existingBot && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Card className="p-3">

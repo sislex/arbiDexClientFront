@@ -1,23 +1,23 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Bot, Clock } from 'lucide-react'
 import { PageContent } from '../components/layout/PageHeader'
 import { Button } from '../components/ui/Button'
-import { StatusBadge, Badge } from '../components/ui/Badge'
-import { TradingActionBar } from '../components/bot/TradingActionBar'
+import { Badge } from '../components/ui/Badge'
+import { BotDetailHeader } from '../components/bot/BotDetailHeader'
+import type { BotTradeHandlers } from '../components/bot/BotTradingButtons'
 import { StrategySignalToastStack } from '../components/bot/StrategySignalToast'
 import {
-  FundModeToggle,
-  TradeModeToggle,
   type FundMode,
   type TradeMode,
 } from '../components/bot/TradingModeToggles'
 import { LiveStrategySimulationPage } from '../simulation/LiveStrategySimulationPage'
+import { ServerBotSimulationPage } from '../simulation/ServerBotSimulationPage'
 import { buildBotSimulationStrategy, getBotChartSelection } from '../lib/buildBotSimulationStrategy'
-import { getBotById, getPairExchangeConfig, PAIR_MARKET_DATA } from '../data/mockData'
+import { getBotById, getPairExchangeConfig } from '../data/mockData'
+import { fetchServerBot, isServerBotId, type ServerBot } from '../services/botsApi'
 import { useAppPreferences } from '../context/AppPreferencesContext'
+import { useAuth } from '../context/AuthContext'
 import { useStrategySignalsFromSimulation } from '../hooks/useStrategySignals'
-import { cn, formatCurrency } from '../lib/utils'
 
 function parseFundMode(value: string | null): FundMode {
   return value === 'online' ? 'online' : 'demo'
@@ -32,22 +32,65 @@ export function BotDetailPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { theme } = useAppPreferences()
-  const bot = getBotById(id ?? '')
+  const { isAuthenticated } = useAuth()
+  const localBot = getBotById(id ?? '')
+  const urlServerBotId = id && isServerBotId(id) ? id : undefined
+  const linkedServerBotId = localBot?.serverBotId
+  const resolvedServerBotId = linkedServerBotId ?? urlServerBotId
 
   const fundMode = parseFundMode(searchParams.get('mode'))
   const tradeMode = parseTradeMode(searchParams.get('trade'))
+  const isDemo = fundMode === 'demo'
+
+  const [serverBot, setServerBot] = useState<ServerBot | null>(null)
+  const [serverLoadError, setServerLoadError] = useState<string | null>(null)
+  const [serverLoading, setServerLoading] = useState(false)
+
+  useEffect(() => {
+    if (!resolvedServerBotId) {
+      setServerBot(null)
+      setServerLoadError(null)
+      return
+    }
+    let cancelled = false
+    setServerLoading(true)
+    setServerLoadError(null)
+    fetchServerBot(resolvedServerBotId)
+      .then((loaded) => {
+        if (!cancelled) setServerBot(loaded)
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setServerBot(null)
+          setServerLoadError(e instanceof Error ? e.message : 'Не удалось загрузить бота с сервера')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setServerLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [resolvedServerBotId])
 
   const [autoRunning, setAutoRunning] = useState(fundMode === 'online' && tradeMode === 'auto')
+  const [tradeHandlers, setTradeHandlers] = useState<BotTradeHandlers | null>(null)
 
-  const isDemo = fundMode === 'demo'
-  const isAuto = tradeMode === 'auto'
   const isManual = tradeMode === 'manual'
 
   const { signals, dismissSignal, onStepResultChange } = useStrategySignalsFromSimulation(isManual)
 
-  const exchangeConfig = getPairExchangeConfig(bot?.pair ?? 'BTC/USDT', bot?.pairSetId)
-  const tradingExchange = exchangeConfig?.tradingExchange ?? 'Binance'
-  const market = PAIR_MARKET_DATA[bot?.pair ?? 'BTC/USDT'] ?? { price: 67420, change: 0 }
+  const bot = localBot
+  const displayName = bot?.name ?? serverBot?.name ?? 'Bot'
+  const displayPair = bot?.pair ?? (serverBot ? `${serverBot.baseAsset}/${serverBot.quoteAsset}` : '—')
+  const displayBalance = serverBot?.balance ?? bot?.balance ?? 0
+  const displayStatus = bot?.status ?? (serverBot?.status === 'running' ? 'active' : serverBot?.status === 'paused' ? 'paused' : 'stopped')
+  const displayId = bot?.id ?? serverBot?.id ?? id ?? '—'
+  const displayStrategy = bot?.strategy ?? 'Server strategy'
+  const quoteAsset = serverBot?.quoteAsset ?? bot?.profitCurrency ?? 'USDT'
+
+  const exchangeConfig = getPairExchangeConfig(bot?.pair ?? displayPair, bot?.pairSetId)
+  const tradingExchange = exchangeConfig?.tradingExchange ?? 'DEX'
 
   const syncParams = useCallback(
     (nextFund: FundMode, nextTrade: TradeMode) => {
@@ -81,7 +124,33 @@ export function BotDetailPage() {
     }
   }, [searchParams, fundMode, tradeMode, syncParams])
 
-  if (!bot) {
+  if (!bot && !resolvedServerBotId && !urlServerBotId) {
+    return (
+      <PageContent className="py-12 text-center">
+        <p className="text-muted mb-4">Бот не найден</p>
+        <Button onClick={() => navigate('/bots')}>К списку ботов</Button>
+      </PageContent>
+    )
+  }
+
+  if (resolvedServerBotId && serverLoading && !serverBot && !bot) {
+    return (
+      <PageContent className="py-12 text-center">
+        <p className="text-muted">Загрузка бота с сервера…</p>
+      </PageContent>
+    )
+  }
+
+  if (resolvedServerBotId && serverLoadError && !serverBot && !bot) {
+    return (
+      <PageContent className="py-12 text-center">
+        <p className="text-error mb-4">{serverLoadError}</p>
+        <Button onClick={() => navigate('/bots')}>К списку ботов</Button>
+      </PageContent>
+    )
+  }
+
+  if (!bot && !serverBot) {
     return (
       <PageContent className="py-12 text-center">
         <p className="text-muted mb-4">Бот не найден</p>
@@ -92,19 +161,28 @@ export function BotDetailPage() {
 
   const balanceLabel = isDemo ? 'Demo баланс' : 'Баланс'
   const botStatus =
-    bot.status === 'active' ? 'Running' : bot.status === 'paused' ? 'Paused' : 'Stopped'
-  const simulationStrategy = buildBotSimulationStrategy(bot)
-  const chartSelection = getBotChartSelection(bot)
+    displayStatus === 'active' ? 'Running' : displayStatus === 'paused' ? 'Paused' : 'Stopped'
+  const simulationStrategy = bot ? buildBotSimulationStrategy(bot) : null
+  const chartSelection = bot ? getBotChartSelection(bot) : null
+  const useServerSimulation = isDemo && Boolean(resolvedServerBotId && serverBot)
+  const editableBotId = bot?.id ?? urlServerBotId
+
+  const handleBotRefresh = useCallback(() => {
+    if (!resolvedServerBotId) return
+    fetchServerBot(resolvedServerBotId)
+      .then(setServerBot)
+      .catch(() => {})
+  }, [resolvedServerBotId])
 
   const simulationHeader = {
-    pairLabel: bot.pair,
-    networksLabel: `${tradingExchange} ${bot.pair}`,
-    id: bot.id,
+    pairLabel: displayPair,
+    networksLabel: `${tradingExchange} ${displayPair}`,
+    id: displayId,
     status: botStatus,
-    rules: simulationStrategy.rules,
-    profitCurrency: bot.profitCurrency ?? 'USDT',
+    rules: simulationStrategy?.rules ?? 0,
+    profitCurrency: bot?.profitCurrency ?? serverBot?.quoteAsset ?? 'USDT',
     badge: isDemo ? (
-      <Badge variant="cyan">Demo · {bot.strategy}</Badge>
+      <Badge variant="cyan">Demo · {displayStrategy}</Badge>
     ) : (
       <Badge variant="success">Live · реальные деньги</Badge>
     ),
@@ -114,82 +192,77 @@ export function BotDetailPage() {
     <div className="relative flex h-[calc(100dvh-3.5rem)] min-h-0 w-full max-w-full min-w-0 flex-col overflow-hidden">
       <StrategySignalToastStack signals={signals} onDismiss={dismissSignal} />
 
-      <div className="shrink-0 border-b border-border bg-card/50 px-6 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-4">
-            <Link to="/bots">
-              <Button variant="ghost" size="sm">
-                <ArrowLeft size={14} /> К ботам
-              </Button>
-            </Link>
-            <div>
-              <div className="flex flex-wrap items-center gap-3">
-                <h1 className="text-xl font-bold text-foreground">{bot.name}</h1>
-                <span className="text-sm text-muted">{bot.pair}</span>
-                <StatusBadge status={bot.status} />
-              </div>
-              <div className="mt-1 flex flex-wrap items-center gap-4 text-xs text-muted">
-                <span>ID: <span className="font-mono text-foreground">{bot.id}</span></span>
-                <span>{tradingExchange}</span>
-                <span>Стратегия: <span className="text-foreground">{bot.strategy}</span></span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <FundModeToggle mode={fundMode} onChange={setFundMode} />
-            <TradeModeToggle mode={tradeMode} onChange={setTradeMode} />
-            <Link to={`/bots/${bot.id}/history`}>
-              <Button variant="outline" size="sm" title="Исторические данные">
-                <Clock size={14} />
-              </Button>
-            </Link>
-            <div className="text-right">
-              <p className="text-lg font-bold text-foreground">{bot.balance.toFixed(2)} USDT</p>
-              <p className="text-xs text-muted">{balanceLabel}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {isDemo && <Badge variant="cyan">Demo · live данные</Badge>}
-          {!isDemo && <Badge variant="success">Live · реальные деньги</Badge>}
-          {isAuto ? (
-            <Badge variant="purple">
-              <Bot size={12} className="inline mr-1" />
-              Авто-торговля{autoRunning && !isDemo ? ' · активна' : ''}
-            </Badge>
-          ) : (
-            <Badge variant="cyan">Ручная торговля</Badge>
-          )}
-          {isManual && (
-            <Badge variant="warning">Подсказки стратегии включены</Badge>
-          )}
-          <span className={cn('text-sm font-semibold', market.change >= 0 ? 'text-success' : 'text-error')}>
-            {formatCurrency(market.price)}
-            <span className="ml-2 text-xs font-medium">
-              {market.change >= 0 ? '+' : ''}{market.change.toFixed(2)}%
-            </span>
-          </span>
-        </div>
-      </div>
+      <BotDetailHeader
+        displayName={displayName}
+        displayPair={displayPair}
+        displayId={displayId}
+        displayStatus={displayStatus}
+        displayStrategy={displayStrategy}
+        tradingExchange={tradingExchange}
+        displayBalance={displayBalance}
+        balanceLabel={balanceLabel}
+        quoteAsset={quoteAsset}
+        useServerSimulation={useServerSimulation}
+        fundMode={fundMode}
+        tradeMode={tradeMode}
+        autoRunning={autoRunning}
+        editableBotId={editableBotId}
+        historyHref={id ? `/bots/${id}/history` : undefined}
+        onFundModeChange={setFundMode}
+        onTradeModeChange={setTradeMode}
+        onAutoToggle={() => setAutoRunning((v) => !v)}
+        tradeHandlers={useServerSimulation ? tradeHandlers : null}
+      />
 
       <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
-        <LiveStrategySimulationPage
-          strategy={simulationStrategy}
-          chartSelection={chartSelection}
-          isDark={theme === 'dark'}
-          className="min-h-0 h-full w-full min-w-0 flex-1 overflow-hidden"
-          onStepResultChange={onStepResultChange}
-          header={simulationHeader}
-        />
-        <TradingActionBar
-          fundMode={fundMode}
-          tradeMode={tradeMode}
-          exchange={tradingExchange}
-          autoRunning={autoRunning}
-          onAutoToggle={() => setAutoRunning((v) => !v)}
-        />
+        {isDemo && !useServerSimulation && (
+          <div className="shrink-0 border-b border-border bg-card/80 px-6 py-2 text-xs text-muted">
+            {!isAuthenticated ? (
+              <>
+                Для бэктеста войдите через кошелёк.{' '}
+                <Link to="/login" className="text-accent-cyan hover:underline">Войти</Link>
+              </>
+            ) : serverLoading ? (
+              'Загрузка бота с сервера…'
+            ) : serverLoadError ? (
+              <span className="text-error">{serverLoadError}</span>
+            ) : localBot && !localBot.serverBotId ? (
+              <>
+                Бот ещё не синхронизирован с сервером.{' '}
+                <Link to={`/bots/${localBot.id}/edit`} className="text-accent-cyan hover:underline">
+                  Откройте редактирование и сохраните
+                </Link>
+                , чтобы создать серверную копию для бэктеста.
+              </>
+            ) : (
+              'Серверный бэктест недоступен для этого бота.'
+            )}
+          </div>
+        )}
+        {useServerSimulation && serverBot ? (
+          <ServerBotSimulationPage
+            bot={serverBot}
+            isDark={theme === 'dark'}
+            className="min-h-0 h-full w-full min-w-0 flex-1 overflow-hidden"
+            onStepResultChange={onStepResultChange}
+            header={simulationHeader}
+            onBotRefresh={handleBotRefresh}
+            onTradeHandlersChange={setTradeHandlers}
+          />
+        ) : simulationStrategy && chartSelection ? (
+          <LiveStrategySimulationPage
+            strategy={simulationStrategy}
+            chartSelection={chartSelection}
+            isDark={theme === 'dark'}
+            className="min-h-0 h-full w-full min-w-0 flex-1 overflow-hidden"
+            onStepResultChange={onStepResultChange}
+            header={simulationHeader}
+          />
+        ) : (
+          <PageContent className="py-8 text-center text-muted">
+            {serverLoadError ?? 'Simulation unavailable'}
+          </PageContent>
+        )}
       </div>
     </div>
   )
