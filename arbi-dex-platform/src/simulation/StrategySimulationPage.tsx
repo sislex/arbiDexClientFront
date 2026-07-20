@@ -76,6 +76,8 @@ export function StrategySimulationPage({
         token1Label={ctx.token1Label}
         token2Label={ctx.token2Label}
         header={header}
+        onChartStepInspect={sim.inspectAtTime}
+        selectedStepTime={sim.inspectTime}
       />
     </div>
   );

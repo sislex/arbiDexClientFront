@@ -17,7 +17,7 @@ import {
   mergeChartPoints,
   setChartDataCache,
 } from '../lib/chartDataCache'
-import { filterChartDataByPeriod, type ChartPeriod } from '../lib/chartTimeRange'
+import { filterChartDataByPeriod, findPlayIdxByTimestamp, type ChartPeriod } from '../lib/chartTimeRange'
 import {
   fetchChartData,
   fetchStoreKeyCatalog,
@@ -237,6 +237,7 @@ export function useLiveMarketSimulation({
   const [playIdx, setPlayIdx] = useState(0)
   const [speed, setSpeed] = useState(1)
   const [stepRefreshKey, setStepRefreshKey] = useState(0)
+  const [pinnedStep, setPinnedStep] = useState<{ time: number; result: SimulationLogEvent | null } | null>(null)
 
   const fullDataRef = useRef(fullData)
   const periodRef = useRef(period)
@@ -290,6 +291,10 @@ export function useLiveMarketSimulation({
   }, [])
 
   playIdxRef.current = playIdx
+
+  useEffect(() => {
+    setPinnedStep(null)
+  }, [playIdx])
 
   useEffect(() => {
     if (!enabled || !networksReady || networks.length === 0) return
@@ -507,8 +512,38 @@ export function useLiveMarketSimulation({
     const idx = playIdxRef.current
     if (idx <= 0) return
     processedIdxRef.current = Math.max(0, idx - 1)
+    setPinnedStep(null)
     setStepRefreshKey((k) => k + 1)
   }, [])
+
+  const inspectAtTime = useCallback(
+    (time: number) => {
+      if (!enabled || loading || chartData.length === 0) return
+      const targetIdx = findPlayIdxByTimestamp(chartData, time)
+      if (targetIdx <= 0) return
+
+      const windowStartIdx = Math.max(0, targetIdx - MAX_STEP_CALC_WINDOW)
+      const strategyCfg = buildTradingConditionsConfig(strategy)
+      const marketSteps = buildMarketSteps(chartData, targetIdx, networks, tradingNetworkIds)
+      let state = createInitialEngineState()
+      let latestStepResult: SimulationLogEvent | null = null
+
+      for (let i = windowStartIdx; i < targetIdx; i += 1) {
+        const point = chartData[i]
+        if (point.avg === undefined) continue
+        const { state: nextState, event } = dispatchStrategyStepSync(marketSteps, i, state, strategyCfg)
+        state = nextState
+        if (!event) continue
+        latestStepResult = toLogEvent(event)
+      }
+
+      setPinnedStep({ time, result: latestStepResult })
+    },
+    [enabled, loading, chartData, strategy, networks, tradingNetworkIds],
+  )
+
+  const displayedStepResult = pinnedStep?.result ?? stepResult
+  const inspectTime = pinnedStep?.time ?? null
 
   const lastPrice =
     chartData.length > 0 ? chartData[chartData.length - 1].avg?.toFixed(2) ?? '—' : '—'
@@ -523,7 +558,9 @@ export function useLiveMarketSimulation({
     chartData,
     fullChartData: fullData,
     events,
-    stepResult,
+    stepResult: displayedStepResult,
+    inspectTime,
+    inspectAtTime,
     loading,
     loadingPhase,
     error,

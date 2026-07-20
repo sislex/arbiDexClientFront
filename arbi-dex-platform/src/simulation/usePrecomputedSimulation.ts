@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   slicePrecomputedForPlayIdx,
   stepAnalysisToLogEvent,
   type PrecomputedSimulationPayload,
 } from "../fixtures/precomputedSimulationTypes";
+import { findPlayIdxByTimestamp } from "../lib/chartTimeRange";
 import { DEFAULT_PLAYBACK_INTERVAL_MS, type SimulationLogEvent } from "./simulationViewerTypes";
 
 export interface UsePrecomputedSimulationOptions {
@@ -20,6 +21,8 @@ export interface UsePrecomputedSimulationResult {
   setSpeed: (speed: number) => void;
   events: SimulationLogEvent[];
   stepResult: SimulationLogEvent | null;
+  inspectTime: number | null;
+  inspectAtTime: (time: number) => void;
   /** Цена последней точки ряда (как в StrategyDetails), не текущего playIdx. */
   lastPrice: string;
 }
@@ -34,6 +37,7 @@ export function usePrecomputedSimulation(
   const [playIdx, setPlayIdxState] = useState(initialPlayIdx);
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
+  const [pinnedStep, setPinnedStep] = useState<{ time: number; result: SimulationLogEvent | null } | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const playIdxRef = useRef(playIdx);
 
@@ -57,9 +61,27 @@ export function usePrecomputedSimulation(
   );
 
   const events = logEvents as SimulationLogEvent[];
-  const stepResult = currentStep
+  const playIdxStepResult = currentStep
     ? (stepAnalysisToLogEvent(currentStep) as SimulationLogEvent)
     : null;
+  const stepResult = pinnedStep?.result ?? playIdxStepResult;
+  const inspectTime = pinnedStep?.time ?? null;
+
+  useEffect(() => {
+    setPinnedStep(null);
+  }, [playIdx]);
+
+  const inspectAtTime = useCallback(
+    (time: number) => {
+      const idx = findPlayIdxByTimestamp(payload.chartData, time);
+      const { currentStep: step } = slicePrecomputedForPlayIdx(payload, idx);
+      setPinnedStep({
+        time,
+        result: step ? (stepAnalysisToLogEvent(step) as SimulationLogEvent) : null,
+      });
+    },
+    [payload],
+  );
 
   useEffect(() => {
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -94,6 +116,8 @@ export function usePrecomputedSimulation(
     setSpeed,
     events,
     stepResult,
+    inspectTime,
+    inspectAtTime,
     lastPrice,
   };
 }

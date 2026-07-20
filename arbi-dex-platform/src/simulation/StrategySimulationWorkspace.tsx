@@ -104,6 +104,10 @@ export interface StrategySimulationWorkspaceProps {
   /** Backtest period pick on chart: first short click = start, second = end. */
   chartPeriodPickMode?: ChartPeriodPickMode
   onChartPeriodPick?: (time: number) => void
+  /** Short click on chart (when not picking period) — inspect step at nearest timestamp. */
+  onChartStepInspect?: (time: number) => void
+  /** Vertical marker at the inspected step (epoch ms). */
+  selectedStepTime?: number | null
 }
 
 type VisKey = string;
@@ -120,8 +124,21 @@ interface HoverCrosshair {
   tradeType?: "Buy" | "Sell" | "Error";
 }
 
-const CHART_PLOT_PADDING = { top: 8, right: 16, bottom: 8, left: 8 };
+const CHART_OUTER_PADDING = { top: 8, right: 16, bottom: 8, left: 8 };
+/** Must match axes.y.thickness in agChartOptions — used for click/hover ↔ plot mapping. */
+const CHART_Y_AXIS_THICKNESS = 52;
+/** Must match axes.x.thickness in agChartOptions. */
+const CHART_X_AXIS_THICKNESS = 28;
 const CHART_CLICK_MOVE_THRESHOLD_PX = 5;
+
+function getChartPlotInsets() {
+  return {
+    top: CHART_OUTER_PADDING.top,
+    right: CHART_OUTER_PADDING.right,
+    bottom: CHART_OUTER_PADDING.bottom + CHART_X_AXIS_THICKNESS,
+    left: CHART_OUTER_PADDING.left + CHART_Y_AXIS_THICKNESS,
+  };
+}
 
 function timestampAtChartClientX(
   clientX: number,
@@ -129,15 +146,28 @@ function timestampAtChartClientX(
   xDomain: [number, number],
   visibleData: readonly { t: number }[],
 ): number | null {
-  const plotLeft = CHART_PLOT_PADDING.left;
-  const plotRight = CHART_PLOT_PADDING.right;
-  const plotWidth = Math.max(1, rect.width - plotLeft - plotRight);
+  const insets = getChartPlotInsets();
+  const plotWidth = Math.max(1, rect.width - insets.left - insets.right);
   const xRaw = clientX - rect.left;
-  const xClamped = Math.min(plotLeft + plotWidth, Math.max(plotLeft, xRaw));
-  const ratio = (xClamped - plotLeft) / plotWidth;
+  const xClamped = Math.min(insets.left + plotWidth, Math.max(insets.left, xRaw));
+  const ratio = (xClamped - insets.left) / plotWidth;
   const tsAtCursor = xDomain[0] + ratio * (xDomain[1] - xDomain[0]);
   const point = findNearestPointByTime(visibleData, tsAtCursor);
   return point?.t ?? null;
+}
+
+function timestampToPlotClientX(
+  ts: number,
+  rect: DOMRect,
+  xDomain: [number, number],
+): number | null {
+  const insets = getChartPlotInsets();
+  const plotWidth = Math.max(1, rect.width - insets.left - insets.right);
+  const span = xDomain[1] - xDomain[0];
+  if (!Number.isFinite(span) || span <= 0) return null;
+  const ratio = (ts - xDomain[0]) / span;
+  if (ratio < 0 || ratio > 1) return null;
+  return insets.left + ratio * plotWidth;
 }
 
 function findNearestPointByTime<T extends { t: number }>(points: readonly T[], targetTs: number): T | null {
@@ -198,6 +228,8 @@ export function StrategySimulationWorkspace({
   collapsibleBacktestPanel = false,
   chartPeriodPickMode = 'idle',
   onChartPeriodPick,
+  onChartStepInspect,
+  selectedStepTime = null,
 }: StrategySimulationWorkspaceProps) {
   const { t } = useSimulatorI18n();
   const tradingNetworkIds = useMemo(
@@ -249,6 +281,9 @@ export function StrategySimulationWorkspace({
   const [chartSafeMode, setChartSafeMode] = useState(false);
   const [chartErrorMessage, setChartErrorMessage] = useState<string | null>(null);
   const [hoverCrosshair, setHoverCrosshair] = useState<HoverCrosshair | null>(null);
+  const [chartInspectTime, setChartInspectTime] = useState<number | null>(null);
+
+  const effectiveSelectedStepTime = selectedStepTime ?? chartInspectTime;
 
   const showInitialChartLoading = loading && chartData.length === 0;
 
@@ -278,6 +313,10 @@ export function StrategySimulationWorkspace({
   const stepResizeStartHeightRef = useRef(STEP_RESULT_DEFAULT_HEIGHT_PX);
   const chartPickPendingRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const chartPickDragStartedRef = useRef(false);
+  const onChartPeriodPickRef = useRef(onChartPeriodPick);
+  const onChartStepInspectRef = useRef(onChartStepInspect);
+  onChartPeriodPickRef.current = onChartPeriodPick;
+  onChartStepInspectRef.current = onChartStepInspect;
 
   playIdxRef.current = playIdx;
 
@@ -340,6 +379,24 @@ export function StrategySimulationWorkspace({
     return source as SimulationChartPoint[];
   }, [viewportRenderData, viewportVisibleData]);
   const maxIdx = chartData.length;
+
+  const selectedStepCrossLines = useMemo(() => {
+    if (effectiveSelectedStepTime == null) return undefined;
+    return [
+      {
+        type: "line" as const,
+        value: effectiveSelectedStepTime,
+        stroke: "#F5C400",
+        lineDash: [4, 3],
+        strokeWidth: 1,
+        label: { enabled: false },
+      },
+    ];
+  }, [effectiveSelectedStepTime]);
+
+  useEffect(() => {
+    if (chartData.length === 0) setChartInspectTime(null);
+  }, [chartData.length]);
 
   useEffect(() => {
     if (chartPeriod === undefined) return;
@@ -641,7 +698,10 @@ export function StrategySimulationWorkspace({
     if (target?.closest("button")) return;
     setHoverCrosshair(null);
 
-    if (chartPeriodPickMode !== "idle" && onChartPeriodPick) {
+    const wantsPeriodPick = chartPeriodPickMode !== "idle" && onChartPeriodPickRef.current;
+    const wantsStepInspect = chartPeriodPickMode === "idle" && onChartStepInspectRef.current;
+
+    if (wantsPeriodPick || wantsStepInspect) {
       chartPickPendingRef.current = { clientX: e.clientX, clientY: e.clientY };
       chartPickDragStartedRef.current = false;
       return;
@@ -652,11 +712,7 @@ export function StrategySimulationWorkspace({
 
   const handleChartMouseMoveWithPick = (e: ReactMouseEvent<HTMLDivElement>) => {
     const pending = chartPickPendingRef.current;
-    if (
-      pending &&
-      chartPeriodPickMode !== "idle" &&
-      !chartPickDragStartedRef.current
-    ) {
+    if (pending && !chartPickDragStartedRef.current) {
       const dx = e.clientX - pending.clientX;
       const dy = e.clientY - pending.clientY;
       if (Math.hypot(dx, dy) > CHART_CLICK_MOVE_THRESHOLD_PX) {
@@ -676,13 +732,10 @@ export function StrategySimulationWorkspace({
   useEffect(() => {
     const onMouseUp = () => {
       const pending = chartPickPendingRef.current;
-      if (
-        pending &&
-        chartPeriodPickMode !== "idle" &&
-        onChartPeriodPick &&
-        !chartPickDragStartedRef.current
-      ) {
+      if (pending && !chartPickDragStartedRef.current) {
         const panel = chartPanelRef.current;
+        const onPeriodPick = onChartPeriodPickRef.current;
+        const onStepInspect = onChartStepInspectRef.current;
         if (panel && visibleData.length > 0) {
           const ts = timestampAtChartClientX(
             pending.clientX,
@@ -690,7 +743,15 @@ export function StrategySimulationWorkspace({
             xDomain,
             visibleData,
           );
-          if (ts != null) onChartPeriodPick(ts);
+          if (ts != null) {
+            if (chartPeriodPickMode !== "idle" && onPeriodPick) {
+              onPeriodPick(ts);
+            } else if (chartPeriodPickMode === "idle" && onStepInspect) {
+              setChartInspectTime(ts);
+              onStepInspect(ts);
+              setEventPanelCollapsed(false);
+            }
+          }
         }
       }
       chartPickPendingRef.current = null;
@@ -698,7 +759,7 @@ export function StrategySimulationWorkspace({
     };
     window.addEventListener("mouseup", onMouseUp);
     return () => window.removeEventListener("mouseup", onMouseUp);
-  }, [chartPeriodPickMode, onChartPeriodPick, visibleData, xDomain]);
+  }, [chartPeriodPickMode, visibleData, xDomain]);
 
   const borderColor = isDark ? "#1E2D40" : "#D1D9E0";
   const textPrimary = isDark ? "#E8EDF2" : "#0F1923";
@@ -750,15 +811,12 @@ export function StrategySimulationWorkspace({
       return;
     }
     const rect = e.currentTarget.getBoundingClientRect();
-    const plotLeft = CHART_PLOT_PADDING.left;
-    const plotRight = CHART_PLOT_PADDING.right;
-    const plotTop = CHART_PLOT_PADDING.top;
-    const plotBottom = CHART_PLOT_PADDING.bottom;
-    const plotWidth = Math.max(1, rect.width - plotLeft - plotRight);
-    const plotHeight = Math.max(1, rect.height - plotTop - plotBottom);
+    const insets = getChartPlotInsets();
+    const plotWidth = Math.max(1, rect.width - insets.left - insets.right);
+    const plotHeight = Math.max(1, rect.height - insets.top - insets.bottom);
     const xRaw = e.clientX - rect.left;
-    const xClamped = Math.min(plotLeft + plotWidth, Math.max(plotLeft, xRaw));
-    const ratio = (xClamped - plotLeft) / plotWidth;
+    const xClamped = Math.min(insets.left + plotWidth, Math.max(insets.left, xRaw));
+    const ratio = (xClamped - insets.left) / plotWidth;
     const tsAtCursor = xDomain[0] + ratio * (xDomain[1] - xDomain[0]);
     const point = findNearestPointByTime(visibleData, tsAtCursor);
     if (!point) {
@@ -795,7 +853,12 @@ export function StrategySimulationWorkspace({
       return;
     }
     const yRatio = (price - hoverYDomain.min) / Math.max(hoverYDomain.max - hoverYDomain.min, 1e-9);
-    const yPx = plotTop + (1 - Math.min(1, Math.max(0, yRatio))) * plotHeight;
+    const yPx = insets.top + (1 - Math.min(1, Math.max(0, yRatio))) * plotHeight;
+    const xPx = timestampToPlotClientX(point.t, rect, xDomain);
+    if (xPx == null) {
+      setHoverCrosshair(null);
+      return;
+    }
     const avgVal = typeof point.avg === "number" && Number.isFinite(point.avg) ? point.avg : undefined;
     let buyVal: number | undefined;
     let sellVal: number | undefined;
@@ -813,7 +876,7 @@ export function StrategySimulationWorkspace({
       ? (tradeHintsByTs[point.t] ?? []).find((ev) => ev.type === "Buy" || ev.type === "Sell" || ev.type === "Error")
       : undefined;
     setHoverCrosshair({
-      xPx: plotLeft + ratio * plotWidth,
+      xPx,
       yPx,
       ts: point.t,
       price,
@@ -1141,11 +1204,13 @@ export function StrategySimulationWorkspace({
       tooltip: { enabled: false },
       legend: { enabled: false },
       background: { fill: "transparent" },
-      padding: { top: 8, right: 16, bottom: 8, left: 8 },
+      padding: CHART_OUTER_PADDING,
       series,
       axes: {
         x: {
           type: "number",
+          position: "bottom",
+          thickness: CHART_X_AXIS_THICKNESS,
           min: xDomain[0],
           max: xDomain[1],
           line: { stroke: chartAxisColor },
@@ -1160,11 +1225,14 @@ export function StrategySimulationWorkspace({
               return formatChartAxisLabel(ts, effectiveChartPeriod);
             },
           },
+          crossLines: selectedStepCrossLines,
           crosshair: { enabled: false },
           gridLine: { enabled: false },
         },
         y: {
           type: "number",
+          position: "left",
+          thickness: CHART_Y_AXIS_THICKNESS,
           line: { stroke: chartAxisColor },
           tick: { stroke: chartAxisColor },
           label: {
@@ -1193,6 +1261,7 @@ export function StrategySimulationWorkspace({
     tradeExecutionBands,
     isDark,
     effectiveChartPeriod,
+    selectedStepCrossLines,
   ]);
 
   const agChartSafeOptions = useMemo(() => {
@@ -1205,6 +1274,7 @@ export function StrategySimulationWorkspace({
       tooltip: { enabled: false },
       legend: { enabled: false },
       background: { fill: "transparent" },
+      padding: CHART_OUTER_PADDING,
       series: [
         {
           type: "line",
@@ -1222,6 +1292,10 @@ export function StrategySimulationWorkspace({
       axes: {
         x: {
           type: "number",
+          position: "bottom",
+          thickness: CHART_X_AXIS_THICKNESS,
+          min: xDomain[0],
+          max: xDomain[1],
           line: { stroke: chartAxisColor },
           tick: { stroke: chartAxisColor },
           label: {
@@ -1234,11 +1308,14 @@ export function StrategySimulationWorkspace({
               return chartTimeOnly(ts);
             },
           },
+          crossLines: selectedStepCrossLines,
           crosshair: { enabled: false },
           gridLine: { enabled: false },
         },
         y: {
           type: "number",
+          position: "left",
+          thickness: CHART_Y_AXIS_THICKNESS,
           line: { stroke: chartAxisColor },
           tick: { stroke: chartAxisColor },
           label: {
@@ -1252,7 +1329,7 @@ export function StrategySimulationWorkspace({
         },
       },
     };
-  }, [visibleData, averageLineColor, stepLineInterpolation, chartAxisColor, chartTickColor, chartGridColor, isDark]);
+  }, [visibleData, averageLineColor, stepLineInterpolation, chartAxisColor, chartTickColor, chartGridColor, isDark, xDomain, selectedStepCrossLines]);
 
   const [backtestPanelOpen, setBacktestPanelOpen] = useState(false);
 
@@ -1551,16 +1628,16 @@ export function StrategySimulationWorkspace({
                     className="absolute pointer-events-none"
                     style={{
                       left: `${hoverCrosshair.xPx}px`,
-                      top: `${CHART_PLOT_PADDING.top}px`,
-                      height: `calc(100% - ${CHART_PLOT_PADDING.top + CHART_PLOT_PADDING.bottom}px)`,
+                      top: `${getChartPlotInsets().top}px`,
+                      height: `calc(100% - ${getChartPlotInsets().top + getChartPlotInsets().bottom}px)`,
                       borderLeft: `1px dashed ${isDark ? "#9FB1C7AA" : "#334155AA"}`,
                     }}
                   />
                   <div
                     className="absolute pointer-events-none"
                     style={{
-                      left: `${CHART_PLOT_PADDING.left}px`,
-                      right: `${CHART_PLOT_PADDING.right}px`,
+                      left: `${getChartPlotInsets().left}px`,
+                      right: `${getChartPlotInsets().right}px`,
                       top: `${hoverCrosshair.yPx}px`,
                       borderTop: `1px dashed ${isDark ? "#9FB1C7AA" : "#334155AA"}`,
                     }}
@@ -1599,7 +1676,7 @@ export function StrategySimulationWorkspace({
                     className="absolute rounded p-2 pointer-events-none min-w-44"
                     style={{
                       left: `${Math.min(hoverCrosshair.xPx + 12, (chartPanelRef.current?.clientWidth ?? 400) - 180)}px`,
-                      top: `${CHART_PLOT_PADDING.top + 8}px`,
+                      top: `${getChartPlotInsets().top + 8}px`,
                       backgroundColor: isDark ? "#111722" : "#FFFFFF",
                       border: `1px solid ${borderColor}`,
                       fontSize: "11px",

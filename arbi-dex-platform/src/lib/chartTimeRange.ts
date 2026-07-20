@@ -316,3 +316,21 @@ export function computeYDomainWithPadding(
   const pad = span * paddingRatio
   return [min - pad, max + pad]
 }
+
+/** Nearest chart point → 1-based playIdx (playIdx 1 = first point). */
+export function findPlayIdxByTimestamp<T extends { t: number }>(
+  points: readonly T[],
+  time: number,
+): number {
+  if (points.length === 0) return 0
+  let bestIdx = 0
+  let bestDist = Math.abs(points[0].t - time)
+  for (let i = 1; i < points.length; i += 1) {
+    const dist = Math.abs(points[i].t - time)
+    if (dist < bestDist) {
+      bestIdx = i
+      bestDist = dist
+    }
+  }
+  return bestIdx + 1
+}

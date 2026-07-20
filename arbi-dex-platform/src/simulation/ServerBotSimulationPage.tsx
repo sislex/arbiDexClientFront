@@ -183,6 +183,8 @@ export function ServerBotSimulationPage({
         }
         chartPeriodPickMode={chartPickMode}
         onChartPeriodPick={handleChartPeriodPick}
+        onChartStepInspect={(time) => sim.inspectStep(time, false, false)}
+        selectedStepTime={sim.inspectTime}
         stepLoading={sim.stepAnalyzing}
         stepError={sim.stepError}
         onStepRecalc={sim.inspectTime != null ? handleStepRecalc : undefined}

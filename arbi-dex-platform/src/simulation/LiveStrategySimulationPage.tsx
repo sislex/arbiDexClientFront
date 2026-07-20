@@ -81,6 +81,8 @@ export function LiveStrategySimulationPage({
           showBacktest: false,
           onAnalyzeStep: () => live.refreshStepAnalysis(),
         }}
+        onChartStepInspect={live.inspectAtTime}
+        selectedStepTime={live.inspectTime}
       />
     </div>
   )
