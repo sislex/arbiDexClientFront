@@ -14,6 +14,7 @@ import * as os from 'os';
 import { findMarket } from '../demo/engine/markets';
 import { BacktestResult, AutotuneResult, Trade, QuotePoint } from '../demo/engine/types';
 import { toEngineStrategy } from '../demo/engine/strategy-engine.mapper';
+import { injectTradeEventsIntoSteps } from '../demo/engine/inject-trade-events';
 import {
   runBacktest,
   processStep,
@@ -97,6 +98,24 @@ export class BotsService {
     private readonly strategyConfigs: StrategyConfigsService,
     private readonly autotuneJobs: AutotuneJobsService,
   ) {}
+
+  /** Подставляет события сделок из журнала бота — нужно для transaction_delay_ok на live-графике. */
+  private async injectBotTradesIntoSteps(
+    botId: string,
+    steps: MarketStep[],
+    upToTime: number,
+  ): Promise<void> {
+    const trades = await this.tradesRepo.find({
+      where: { botId, status: 'success' },
+      order: { time: 'ASC' },
+    });
+    injectTradeEventsIntoSteps(steps, trades, upToTime);
+  }
+
+  /** Journal trades → step events (transaction_delay_ok, no_transaction_in_progress). */
+  async enrichStepsWithTrades(botId: string, steps: MarketStep[], upToTime: number): Promise<void> {
+    await this.injectBotTradesIntoSteps(botId, steps, upToTime);
+  }
 
   /** Итоги торговли по журналу за окно времени [from, to] (unix ms). */
   private async tradeStats(botId: string, from: number, to: number, initialBalance: number): Promise<BotLiveStats> {
@@ -463,6 +482,8 @@ export class BotsService {
       time: q.time,
       quotes: { buyQuote: q.buyQuote, sellQuote: q.sellQuote, avgObservedQuote: q.avgObservedQuote },
     }));
+
+    await this.injectBotTradesIntoSteps(bot.id, steps, time);
 
     // Позиция: явная (симуляция из плеера бэктеста) или реальная позиция
     // бота — иначе sell-триггеры (стоп-лосс/trailing TP) на live-вкладке

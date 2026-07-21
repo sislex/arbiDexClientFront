@@ -672,13 +672,26 @@ export function StrategySimulationWorkspace({
     if (next) onPlayIdxChange(next.dataIdx);
   };
 
+  /** Same as a short chart click: vertical inspect marker only, viewport unchanged. */
+  const inspectEventPoint = (event: SimulationLogEvent) => {
+    const targetIdx = Math.max(0, Math.min(chartData.length - 1, event.dataIdx));
+    const ts = event.markerTs ?? chartData[targetIdx]?.t;
+    if (typeof ts === "number" && Number.isFinite(ts)) {
+      setChartInspectTime(ts);
+      onChartStepInspectRef.current?.(ts);
+    }
+  };
+
+  /** Explicit “go to point”: moves playhead and pans chart (EventExplainPanel button). */
   const jumpToEventPoint = (event: SimulationLogEvent) => {
-    const targetIdx = Math.max(0, Math.min(Math.max(0, chartData.length - 1), event.dataIdx));
+    const targetIdx = Math.max(0, Math.min(chartData.length - 1, event.dataIdx));
     onPlayIdxChange(Math.min(chartData.length, targetIdx + 1));
     setIsPlaying(false);
-    const ts = chartData[targetIdx]?.t;
-    if (typeof ts === "number" && Number.isFinite(ts) && isViewportAdjusted) {
-      centerOnTimestamp(ts);
+    const ts = event.markerTs ?? chartData[targetIdx]?.t;
+    if (typeof ts === "number" && Number.isFinite(ts)) {
+      setChartInspectTime(ts);
+      onChartStepInspectRef.current?.(ts);
+      if (isViewportAdjusted) centerOnTimestamp(ts);
     }
   };
 
@@ -2182,19 +2195,29 @@ export function StrategySimulationWorkspace({
               const cfg = SIMULATION_EVENT_TYPE_CONFIG[event.type];
               const isExpanded = expandedEvent === event.id;
               const hasDetail = !!event.detail;
+              const eventTs = event.markerTs ?? chartData[event.dataIdx]?.t;
+              const isActivePoint =
+                effectiveSelectedStepTime != null &&
+                typeof eventTs === "number" &&
+                eventTs === effectiveSelectedStepTime;
               return (
                 <div key={event.id} style={{ borderBottom: `1px solid ${borderColor}` }}>
                   <div
                     className="px-3 py-2 flex items-start gap-2.5 transition-colors cursor-pointer"
-                    style={{ backgroundColor: isExpanded ? surfaceBg : "transparent" }}
-                    onClick={() => {
-                      if (hasDetail) setExpandedEvent(isExpanded ? null : event.id);
+                    style={{
+                      backgroundColor: isExpanded || isActivePoint ? surfaceBg : "transparent",
+                      boxShadow: isActivePoint ? `inset 2px 0 0 ${accent}` : undefined,
                     }}
+                    onClick={() => inspectEventPoint(event)}
                     onMouseEnter={(e) => {
-                      if (!isExpanded) (e.currentTarget as HTMLDivElement).style.backgroundColor = surfaceBg;
+                      if (!isExpanded && !isActivePoint) {
+                        (e.currentTarget as HTMLDivElement).style.backgroundColor = surfaceBg;
+                      }
                     }}
                     onMouseLeave={(e) => {
-                      if (!isExpanded) (e.currentTarget as HTMLDivElement).style.backgroundColor = "transparent";
+                      if (!isExpanded && !isActivePoint) {
+                        (e.currentTarget as HTMLDivElement).style.backgroundColor = "transparent";
+                      }
                     }}
                   >
                     <span
@@ -2224,7 +2247,13 @@ export function StrategySimulationWorkspace({
                       {event.message}
                     </span>
                     {hasDetail && (
-                      <span style={{ color: textSecondary, paddingTop: "2px" }}>
+                      <span
+                        style={{ color: textSecondary, paddingTop: "2px" }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedEvent(isExpanded ? null : event.id);
+                        }}
+                      >
                         {isExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
                       </span>
                     )}

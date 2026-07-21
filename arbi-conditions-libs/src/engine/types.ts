@@ -224,5 +224,6 @@ export interface TradingConditionsStepResult {
     lastStepTime: number;
     transactionInProgress: boolean;
     lastFinishedTransactionTime: number | null;
+    lastTransactionTime: number | null;
   };
 }

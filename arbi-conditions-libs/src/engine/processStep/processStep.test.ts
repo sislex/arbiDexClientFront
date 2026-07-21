@@ -80,8 +80,34 @@ describe('processStep', () => {
       expect(result.meta.transactionInProgress).toBe(false);
       expect(result.condition.buy.no_transaction_in_progress.passed).toBe(true);
       expect(result.meta.lastFinishedTransactionTime).toBe(6_000);
-      // Current step IS the finished step -> zero elapsed, so the >0 delay fails.
-      expect(result.condition.buy.transaction_delay_ok.passed).toBe(false);
+      expect(result.meta.lastTransactionTime).toBe(6_000);
+      // minDelay is 0 in TEST_STRATEGY → condition is neutral.
+      expect(result.condition.buy.transaction_delay_ok.passed).toBe(true);
+    });
+
+    it('counts delay from a started buy (not only finished)', () => {
+      const buyTx = { id: 'tx-1', side: 'buy' as const, status: 'started' as const };
+      const strategy = {
+        ...TEST_STRATEGY,
+        buy: { ...TEST_STRATEGY.buy, minDelayAfterLastFinishedTransactionMs: 60_000 },
+      };
+      const tooSoon = processStep({
+        steps: [
+          step(1_000, 100, 101, 102, { events: { transaction: buyTx } }),
+          step(30_000, 100, 101, 102),
+        ],
+        strategy,
+      });
+      expect(tooSoon.condition.buy.transaction_delay_ok.passed).toBe(false);
+
+      const ok = processStep({
+        steps: [
+          step(1_000, 100, 101, 102, { events: { transaction: buyTx } }),
+          step(70_000, 100, 101, 102),
+        ],
+        strategy,
+      });
+      expect(ok.condition.buy.transaction_delay_ok.passed).toBe(true);
     });
   });
 

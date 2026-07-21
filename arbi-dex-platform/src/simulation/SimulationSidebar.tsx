@@ -396,9 +396,7 @@ export function SimulationSidebar({
                 <div
                   className="px-3 py-2 flex items-start gap-2.5 transition-colors cursor-pointer"
                   style={{ backgroundColor: isExpanded ? surfaceBg : "transparent" }}
-                  onClick={() => {
-                    if (hasDetail) setExpandedEvent(isExpanded ? null : event.id);
-                  }}
+                  onClick={() => onJumpToEvent?.(event)}
                   onMouseEnter={(e) => {
                     if (!isExpanded) (e.currentTarget as HTMLDivElement).style.backgroundColor = surfaceBg;
                   }}
@@ -433,7 +431,13 @@ export function SimulationSidebar({
                     {event.message}
                   </span>
                   {hasDetail && (
-                    <span style={{ color: textSecondary, paddingTop: "2px" }}>
+                    <span
+                      style={{ color: textSecondary, paddingTop: "2px" }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedEvent(isExpanded ? null : event.id);
+                      }}
+                    >
                       {isExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
                     </span>
                   )}

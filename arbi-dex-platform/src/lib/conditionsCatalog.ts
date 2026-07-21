@@ -60,9 +60,18 @@ export function formatConditionOutcome(
   required?: string,
 ): string | null {
   if (current === undefined && required === undefined) return null
-  const unit = getConditionValueUnit(id) ?? ''
+  const delayUnit = 'мс'
+  const unit = id === 'transaction_delay_ok' ? delayUnit : (getConditionValueUnit(id) ?? '')
   const parts: string[] = []
-  if (current !== undefined) parts.push(`факт: ${current}${unit}`)
-  if (required !== undefined) parts.push(`порог: ${required}${unit}`)
+  if (current !== undefined) {
+    const noSuffix = current === '∞' || current === 'Нет' || current === 'Идёт'
+    const suffix =
+      id === 'transaction_delay_ok' && !noSuffix ? delayUnit : noSuffix ? '' : unit
+    parts.push(`факт: ${current}${suffix}`)
+  }
+  if (required !== undefined) {
+    const suffix = id === 'transaction_delay_ok' ? delayUnit : unit
+    parts.push(`порог: ${required}${suffix}`)
+  }
   return parts.join(' · ')
 }

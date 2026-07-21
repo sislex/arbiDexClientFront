@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { runBacktest } from './runBacktest';
-import { TRIGGER_CONDITIONS } from '../conditions';
+import { TRIGGER_CONDITIONS, transactionDelayOkCondition } from '../conditions';
 import { step } from '../__fixtures__/stubs';
 import type { ConditionDef, StrategyEngineConfig } from '../types';
 
@@ -145,6 +145,30 @@ describe('runBacktest', () => {
     expect(result.stats).toMatchObject({ trades: 0, pnl: 0, pnlPct: 0, winRate: 0, finalBalance: 1000 });
     expect(result.from).toBe(0);
     expect(result.to).toBe(0);
+  });
+
+  it('respects transaction_delay_ok between round-trips', () => {
+    const delayMs = 60_000;
+    const strategy: StrategyEngineConfig = {
+      ...PERMISSIVE,
+      buy: { ...PERMISSIVE.buy, minDelayAfterLastFinishedTransactionMs: delayMs },
+      sell: { ...PERMISSIVE.sell, minDelayAfterLastFinishedTransactionMs: delayMs },
+    };
+    const steps = [
+      step(0, 100, 100, 100),
+      step(100, 100, 110, 110),
+      step(200, 100, 110, 110),
+      step(70_000, 100, 110, 110),
+      step(70_100, 100, 120, 120),
+    ];
+    const result = runBacktest(steps, strategy, {
+      initialBalance: 1000,
+      conditions: [...levelGates(100, 110), transactionDelayOkCondition],
+      triggerConditions: [],
+    });
+    expect(result.trades).toHaveLength(2);
+    expect(result.trades[0]?.side).toBe('buy');
+    expect(result.trades[1]?.side).toBe('sell');
   });
 
   it('makes no trades when no buy signal ever fires', () => {

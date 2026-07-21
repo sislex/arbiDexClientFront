@@ -1,23 +1,20 @@
 /**
  * Maps a demo `StrategyConfigData` (the `StrategyConditionValue[]` shape edited
- * on the new React front) onto the shared strategy engine
+ * on the React front) onto the shared strategy engine
  * (`@sislex/arbi-conditions-libs`).
  *
- * The demo simulator (`simulate.ts`) only ever acted on three things: the
- * avg-deviation streak, the spread cap and the sell triggers (stop-loss /
- * trailing take-profit / max holding). To keep the bot backtest behaviourally
- * identical while running it through the real engine, we supply CUSTOM gate
- * conditions that reproduce that logic and neutralise the built-in gates we do
- * not model (balance / delay / no-transaction). The three triggers map onto the
- * engine's built-ins via `sell.stopLossPercent` / `trailingTakeProfitPercent` /
- * `maxHoldingTimeMs`.
- *
- *   buy  signal: (avg − ask)/avg·100 ≥ percent for the last N steps  (+ spread ok)
- *   sell signal: (bid − avg)/avg·100 ≥ percent for the last M steps  (+ spread ok)
+ * All enabled gate conditions from the config are mapped onto `StrategyEngineConfig`
+ * and evaluated via the built-in registry (+ custom avg/spread gates that mirror
+ * the legacy `simulate.ts` formulas).
  */
 
-import { enabledCondition, TRIGGER_CONDITIONS } from '@sislex/arbi-conditions-libs';
+import {
+  TRIGGER_CONDITIONS,
+  enabledCondition,
+  noTransactionInProgressCondition,
+} from '@sislex/arbi-conditions-libs';
 import type { ConditionDef, StrategyEngineConfig } from '@sislex/arbi-conditions-libs';
+import { lastTransactionTimeBeforeCurrent } from '@sislex/arbi-conditions-libs';
 import { StrategyConditionValue } from './types';
 
 /** Is the condition present AND enabled on this side? */
@@ -58,8 +55,17 @@ export interface EngineStrategyMapping {
   triggers: ConditionDef[];
 }
 
+function buildTriggers(sell: StrategyConditionValue[]): ConditionDef[] {
+  return TRIGGER_CONDITIONS.filter((def) => {
+    if (def.id === 'stop_loss') return isOn(sell, 'stop_loss');
+    if (def.id === 'trailing_take_profit') return isOn(sell, 'trailing_take_profit');
+    if (def.id === 'max_holding_time') return isOn(sell, 'max_holding_time');
+    return true;
+  });
+}
+
 /**
- * Build the engine strategy + custom gate/trigger sets from a demo strategy.
+ * Build the engine strategy + gate/trigger sets from a demo strategy.
  * Pass the returned `strategy`, `gates` (as `conditions`) and `triggers` (as
  * `triggerConditions`) straight into `runBacktest`/`processStep`.
  */
@@ -67,25 +73,60 @@ export function toEngineStrategy(
   buy: StrategyConditionValue[],
   sell: StrategyConditionValue[],
 ): EngineStrategyMapping {
-  // Side is tradable when the `enabled` gate is present, enabled and true.
   const buyEnabled = isOn(buy, 'enabled') && boolParam(buy, 'enabled', 'enabled', true);
   const sellEnabled = isOn(sell, 'enabled') && boolParam(sell, 'enabled', 'enabled', true);
 
-  // Avg-deviation streak params (per side).
-  const buyPct = numParam(buy, 'avg_observed_higher_for_last_steps', 'percent', 0.5);
-  const buySteps = Math.max(1, Math.round(numParam(buy, 'avg_observed_higher_for_last_steps', 'steps', 3)));
-  const sellPct = numParam(sell, 'avg_observed_higher_for_last_steps', 'percent', 0.5);
-  const sellSteps = Math.max(1, Math.round(numParam(sell, 'avg_observed_higher_for_last_steps', 'steps', 3)));
   const buyAvgOn = isOn(buy, 'avg_observed_higher_for_last_steps');
   const sellAvgOn = isOn(sell, 'avg_observed_higher_for_last_steps');
+  const buyPct = buyAvgOn
+    ? numParam(buy, 'avg_observed_higher_for_last_steps', 'percent', 0.5)
+    : Number.NEGATIVE_INFINITY;
+  const buySteps = buyAvgOn
+    ? Math.max(1, Math.round(numParam(buy, 'avg_observed_higher_for_last_steps', 'steps', 3)))
+    : 1;
+  const sellPct = sellAvgOn
+    ? numParam(sell, 'avg_observed_higher_for_last_steps', 'percent', 0.5)
+    : Number.NEGATIVE_INFINITY;
+  const sellSteps = sellAvgOn
+    ? Math.max(1, Math.round(numParam(sell, 'avg_observed_higher_for_last_steps', 'steps', 3)))
+    : 1;
 
-  // Spread cap (per side, from the side's own `spread_ok`).
   const buySpreadOn = isOn(buy, 'spread_ok');
   const sellSpreadOn = isOn(sell, 'spread_ok');
-  const buyMaxSpread = numParam(buy, 'spread_ok', 'maxSpreadPercent', 100);
-  const sellMaxSpread = numParam(sell, 'spread_ok', 'maxSpreadPercent', 100);
+  const buyMaxSpread = buySpreadOn
+    ? numParam(buy, 'spread_ok', 'maxSpreadPercent', 100)
+    : Number.POSITIVE_INFINITY;
+  const sellMaxSpread = sellSpreadOn
+    ? numParam(sell, 'spread_ok', 'maxSpreadPercent', 100)
+    : Number.POSITIVE_INFINITY;
 
-  // Sell triggers.
+  const buyNoTxOn =
+    isOn(buy, 'no_transaction_in_progress') &&
+    boolParam(buy, 'no_transaction_in_progress', 'require', true);
+  const sellNoTxOn =
+    isOn(sell, 'no_transaction_in_progress') &&
+    boolParam(sell, 'no_transaction_in_progress', 'require', true);
+
+  const buyDelayOn = isOn(buy, 'transaction_delay_ok');
+  const sellDelayOn = isOn(sell, 'transaction_delay_ok');
+  const buyMinDelay = buyDelayOn
+    ? numParam(buy, 'transaction_delay_ok', 'minDelayMs', 0)
+    : 0;
+  const sellMinDelay = sellDelayOn
+    ? numParam(sell, 'transaction_delay_ok', 'minDelayMs', 0)
+    : 0;
+
+  const buyBalanceOn =
+    isOn(buy, 'balance_ok') && boolParam(buy, 'balance_ok', 'require', true);
+  const sellBalanceOn =
+    isOn(sell, 'balance_ok') && boolParam(sell, 'balance_ok', 'require', true);
+  const buyMinBalance = buyBalanceOn
+    ? numParam(buy, 'balance_ok', 'minBalance', 0)
+    : 0;
+  const sellMinBalance = sellBalanceOn
+    ? numParam(sell, 'balance_ok', 'minBalance', 0)
+    : 0;
+
   const stopLossPercent = isOn(sell, 'stop_loss')
     ? numParam(sell, 'stop_loss', 'stopLossPercent', 0)
     : null;
@@ -99,30 +140,28 @@ export function toEngineStrategy(
   const strategy: StrategyEngineConfig = {
     buy: {
       enabled: buyEnabled,
-      requireNoTransactionInProgress: false,
+      requireNoTransactionInProgress: buyNoTxOn,
       avgObservedHigherThanBuyForLastSteps: { steps: buySteps, percent: buyPct },
-      maxBuySellSpreadPercent: Number.POSITIVE_INFINITY,
-      minDelayAfterLastFinishedTransactionMs: 0,
-      requireToken1Balance: false,
-      minToken1Balance: 0,
+      maxBuySellSpreadPercent: buyMaxSpread,
+      minDelayAfterLastFinishedTransactionMs: buyMinDelay,
+      requireToken1Balance: buyBalanceOn,
+      minToken1Balance: buyMinBalance,
     },
     sell: {
       enabled: sellEnabled,
-      requireNoTransactionInProgress: false,
+      requireNoTransactionInProgress: sellNoTxOn,
       avgObservedHigherThanSellForLastSteps: { steps: sellSteps, percent: sellPct },
-      maxBuySellSpreadPercent: Number.POSITIVE_INFINITY,
-      minDelayAfterLastFinishedTransactionMs: 0,
-      requireToken2Balance: false,
-      minToken2Balance: 0,
+      maxBuySellSpreadPercent: sellMaxSpread,
+      minDelayAfterLastFinishedTransactionMs: sellMinDelay,
+      requireToken2Balance: sellBalanceOn,
+      minToken2Balance: sellMinBalance,
       stopLossPercent,
       trailingTakeProfitPercent,
       maxHoldingTimeMs,
     },
   };
 
-  // Custom avg-deviation gate: buy when the ask sits `percent`% below the
-  // observed avg for the last N steps; sell when the bid sits `percent`% above
-  // it. Disabled side → neutral (passes). Mirrors `simulate.ts`.
+  // Custom avg-deviation gate (legacy simulate.ts formula). Disabled side → neutral.
   const avgDeviation: ConditionDef = {
     id: 'avg_observed_higher_for_last_steps',
     window: () => ({ steps: Math.max(buySteps, sellSteps) }),
@@ -145,7 +184,7 @@ export function toEngineStrategy(
     },
   };
 
-  // Custom spread gate: (ask − bid)/avg·100 ≤ maxSpread. Disabled → neutral.
+  // Custom spread gate (legacy simulate.ts formula). Disabled → neutral.
   const spread: ConditionDef = {
     id: 'spread_ok',
     window: () => ({}),
@@ -159,9 +198,64 @@ export function toEngineStrategy(
     },
   };
 
+  // Buy checks quote balance (token2 / USDT); sell checks base holdings (token1).
+  const balance: ConditionDef = {
+    id: 'balance_ok',
+    window: () => ({}),
+    evaluate: (ctx, strategy, side) => {
+      if (side === 'buy') {
+        const require = strategy.buy.requireToken1Balance;
+        const minBalance = strategy.buy.minToken1Balance;
+        const bal = ctx.current.balances?.token2;
+        return {
+          passed: !require || (bal ?? Number.NEGATIVE_INFINITY) >= minBalance,
+          actual: bal ?? '—',
+          required: minBalance,
+        };
+      }
+      const require = strategy.sell.requireToken2Balance;
+      const minBalance = strategy.sell.minToken2Balance;
+      const bal = ctx.current.balances?.token1;
+      return {
+        passed: !require || (bal ?? Number.NEGATIVE_INFINITY) >= minBalance,
+        actual: bal ?? '—',
+        required: minBalance,
+      };
+    },
+  };
+
+  // Delay since the last buy OR sell. Disabled side → neutral.
+  const transactionDelay: ConditionDef = {
+    id: 'transaction_delay_ok',
+    window: (_s, side) => {
+      const on = side === 'buy' ? buyDelayOn : sellDelayOn;
+      const min = side === 'buy' ? buyMinDelay : sellMinDelay;
+      if (!on || min <= 0) return {};
+      return { durationMs: min, toLastTransaction: true };
+    },
+    evaluate: (ctx, _s, side) => {
+      const on = side === 'buy' ? buyDelayOn : sellDelayOn;
+      if (!on) return { passed: true };
+      const minMs = side === 'buy' ? buyMinDelay : sellMinDelay;
+      if (minMs <= 0) return { passed: true };
+      const lastTx = lastTransactionTimeBeforeCurrent(ctx.window);
+      const sinceMs = lastTx === null ? Number.POSITIVE_INFINITY : ctx.current.time - lastTx;
+      return { passed: sinceMs > minMs, actual: sinceMs, required: minMs };
+    },
+  };
+
+  const gates: ConditionDef[] = [
+    enabledCondition,
+    noTransactionInProgressCondition,
+    avgDeviation,
+    spread,
+    transactionDelay,
+    balance,
+  ];
+
   return {
     strategy,
-    gates: [enabledCondition, avgDeviation, spread],
-    triggers: TRIGGER_CONDITIONS,
+    gates,
+    triggers: buildTriggers(sell),
   };
 }

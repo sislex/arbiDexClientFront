@@ -17,6 +17,7 @@ import {
   findNearestStepRecord,
   findQuoteIndexByTime,
 } from '../lib/inspectBotStep'
+import { STRATEGY_CONFIG_UPDATED_EVENT } from '../lib/pushStrategyRulesToServer'
 import { mapServerLiveTradeToLogEvent, mapServerStepToLogEvent, mapServerTradeToLogEvent } from '../lib/mapServerBotStepResult'
 import type { SimulationLogEvent } from '../simulation/simulationViewerTypes'
 
@@ -52,6 +53,7 @@ export function useBotBacktest({
 }: UseBotBacktestOptions) {
   const [quotes, setQuotes] = useState<ServerQuotePoint[]>([])
   const [backtest, setBacktest] = useState<ServerBacktestResult | null>(null)
+  const [backtestStrategyConfigId, setBacktestStrategyConfigId] = useState<string | null>(null)
   const [liveTrades, setLiveTrades] = useState<ServerBotTrade[]>([])
   const [quotesLoading, setQuotesLoading] = useState(false)
   const [backtestLoading, setBacktestLoading] = useState(false)
@@ -86,13 +88,20 @@ export function useBotBacktest({
       return manualTradeEvents.sort((a, b) => a.dataIdx - b.dataIdx)
     }
 
+    const records = backtest.stepResults?.records ?? []
     const tradeEvents = backtest.trades.map((t) =>
       mapServerTradeToLogEvent(t, findQuoteIndexByTime(backtest.quotes, t.time)),
     )
-    const records = backtest.stepResults?.records ?? []
     const signalEvents = records
       .filter((s) => s.result.transaction.buy || s.result.transaction.sell || s.result.transaction.forcedSell)
-      .map((s) => mapServerStepToLogEvent(s))
+      .map((s) => {
+        const ev = buildStepLogEventFromBacktestRecord(s, backtest!.quotes, records.length)
+        // Dry-run signals are not executed trades — keep them in the log only.
+        if (ev.type === 'Buy' || ev.type === 'Sell') {
+          return { ...ev, type: 'Signal' as const }
+        }
+        return ev
+      })
     return [...signalEvents, ...tradeEvents, ...manualTradeEvents].sort((a, b) => a.dataIdx - b.dataIdx)
   }, [activeQuotes, backtest, liveTrades])
 
@@ -132,6 +141,7 @@ export function useBotBacktest({
     (time: number, preferApi = false, syncPlayIdx = true) => {
       setInspectTime(time)
       const records = backtest?.stepResults?.records
+      const backtestFresh = backtestStrategyConfigId === bot.strategyConfigId
 
       if (syncPlayIdx && activeQuotes.length > 0) {
         const idx = findQuoteIndexByTime(activeQuotes, time) + 1
@@ -139,7 +149,7 @@ export function useBotBacktest({
         setPlayIdx(idx)
       }
 
-      if (!preferApi && records?.length) {
+      if (!preferApi && backtestFresh && records?.length) {
         const rec = findNearestStepRecord(records, time)
         setStepError(null)
         setStepResult(
@@ -151,7 +161,7 @@ export function useBotBacktest({
 
       void inspectViaApi(time)
     },
-    [activeQuotes, backtest, inspectViaApi],
+    [activeQuotes, backtest, backtestStrategyConfigId, bot.strategyConfigId, inspectViaApi],
   )
 
   inspectStepRef.current = inspectStep
@@ -242,6 +252,7 @@ export function useBotBacktest({
         period.applyRange({ historyFrom: result.historyFrom, historyTo: result.historyTo })
       }
       setBacktest(result)
+      setBacktestStrategyConfigId(bot.strategyConfigId)
       setQuotes(result.quotes)
       skipPlayIdxInspectRef.current = true
       setPlayIdx(result.quotes.length)
@@ -253,15 +264,35 @@ export function useBotBacktest({
     } finally {
       setBacktestLoading(false)
     }
-  }, [bot.id, period.from, period.to])
+  }, [bot.id, bot.strategyConfigId, period.from, period.to])
 
-  useEffect(() => {
+  const invalidateSimulation = useCallback(() => {
     setBacktest(null)
+    setBacktestStrategyConfigId(null)
     setStepResult(null)
     setStepSource(null)
     setStepError(null)
     setInspectTime(null)
-  }, [period.from, period.to])
+  }, [])
+
+  useEffect(() => {
+    invalidateSimulation()
+  }, [period.from, period.to, bot.strategyConfigId, invalidateSimulation])
+
+  useEffect(() => {
+    const onStrategyUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ configIds: string[] }>).detail
+      if (detail?.configIds?.includes(bot.strategyConfigId)) {
+        invalidateSimulation()
+        if (period.from != null && period.to != null && activeQuotes.length > 0) {
+          const last = activeQuotes[activeQuotes.length - 1]
+          if (last) inspectStepRef.current(last.time, true, false)
+        }
+      }
+    }
+    window.addEventListener(STRATEGY_CONFIG_UPDATED_EVENT, onStrategyUpdated)
+    return () => window.removeEventListener(STRATEGY_CONFIG_UPDATED_EVENT, onStrategyUpdated)
+  }, [activeQuotes, bot.strategyConfigId, invalidateSimulation, period.from, period.to])
 
   useEffect(() => {
     if (!enabled || suspendPeriodReload) return

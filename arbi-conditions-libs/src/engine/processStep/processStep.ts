@@ -25,7 +25,7 @@
  */
 
 import { CONDITIONS, TRIGGER_CONDITIONS } from '../conditions';
-import { isTransactionInProgress, lastFinishedTransactionTime, lastStep } from '../helpers';
+import { isTransactionInProgress, lastFinishedTransactionTime, lastTransactionTime, lastStep } from '../helpers';
 import type {
   ConditionDef,
   ConditionOutcomes,
@@ -112,6 +112,7 @@ export function processStep({
       lastStepTime: current.time,
       transactionInProgress: isTransactionInProgress(window),
       lastFinishedTransactionTime: lastFinishedTransactionTime(window),
+      lastTransactionTime: lastTransactionTime(window),
     },
   };
 }

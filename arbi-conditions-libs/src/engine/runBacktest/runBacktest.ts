@@ -146,6 +146,7 @@ export function runBacktest(
   const window: MarketStep[] = [];
   const trades: BacktestTrade[] = [];
   let tradeCounter = 0;
+  let openTxId: string | null = null;
   let wins = 0;
 
   let equityPeak = initialBalance;
@@ -166,6 +167,7 @@ export function runBacktest(
   };
 
   for (const [index, step] of steps.entries()) {
+    step.balances = { token1: tokens, token2: cash };
     window.push(step);
     const { buyQuote, sellQuote } = step.quotes;
 
@@ -194,6 +196,11 @@ export function runBacktest(
           tokens += amount;
           entryCash = spend;
           position = { entryPrice: buyQuote, size: amount, openedAt: step.time };
+          openTxId = `tx-${tradeCounter}`;
+          step.events = {
+            ...step.events,
+            transaction: { id: openTxId, side: 'buy', status: 'finished' },
+          };
           trades.push({
             id: `t${tradeCounter++}`,
             index,
@@ -205,25 +212,36 @@ export function runBacktest(
           });
         }
       }
-    } else if (result.transaction.sell || result.transaction.forcedSell) {
-      const fill = sellQuote * (1 - slippage);
-      const proceeds = tokens * fill;
-      const pnl = proceeds - entryCash;
-      if (pnl > 0) wins += 1;
-      trades.push({
-        id: `t${tradeCounter++}`,
-        index,
-        time: step.time,
-        side: 'sell',
-        price: sellQuote,
-        amount: tokens,
-        pnl: round(pnl),
-        reason: sellReason(result, triggerConditions),
-      });
-      cash += proceeds;
-      tokens = 0;
-      entryCash = 0;
-      position = null;
+    } else if (position !== null) {
+      const sellDelayOk = result.condition.sell.transaction_delay_ok?.passed ?? true;
+      const wantSell = sellDelayOk && (result.transaction.sell || result.transaction.forcedSell);
+      if (wantSell) {
+        const fill = sellQuote * (1 - slippage);
+        const proceeds = tokens * fill;
+        const pnl = proceeds - entryCash;
+        if (pnl > 0) wins += 1;
+        if (openTxId) {
+          step.events = {
+            ...step.events,
+            transaction: { id: openTxId, side: 'sell', status: 'finished' },
+          };
+          openTxId = null;
+        }
+        trades.push({
+          id: `t${tradeCounter++}`,
+          index,
+          time: step.time,
+          side: 'sell',
+          price: sellQuote,
+          amount: tokens,
+          pnl: round(pnl),
+          reason: sellReason(result, triggerConditions),
+        });
+        cash += proceeds;
+        tokens = 0;
+        entryCash = 0;
+        position = null;
+      }
     }
   }
 
@@ -234,6 +252,13 @@ export function runBacktest(
     const proceeds = tokens * fill;
     const pnl = proceeds - entryCash;
     if (pnl > 0) wins += 1;
+    if (openTxId) {
+      last.events = {
+        ...last.events,
+        transaction: { id: openTxId, side: 'sell', status: 'finished' },
+      };
+      openTxId = null;
+    }
     trades.push({
       id: `t${tradeCounter++}`,
       index: steps.length - 1,

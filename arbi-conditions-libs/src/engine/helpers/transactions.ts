@@ -31,3 +31,23 @@ export function lastFinishedTransactionTime(steps: MarketStep[]): number | null 
   }
   return time;
 }
+
+/**
+ * `time` of the most recent step with any transaction event (buy or sell,
+ * started or finished). Matches platform `lastTransactionTs` semantics.
+ */
+export function lastTransactionTime(steps: MarketStep[]): number | null {
+  let time: number | null = null;
+  for (const step of steps) {
+    if (step.events?.transaction) {
+      time = step.time;
+    }
+  }
+  return time;
+}
+
+/** Last transaction on a step strictly before the current (last) window step. */
+export function lastTransactionTimeBeforeCurrent(steps: MarketStep[]): number | null {
+  if (steps.length <= 1) return null;
+  return lastTransactionTime(steps.slice(0, -1));
+}

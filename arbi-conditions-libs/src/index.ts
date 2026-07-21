@@ -50,6 +50,12 @@ export {
 export { processStep, evaluateSide, evaluateTriggers } from './engine/processStep';
 export { prepareSteps } from './engine/prepareSteps';
 export {
+  isTransactionInProgress,
+  lastFinishedTransactionTime,
+  lastTransactionTime,
+  lastTransactionTimeBeforeCurrent,
+} from './engine/helpers';
+export {
   processAllStepsAndRecordResults,
   type StepRecord,
   type ProcessAllStepsAndRecordResultsParams,

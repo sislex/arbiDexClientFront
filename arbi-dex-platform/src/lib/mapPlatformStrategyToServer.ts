@@ -68,7 +68,12 @@ function applyBuyRules(conditions: ServerCondition[], rules: TradingRuleState[])
 
   const balance = findCondition(conditions, 'balance_ok')
   if (balance) {
-    balance.enabled = ruleEnabled(rules, 'buy-10', false)
+    const enabled = ruleEnabled(rules, 'buy-10', false)
+    balance.enabled = enabled
+    balance.params.require = enabled
+    if (enabled) {
+      balance.params.minBalance = ruleNumber(rules, 'buy-10', 'percent', 1000)
+    }
   }
 }
 
@@ -94,7 +99,12 @@ function applySellRules(conditions: ServerCondition[], rules: TradingRuleState[]
 
   const balance = findCondition(conditions, 'balance_ok')
   if (balance) {
-    balance.enabled = ruleEnabled(rules, 'sell-11', false)
+    const enabled = ruleEnabled(rules, 'sell-11', false)
+    balance.enabled = enabled
+    balance.params.require = enabled
+    if (enabled) {
+      balance.params.minBalance = ruleNumber(rules, 'sell-11', 'percent', 1000)
+    }
   }
 }
 

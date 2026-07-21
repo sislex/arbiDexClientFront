@@ -14,6 +14,7 @@ import {
   getStrategyRulesForId,
   saveStrategyRulesForId,
 } from '../lib/strategyRulesStorage'
+import { pushStrategyRulesToServer } from '../lib/pushStrategyRulesToServer'
 import { loadStrategies, saveStrategies } from '../lib/strategiesStorage'
 import {
   hasStrategyDraftChanged,
@@ -125,11 +126,13 @@ export function StrategyEditorPage() {
     if (isNew) {
       saveStrategies([...strategies, strategy])
       saveStrategyRulesForId(strategy.id, draft.rules)
+      void pushStrategyRulesToServer(strategy.id, strategy.name).catch(() => {})
       navigate('/strategies')
     } else if (existingStrategy) {
       const next = strategies.map((s) => (s.id === existingStrategy.id ? strategy : s))
       saveStrategies(next)
       saveStrategyRulesForId(existingStrategy.id, draft.rules)
+      void pushStrategyRulesToServer(existingStrategy.id, strategy.name).catch(() => {})
       navigate('/strategies')
     }
   }

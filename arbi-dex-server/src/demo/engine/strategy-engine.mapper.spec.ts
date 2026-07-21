@@ -63,4 +63,19 @@ describe('toEngineStrategy → runBacktest (demo bots path)', () => {
     expect(strategy.sell.trailingTakeProfitPercent).not.toBeNull();
     expect(strategy.sell.maxHoldingTimeMs).not.toBeNull();
   });
+
+  it('maps all enabled gate conditions (no-tx, delay, balance)', () => {
+    const { buy, sell } = defaultStrategySides();
+    const { strategy, gates } = toEngineStrategy(buy, sell);
+
+    expect(strategy.buy.requireNoTransactionInProgress).toBe(true);
+    expect(strategy.sell.requireNoTransactionInProgress).toBe(true);
+    expect(strategy.buy.minDelayAfterLastFinishedTransactionMs).toBeGreaterThan(0);
+    expect(strategy.sell.minDelayAfterLastFinishedTransactionMs).toBeGreaterThan(0);
+
+    const gateIds = gates.map((g) => g.id);
+    expect(gateIds).toContain('no_transaction_in_progress');
+    expect(gateIds).toContain('transaction_delay_ok');
+    expect(gateIds).toContain('balance_ok');
+  });
 });

@@ -8,16 +8,18 @@ import type {
 import { eventTime } from '../simulation/simulationFormatters'
 import type { SimulationEventType, SimulationLogEvent } from '../simulation/simulationViewerTypes'
 
+import { formatEngineConditionActual, formatEngineConditionRequired } from './formatEngineConditionActual'
+
 function mapConditionSide(
-  side: Record<string, { passed: boolean; actual?: number; required?: number }>,
+  side: Record<string, { passed: boolean; actual?: number | string; required?: number | string }>,
   group: 'toBuy' | 'toSell',
 ): EngineConditionEvaluation[] {
   return Object.entries(side).map(([id, outcome]) => ({
     id,
     group,
     passed: outcome.passed,
-    current: outcome.actual !== undefined ? String(outcome.actual) : undefined,
-    required: outcome.required !== undefined ? String(outcome.required) : undefined,
+    current: formatEngineConditionActual(id, outcome.actual),
+    required: formatEngineConditionRequired(id, outcome.required),
   }))
 }
 
