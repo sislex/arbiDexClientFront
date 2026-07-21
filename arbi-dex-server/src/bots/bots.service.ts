@@ -122,6 +122,7 @@ export class BotsService {
   /** Открыть новую сессию (бот переведён в running). */
   async openSession(bot: Bot, at = Date.now()): Promise<BotSession> {
     await this.closeSessions(bot.id, at);
+    await this.clearDustPosition(bot);
     return this.sessionsRepo.save(
       this.sessionsRepo.create({
         userId: bot.userId,
@@ -132,6 +133,26 @@ export class BotsService {
         mode: bot.mode,
       }),
     );
+  }
+
+  /**
+   * Порог пыли при старте сессии: если открытая позиция стоит меньше
+   * `minPositionValue` (в валюте баланса), считаем её закрытой — сессия
+   * начинается с наличных, движок не пытается «продать копейки». Стоимость
+   * позиции = positionSize × entryPrice (та же валюта, что и баланс). Реальные
+   * dust-токены остаются на executor-контракте, учёт просто перестаёт их вести.
+   * minPositionValue = 0 — порог выключен.
+   */
+  private async clearDustPosition(bot: Bot): Promise<void> {
+    const threshold = bot.minPositionValue ?? 0;
+    if (threshold <= 0 || !bot.openPosition) return;
+    const value = (bot.positionSize ?? 0) * (bot.entryPrice ?? 0);
+    if (value >= threshold) return;
+    bot.openPosition = false;
+    bot.positionSize = 0;
+    bot.entryPrice = 0;
+    bot.positionOpenedAt = 0;
+    await this.repo.save(bot);
   }
 
   /**

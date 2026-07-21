@@ -53,6 +53,17 @@ export class CreateBotDto {
   @Min(0)
   @Max(50)
   slippagePct?: number;
+
+  @ApiPropertyOptional({
+    default: 0,
+    description:
+      'Порог пыли в валюте баланса: при старте сессии открытая позиция дешевле ' +
+      'этого значения считается закрытой (0 = выключено).',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  minPositionValue?: number;
 }
 
 export class UpdateBotDto extends PartialType(CreateBotDto) {
