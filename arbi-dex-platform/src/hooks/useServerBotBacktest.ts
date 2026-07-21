@@ -19,9 +19,53 @@ import {
 } from '../lib/inspectBotStep'
 import { STRATEGY_CONFIG_UPDATED_EVENT } from '../lib/pushStrategyRulesToServer'
 import { mapServerLiveTradeToLogEvent, mapServerStepToLogEvent, mapServerTradeToLogEvent } from '../lib/mapServerBotStepResult'
+import { derivePositionAtTime } from '../lib/derivePositionAtTime'
 import type { SimulationLogEvent } from '../simulation/simulationViewerTypes'
 
 const TRADING_NET_ID = 'trading'
+
+function resolveInspectPosition(
+  time: number,
+  bot: ServerBot,
+  backtest: ServerBacktestResult | null,
+  liveTrades: ServerBotTrade[],
+) {
+  if (backtest?.trades?.length) {
+    const fromBacktest = derivePositionAtTime(
+      backtest.trades.map((t) => ({
+        time: t.time,
+        side: t.side,
+        price: t.price,
+        amount: t.amount,
+      })),
+      time,
+    )
+    if (fromBacktest) return fromBacktest
+  }
+
+  const fromLive = derivePositionAtTime(
+    liveTrades
+      .filter((t) => t.status === 'success')
+      .map((t) => ({
+        time: t.time,
+        side: t.side,
+        price: t.price ?? t.expectedPrice ?? 0,
+        amount: t.amountIn,
+      })),
+    time,
+  )
+  if (fromLive) return fromLive
+
+  if (bot.openPosition && bot.positionOpenedAt > 0 && time >= bot.positionOpenedAt && bot.entryPrice > 0) {
+    return {
+      entryPrice: bot.entryPrice,
+      openedAt: bot.positionOpenedAt,
+      size: bot.positionSize,
+    }
+  }
+
+  return null
+}
 
 function quotesToChartPoints(quotes: ServerQuotePoint[]): ChartPoint[] {
   return quotes.map((q) => ({
@@ -123,7 +167,17 @@ export function useBotBacktest({
       setStepAnalyzing(true)
       setStepError(null)
       try {
-        const apiResult = await fetchServerStepResult(bot.id, { time })
+        const pos = resolveInspectPosition(time, bot, backtest, liveTrades)
+        const apiResult = await fetchServerStepResult(bot.id, {
+          time,
+          ...(pos
+            ? {
+                entryPrice: pos.entryPrice,
+                openedAt: pos.openedAt,
+                size: pos.size,
+              }
+            : {}),
+        })
         setStepResult(mapServerStepToLogEvent(apiResult))
         setStepSource('api')
       } catch (e) {
@@ -134,7 +188,7 @@ export function useBotBacktest({
         setStepAnalyzing(false)
       }
     },
-    [bot.id],
+    [backtest, bot, liveTrades],
   )
 
   const inspectStep = useCallback(
@@ -142,6 +196,7 @@ export function useBotBacktest({
       setInspectTime(time)
       const records = backtest?.stepResults?.records
       const backtestFresh = backtestStrategyConfigId === bot.strategyConfigId
+      const hasPosition = resolveInspectPosition(time, bot, backtest, liveTrades) != null
 
       if (syncPlayIdx && activeQuotes.length > 0) {
         const idx = findQuoteIndexByTime(activeQuotes, time) + 1
@@ -149,7 +204,8 @@ export function useBotBacktest({
         setPlayIdx(idx)
       }
 
-      if (!preferApi && backtestFresh && records?.length) {
+      // Sell triggers need an open position; cached stepResults have none.
+      if (!preferApi && !hasPosition && backtestFresh && records?.length) {
         const rec = findNearestStepRecord(records, time)
         setStepError(null)
         setStepResult(
@@ -161,7 +217,7 @@ export function useBotBacktest({
 
       void inspectViaApi(time)
     },
-    [activeQuotes, backtest, backtestStrategyConfigId, bot.strategyConfigId, inspectViaApi],
+    [activeQuotes, backtest, backtestStrategyConfigId, bot, inspectViaApi, liveTrades],
   )
 
   inspectStepRef.current = inspectStep
