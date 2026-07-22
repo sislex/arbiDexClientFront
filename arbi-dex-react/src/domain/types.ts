@@ -82,6 +82,9 @@ export interface Bot {
   openPosition: boolean;
   /** Allowed slippage for live buy/sell, % (live backend; default 0.5). */
   slippagePct?: number;
+  /** Dust threshold in the quote asset: at session start a position worth less
+   * than this is treated as closed (0 = disabled). */
+  minPositionValue?: number;
   /** Open position size in the base asset (manual live trading). */
   positionSize?: number;
   /** Entry price of the open position (quote per base). */

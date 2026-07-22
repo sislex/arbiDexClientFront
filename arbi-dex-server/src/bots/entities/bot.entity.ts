@@ -71,6 +71,11 @@ export class Bot {
   @Column({ type: 'double precision', default: 0.5 })
   slippagePct: number;
 
+  /** Dust threshold in the quote (balance) asset: at session start an open
+   * position worth less than this is treated as closed (0 = disabled). */
+  @Column({ type: 'double precision', default: 0 })
+  minPositionValue: number;
+
   /** Open position size in the base asset (manual live trading). */
   @Column({ type: 'double precision', default: 0 })
   positionSize: number;

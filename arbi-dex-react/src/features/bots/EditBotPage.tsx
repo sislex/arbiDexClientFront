@@ -30,6 +30,7 @@ export function EditBotPage() {
   const [initialBalance, setInitialBalance] = useState(1000);
   const [balanceAsset, setBalanceAsset] = useState('');
   const [slippagePct, setSlippagePct] = useState(0.5);
+  const [minPositionValue, setMinPositionValue] = useState(0);
   const [tokenMap, setTokenMap] = useState<UserToken[]>([]);
   const [marketConfigId, setMarketConfigId] = useState('');
   const [strategyConfigId, setStrategyConfigId] = useState('');
@@ -55,6 +56,7 @@ export function EditBotPage() {
       setInitialBalance(bot.initialBalance);
       setBalanceAsset(bot.quoteAsset);
       setSlippagePct(bot.slippagePct ?? 0.5);
+      setMinPositionValue(bot.minPositionValue ?? 0);
       setMarketConfigId(bot.marketConfigId);
       setStrategyConfigId(bot.strategyConfigId);
     }
@@ -81,7 +83,7 @@ export function EditBotPage() {
 
   const canSave =
     name.trim().length > 0 && !!marketConfigId && !!strategyConfigId && initialBalance > 0 &&
-    slippagePct >= 0 && slippagePct <= 50;
+    slippagePct >= 0 && slippagePct <= 50 && minPositionValue >= 0;
 
   const save = async () => {
     setSaving(true);
@@ -96,7 +98,7 @@ export function EditBotPage() {
         : {};
       await dispatch(updateBot({
         id: bot.id,
-        patch: { name: name.trim(), mode, initialBalance, slippagePct, marketConfigId, strategyConfigId, ...pair },
+        patch: { name: name.trim(), mode, initialBalance, slippagePct, minPositionValue, marketConfigId, strategyConfigId, ...pair },
       })).unwrap();
       navigate(`/bots/${bot.id}`);
     } finally {
@@ -179,6 +181,15 @@ export function EditBotPage() {
               onChange={(e) => setSlippagePct(Number(e.target.value))}
               helperText="Если к моменту сделки котировка ушла в невыгодную сторону сильнее — транзакция фейлится"
               inputProps={{ 'data-testid': 'edit-bot-slippage', step: 0.1, min: 0, max: 50 }}
+            />
+            <TextField
+              label={`Порог пыли${effectiveBalanceAsset ? `, ${effectiveBalanceAsset}` : ''}`}
+              size="small"
+              type="number"
+              value={minPositionValue}
+              onChange={(e) => setMinPositionValue(Number(e.target.value))}
+              helperText="При старте сессии позиция дешевле этого порога считается закрытой (0 = выключено)"
+              inputProps={{ 'data-testid': 'edit-bot-min-position', step: 0.01, min: 0 }}
             />
             <TextField
               select
