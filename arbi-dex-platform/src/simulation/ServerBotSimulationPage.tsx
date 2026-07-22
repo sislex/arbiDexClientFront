@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { BotTradeHandlers } from '../components/bot/BotTradingButtons'
 import { BotBacktestPeriodPicker, applyChartPeriodPick } from '../components/bot/BotBacktestPeriodPicker'
+import { BotExcludedRangesPicker } from '../components/bot/BotExcludedRangesPicker'
 import { useBotBacktest } from '../hooks/useServerBotBacktest'
 import { useBotPeriod, type ChartPeriodPickMode } from '../hooks/useBotPeriod'
+import { normalizeRange, toServerExcludedRanges, type EditableExcludedRange } from '../lib/excludedRanges'
 import type { ServerBot } from '../services/botsApi'
 import { StrategySimulationWorkspace, type SimulationWorkspaceHeader } from './StrategySimulationWorkspace'
 import type { SimulationLogEvent } from './simulationViewerTypes'
@@ -41,11 +43,23 @@ export function ServerBotSimulationPage({
 }: ServerBotSimulationPageProps) {
   const period = useBotPeriod(bot.id)
   const [chartPickMode, setChartPickMode] = useState<ChartPeriodPickMode>('idle')
+  const [excludedRanges, setExcludedRanges] = useState<EditableExcludedRange[]>([])
+  const [selectedExcludedRangeId, setSelectedExcludedRangeId] = useState<string | null>(null)
+  const [excludedPickMode, setExcludedPickMode] = useState<'idle' | 'add-start' | 'add-end' | 'edit-start' | 'edit-end'>('idle')
+  const [excludedAnchorTime, setExcludedAnchorTime] = useState<number | null>(null)
   const chartPickModeRef = useRef(chartPickMode)
   chartPickModeRef.current = chartPickMode
+  const excludedPickModeRef = useRef(excludedPickMode)
+  excludedPickModeRef.current = excludedPickMode
+  const excludedRangesRef = useRef(excludedRanges)
+  excludedRangesRef.current = excludedRanges
+  const selectedExcludedRangeIdRef = useRef(selectedExcludedRangeId)
+  selectedExcludedRangeIdRef.current = selectedExcludedRangeId
+  const serverExcludedRanges = useMemo(() => toServerExcludedRanges(excludedRanges), [excludedRanges])
   const sim = useBotBacktest({
     bot,
     period,
+    excludedRanges: serverExcludedRanges,
     enabled: true,
     onBotRefresh,
     suspendPeriodReload: chartPickMode !== 'idle',
@@ -89,6 +103,139 @@ export function ServerBotSimulationPage({
   useEffect(() => {
     if (sim.chartData.length === 0 && chartPickMode !== 'idle') setChartPickMode('idle')
   }, [sim.chartData.length, chartPickMode])
+
+  useEffect(() => {
+    if (excludedRanges.length === 0) {
+      setSelectedExcludedRangeId(null)
+      setExcludedPickMode('idle')
+      setExcludedAnchorTime(null)
+      return
+    }
+    if (!selectedExcludedRangeId || !excludedRanges.some((r) => r.id === selectedExcludedRangeId)) {
+      setSelectedExcludedRangeId(excludedRanges[excludedRanges.length - 1].id)
+    }
+  }, [excludedRanges, selectedExcludedRangeId])
+
+  const modeLabel =
+    excludedPickMode === 'add-start'
+      ? 'Добавление: кликните начало'
+      : excludedPickMode === 'add-end'
+        ? 'Добавление: кликните конец'
+        : excludedPickMode === 'edit-start'
+          ? 'Изменение: кликните новое начало'
+          : excludedPickMode === 'edit-end'
+            ? 'Изменение: кликните новый конец'
+            : undefined
+
+  const updateRangeBounds = useCallback((id: string, next: { start: number; end: number }) => {
+    const normalized = normalizeRange(next.start, next.end)
+    setExcludedRanges((prev) => prev.map((r) => (r.id === id ? { ...r, ...normalized } : r)))
+  }, [])
+
+  const deleteSelectedExcludedRange = useCallback(() => {
+    const id = selectedExcludedRangeIdRef.current
+    if (!id) return
+    setExcludedRanges((prev) => prev.filter((r) => r.id !== id))
+    setExcludedPickMode('idle')
+    setExcludedAnchorTime(null)
+  }, [])
+
+  const startAddExcludedRange = useCallback(() => {
+    setExcludedPickMode('add-start')
+    setExcludedAnchorTime(null)
+  }, [])
+
+  const startEditExcludedRange = useCallback(() => {
+    if (!selectedExcludedRangeIdRef.current) return
+    setExcludedPickMode('edit-start')
+    setExcludedAnchorTime(null)
+  }, [])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const tag = target?.tagName
+      if (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        target?.isContentEditable
+      ) {
+        return
+      }
+      if (event.key === 'a' || event.key === 'A') {
+        event.preventDefault()
+        startAddExcludedRange()
+        return
+      }
+      if (event.key === 'e' || event.key === 'E') {
+        if (!selectedExcludedRangeIdRef.current) return
+        event.preventDefault()
+        startEditExcludedRange()
+        return
+      }
+      if (event.key === 'Delete') {
+        if (!selectedExcludedRangeIdRef.current) return
+        event.preventDefault()
+        deleteSelectedExcludedRange()
+        return
+      }
+      if (event.key === 'Escape') {
+        if (excludedPickModeRef.current === 'idle') return
+        event.preventDefault()
+        setExcludedPickMode('idle')
+        setExcludedAnchorTime(null)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [deleteSelectedExcludedRange, startAddExcludedRange, startEditExcludedRange])
+
+  const handleChartStepInspect = useCallback(
+    (time: number) => {
+      if (excludedPickModeRef.current === 'idle') {
+        sim.inspectStep(time, false, false)
+        return
+      }
+
+      if (excludedPickModeRef.current === 'add-start') {
+        setExcludedAnchorTime(time)
+        setExcludedPickMode('add-end')
+        return
+      }
+      if (excludedPickModeRef.current === 'add-end') {
+        const anchor = excludedAnchorTime
+        if (anchor == null) return
+        const normalized = normalizeRange(anchor, time)
+        const id = `ex-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        setExcludedRanges((prev) => [...prev, { id, ...normalized }])
+        setSelectedExcludedRangeId(id)
+        setExcludedPickMode('idle')
+        setExcludedAnchorTime(null)
+        return
+      }
+
+      const selectedId = selectedExcludedRangeIdRef.current
+      if (!selectedId) return
+      const selected = excludedRangesRef.current.find((r) => r.id === selectedId)
+      if (!selected) return
+
+      if (excludedPickModeRef.current === 'edit-start') {
+        setExcludedAnchorTime(time)
+        setExcludedPickMode('edit-end')
+        return
+      }
+      if (excludedPickModeRef.current === 'edit-end') {
+        const anchor = excludedAnchorTime
+        if (anchor == null) return
+        const normalized = normalizeRange(anchor, time)
+        updateRangeBounds(selected.id, normalized)
+        setExcludedPickMode('idle')
+        setExcludedAnchorTime(null)
+      }
+    },
+    [excludedAnchorTime, sim, updateRangeBounds],
+  )
 
   useEffect(() => {
     const notify = onTradeHandlersChangeRef.current
@@ -174,17 +321,31 @@ export function ServerBotSimulationPage({
         }}
         showPlayer={showPlayer}
         chartToolbar={
-          <BotBacktestPeriodPicker
-            period={period}
-            chartPickMode={chartPickMode}
-            onChartPickModeChange={setChartPickMode}
-            chartDataAvailable={sim.chartData.length > 0}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <BotBacktestPeriodPicker
+              period={period}
+              chartPickMode={chartPickMode}
+              onChartPickModeChange={setChartPickMode}
+              chartDataAvailable={sim.chartData.length > 0}
+            />
+            <BotExcludedRangesPicker
+              period={period}
+              ranges={excludedRanges}
+              selectedRangeId={selectedExcludedRangeId}
+              modeLabel={modeLabel}
+              onSelectRange={setSelectedExcludedRangeId}
+              onAddMode={startAddExcludedRange}
+              onEditMode={startEditExcludedRange}
+              onDeleteSelected={deleteSelectedExcludedRange}
+              onUpdateRangeBounds={updateRangeBounds}
+            />
+          </div>
         }
         chartPeriodPickMode={chartPickMode}
         onChartPeriodPick={handleChartPeriodPick}
-        onChartStepInspect={(time) => sim.inspectStep(time, false, false)}
+        onChartStepInspect={handleChartStepInspect}
         selectedStepTime={sim.inspectTime}
+        excludedRanges={serverExcludedRanges}
         stepLoading={sim.stepAnalyzing}
         stepError={sim.stepError}
         onStepRecalc={sim.inspectTime != null ? handleStepRecalc : undefined}

@@ -27,6 +27,7 @@ import type {
   ProcessAllStepsAndRecordResultsOutput,
   TradingConditionsStepResult,
 } from '@sislex/arbi-conditions-libs';
+import { filterStepsByExcludedRanges, isTimeExcluded, parseExcludedRanges } from './excluded-ranges';
 /** Per-step engine breakdown recorded during a backtest run. */
 export interface BacktestStepRecord {
   index: number;
@@ -63,6 +64,10 @@ export interface BotStepResult extends TradingConditionsStepResult {
   historyTo: number;
   /** Server-side computation time, ms. */
   tookMs: number;
+  skipped?: {
+    reason: string;
+    range: { start: number; end: number };
+  };
 }
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v, lo), hi);
@@ -355,7 +360,7 @@ export class BotsService {
   async backtest(
     userId: string,
     id: string,
-    opts: { from?: number; to?: number; params?: Record<string, number> } = {},
+    opts: { from?: number; to?: number; params?: Record<string, number>; excludedRanges?: unknown } = {},
   ): Promise<BotBacktestResult> {
     const startedAt = Date.now();
     const bot = await this.findOne(userId, id);
@@ -372,6 +377,7 @@ export class BotsService {
     const { quotes: rawQuotes } = await this.marketConfigs.getQuotesRange(userId, bot.marketConfigId, from, to);
     const quotes = limitEvalSteps(rawQuotes);
     const stepsTruncated = rawQuotes.length > MAX_BOT_EVAL_STEPS;
+    const excludedRanges = parseExcludedRanges(opts.excludedRanges);
     const strategy = await this.loadStrategy(userId, bot);
     // Опциональные коэффициенты комбо (строка автоподбора) поверх стратегии.
     const strategyData =
@@ -384,8 +390,34 @@ export class BotsService {
       time: q.time,
       quotes: { buyQuote: q.buyQuote, sellQuote: q.sellQuote, avgObservedQuote: q.avgObservedQuote },
     }));
+    const evalSteps = filterStepsByExcludedRanges(steps, excludedRanges);
 
-    const engineResult = runBacktest(steps, engineStrategy, {
+    if (evalSteps.length === 0) {
+      const emptyResult: BotBacktestResult = {
+        id: `bt_${bot.id}`,
+        from,
+        to,
+        quotes,
+        trades: [],
+        stats: {
+          trades: 0,
+          pnl: 0,
+          pnlPct: 0,
+          winRate: 0,
+          maxDrawdownPct: 0,
+          finalBalance: bot.initialBalance,
+        },
+        historyFrom,
+        historyTo,
+        stepResults: { records: [] },
+        tookMs: Date.now() - startedAt,
+        evaluatedSteps: 0,
+        stepsTruncated,
+      };
+      return emptyResult;
+    }
+
+    const engineResult = runBacktest(evalSteps, engineStrategy, {
       initialBalance: bot.initialBalance,
       conditions: gates,
       triggerConditions: triggers,
@@ -395,11 +427,21 @@ export class BotsService {
     // Canonical per-step breakdown for the UI: a positionless dry run of the
     // engine over every step (ProcessAllStepsAndRecordResultsOutput).
     const stepResults = processAllStepsAndRecordResults({
-      steps,
+      steps: evalSteps,
       strategy: engineStrategy,
       conditions: gates,
       triggerConditions: triggers,
     });
+    const stepIndexByTime = new Map<number, number>();
+    for (let i = 0; i < quotes.length; i += 1) {
+      stepIndexByTime.set(quotes[i].time, i);
+    }
+    const remappedStepResults: ProcessAllStepsAndRecordResultsOutput = {
+      records: stepResults.records.map((record) => ({
+        ...record,
+        index: stepIndexByTime.get(record.step.time) ?? record.index,
+      })),
+    };
 
     const trades: Trade[] = engineResult.trades.map((t) => ({
       id: t.id,
@@ -420,9 +462,9 @@ export class BotsService {
       stats: engineResult.stats,
       historyFrom,
       historyTo,
-      stepResults,
+      stepResults: remappedStepResults,
       tookMs: Date.now() - startedAt,
-      evaluatedSteps: quotes.length,
+      evaluatedSteps: evalSteps.length,
       stepsTruncated,
     };
 
@@ -456,7 +498,7 @@ export class BotsService {
   async stepResult(
     userId: string,
     id: string,
-    opts: { time?: number; entryPrice?: number; openedAt?: number; size?: number } = {},
+    opts: { time?: number; entryPrice?: number; openedAt?: number; size?: number; excludedRanges?: unknown } = {},
   ): Promise<BotStepResult> {
     const startedAt = Date.now();
     const bot = await this.findOne(userId, id);
@@ -466,6 +508,7 @@ export class BotsService {
       bot.marketConfigId,
     );
     const time = clamp(opts.time ?? historyTo, historyFrom, historyTo);
+    const excludedRanges = parseExcludedRanges(opts.excludedRanges);
 
     // All history up to the requested time: the last point is the evaluated
     // step, everything before it is the lookback window.
@@ -474,6 +517,32 @@ export class BotsService {
       throw new NotFoundException('Нет котировок до указанного времени');
     }
     const quotes = limitEvalSteps(rawQuotes);
+    const excludedAtTime = isTimeExcluded(time, excludedRanges);
+    const currentStep = quotes[quotes.length - 1];
+    const currentIndex = quotes.length - 1;
+    if (excludedAtTime) {
+      return {
+        transaction: { buy: false, sell: false, forcedSell: false },
+        condition: { buy: {} as any, sell: {} as any },
+        meta: {
+          lastStepTime: currentStep.time,
+          transactionInProgress: false,
+          lastFinishedTransactionTime: null,
+          lastTransactionTime: null,
+        },
+        step: currentStep,
+        index: currentIndex,
+        totalSteps: quotes.length,
+        windowSteps: 0,
+        historyFrom,
+        historyTo,
+        tookMs: Date.now() - startedAt,
+        skipped: {
+          reason: 'Шаг попадает в исключенный диапазон',
+          range: excludedAtTime,
+        },
+      };
+    }
 
     const strategy = await this.loadStrategy(userId, bot);
     const { strategy: engineStrategy, gates, triggers } = toEngineStrategy(strategy.buy, strategy.sell);
@@ -482,8 +551,32 @@ export class BotsService {
       time: q.time,
       quotes: { buyQuote: q.buyQuote, sellQuote: q.sellQuote, avgObservedQuote: q.avgObservedQuote },
     }));
+    const evalSteps = filterStepsByExcludedRanges(steps, excludedRanges);
+    if (evalSteps.length === 0) {
+      return {
+        transaction: { buy: false, sell: false, forcedSell: false },
+        condition: { buy: {} as any, sell: {} as any },
+        meta: {
+          lastStepTime: currentStep.time,
+          transactionInProgress: false,
+          lastFinishedTransactionTime: null,
+          lastTransactionTime: null,
+        },
+        step: currentStep,
+        index: currentIndex,
+        totalSteps: quotes.length,
+        windowSteps: 0,
+        historyFrom,
+        historyTo,
+        tookMs: Date.now() - startedAt,
+        skipped: {
+          reason: 'Все шаги в окне исключены',
+          range: { start: quotes[0].time, end: currentStep.time },
+        },
+      };
+    }
 
-    await this.injectBotTradesIntoSteps(bot.id, steps, time);
+    await this.injectBotTradesIntoSteps(bot.id, evalSteps, time);
 
     // Позиция: явная (симуляция из плеера бэктеста) или реальная позиция
     // бота — иначе sell-триггеры (стоп-лосс/trailing TP) на live-вкладке
@@ -493,20 +586,20 @@ export class BotsService {
         ? {
             entryPrice: opts.entryPrice,
             size: opts.size ?? 0,
-            openedAt: opts.openedAt ?? steps[0].time,
+            openedAt: opts.openedAt ?? evalSteps[0].time,
           }
         : bot.openPosition && bot.positionSize > 0
           ? {
               entryPrice: bot.entryPrice,
               size: bot.positionSize,
-              openedAt: bot.positionOpenedAt > 0 ? bot.positionOpenedAt : steps[0].time,
+              openedAt: bot.positionOpenedAt > 0 ? bot.positionOpenedAt : evalSteps[0].time,
             }
           : null;
 
     // prepareSteps trims the history down to the minimal window the bot's
     // conditions actually need (max over their WindowRequirements).
     const params = prepareSteps({
-      steps,
+      steps: evalSteps,
       strategy: engineStrategy,
       position,
       conditions: gates,
@@ -516,9 +609,9 @@ export class BotsService {
 
     return {
       ...result,
-      step: quotes[quotes.length - 1],
-      index: quotes.length - 1,
-      totalSteps: quotes.length,
+      step: currentStep,
+      index: currentIndex,
+      totalSteps: evalSteps.length,
       windowSteps: params.steps.length,
       historyFrom,
       historyTo,

@@ -3,6 +3,7 @@ import type { BotPeriodState } from './useBotPeriod'
 import type { ChartPoint } from '../services/chartDataService'
 import {
   executeBotTrade,
+  type ExcludedTimeRange,
   fetchBotQuotes,
   fetchBotTrades,
   fetchServerStepResult,
@@ -20,6 +21,7 @@ import {
 import { STRATEGY_CONFIG_UPDATED_EVENT } from '../lib/pushStrategyRulesToServer'
 import { mapServerLiveTradeToLogEvent, mapServerStepToLogEvent, mapServerTradeToLogEvent } from '../lib/mapServerBotStepResult'
 import { derivePositionAtTime } from '../lib/derivePositionAtTime'
+import { isTimeInExcludedRanges } from '../lib/excludedRanges'
 import type { SimulationLogEvent } from '../simulation/simulationViewerTypes'
 
 const TRADING_NET_ID = 'trading'
@@ -56,11 +58,13 @@ function resolveInspectPosition(
   )
   if (fromLive) return fromLive
 
-  if (bot.openPosition && bot.positionOpenedAt > 0 && time >= bot.positionOpenedAt && bot.entryPrice > 0) {
+  const positionOpenedAt = bot.positionOpenedAt ?? 0
+  const entryPrice = bot.entryPrice ?? 0
+  if (bot.openPosition && positionOpenedAt > 0 && time >= positionOpenedAt && entryPrice > 0) {
     return {
-      entryPrice: bot.entryPrice,
-      openedAt: bot.positionOpenedAt,
-      size: bot.positionSize,
+      entryPrice,
+      openedAt: positionOpenedAt,
+      size: bot.positionSize ?? 0,
     }
   }
 
@@ -82,6 +86,7 @@ export type ServerStepSource = 'backtest' | 'api' | null
 export interface UseBotBacktestOptions {
   bot: ServerBot
   period: BotPeriodState
+  excludedRanges?: ExcludedTimeRange[]
   enabled?: boolean
   onBotRefresh?: () => void
   /** While picking period on chart, defer quote reload until pick completes. */
@@ -91,6 +96,7 @@ export interface UseBotBacktestOptions {
 export function useBotBacktest({
   bot,
   period,
+  excludedRanges = [],
   enabled = true,
   onBotRefresh,
   suspendPeriodReload = false,
@@ -170,6 +176,7 @@ export function useBotBacktest({
         const pos = resolveInspectPosition(time, bot, backtest, liveTrades)
         const apiResult = await fetchServerStepResult(bot.id, {
           time,
+          excludedRanges,
           ...(pos
             ? {
                 entryPrice: pos.entryPrice,
@@ -188,7 +195,7 @@ export function useBotBacktest({
         setStepAnalyzing(false)
       }
     },
-    [backtest, bot, liveTrades],
+    [backtest, bot, excludedRanges, liveTrades],
   )
 
   const inspectStep = useCallback(
@@ -197,6 +204,7 @@ export function useBotBacktest({
       const records = backtest?.stepResults?.records
       const backtestFresh = backtestStrategyConfigId === bot.strategyConfigId
       const hasPosition = resolveInspectPosition(time, bot, backtest, liveTrades) != null
+      const excluded = isTimeInExcludedRanges(time, excludedRanges)
 
       if (syncPlayIdx && activeQuotes.length > 0) {
         const idx = findQuoteIndexByTime(activeQuotes, time) + 1
@@ -205,7 +213,7 @@ export function useBotBacktest({
       }
 
       // Sell triggers need an open position; cached stepResults have none.
-      if (!preferApi && !hasPosition && backtestFresh && records?.length) {
+      if (!preferApi && !excluded && !hasPosition && backtestFresh && records?.length) {
         const rec = findNearestStepRecord(records, time)
         setStepError(null)
         setStepResult(
@@ -217,7 +225,7 @@ export function useBotBacktest({
 
       void inspectViaApi(time)
     },
-    [activeQuotes, backtest, backtestStrategyConfigId, bot, inspectViaApi, liveTrades],
+    [activeQuotes, backtest, backtestStrategyConfigId, bot, excludedRanges, inspectViaApi, liveTrades],
   )
 
   inspectStepRef.current = inspectStep
@@ -303,7 +311,7 @@ export function useBotBacktest({
     setBacktestLoading(true)
     setError(null)
     try {
-      const result = await runServerBacktest(bot.id, { from: period.from, to: period.to })
+      const result = await runServerBacktest(bot.id, { from: period.from, to: period.to, excludedRanges })
       if (result.historyFrom != null && result.historyTo != null) {
         period.applyRange({ historyFrom: result.historyFrom, historyTo: result.historyTo })
       }
@@ -320,7 +328,7 @@ export function useBotBacktest({
     } finally {
       setBacktestLoading(false)
     }
-  }, [bot.id, bot.strategyConfigId, period.from, period.to])
+  }, [bot.id, bot.strategyConfigId, excludedRanges, period.from, period.to])
 
   const invalidateSimulation = useCallback(() => {
     setBacktest(null)
@@ -333,7 +341,7 @@ export function useBotBacktest({
 
   useEffect(() => {
     invalidateSimulation()
-  }, [period.from, period.to, bot.strategyConfigId, invalidateSimulation])
+  }, [period.from, period.to, bot.strategyConfigId, excludedRanges, invalidateSimulation])
 
   useEffect(() => {
     const onStrategyUpdated = (event: Event) => {
@@ -447,6 +455,7 @@ export function useServerBotBacktest(options: {
   return useBotBacktest({
     bot: options.bot,
     period: options.period ?? fallbackPeriod,
+    excludedRanges: [],
     enabled: options.enabled,
   })
 }

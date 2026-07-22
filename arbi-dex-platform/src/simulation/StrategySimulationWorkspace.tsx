@@ -108,6 +108,8 @@ export interface StrategySimulationWorkspaceProps {
   onChartStepInspect?: (time: number) => void
   /** Vertical marker at the inspected step (epoch ms). */
   selectedStepTime?: number | null
+  /** Time ranges to highlight as excluded from calculations. */
+  excludedRanges?: Array<{ start: number; end: number }>
 }
 
 type VisKey = string;
@@ -230,6 +232,7 @@ export function StrategySimulationWorkspace({
   onChartPeriodPick,
   onChartStepInspect,
   selectedStepTime = null,
+  excludedRanges = [],
 }: StrategySimulationWorkspaceProps) {
   const { t } = useSimulatorI18n();
   const tradingNetworkIds = useMemo(
@@ -393,6 +396,26 @@ export function StrategySimulationWorkspace({
       },
     ];
   }, [effectiveSelectedStepTime]);
+
+  const excludedRangesCrossLines = useMemo(() => {
+    if (excludedRanges.length === 0) return [];
+    return excludedRanges
+      .filter((range) => Number.isFinite(range.start) && Number.isFinite(range.end))
+      .map((range) => ({
+        type: "range" as const,
+        range: [Math.min(range.start, range.end), Math.max(range.start, range.end)] as [number, number],
+        fill: "#E5383B",
+        fillOpacity: 0.2,
+        strokeWidth: 0,
+        label: { enabled: false },
+      }));
+  }, [excludedRanges]);
+
+  const chartCrossLines = useMemo(() => {
+    const stepLine = selectedStepCrossLines ?? [];
+    if (excludedRangesCrossLines.length === 0) return stepLine.length > 0 ? stepLine : undefined;
+    return [...excludedRangesCrossLines, ...stepLine];
+  }, [excludedRangesCrossLines, selectedStepCrossLines]);
 
   useEffect(() => {
     if (chartData.length === 0) setChartInspectTime(null);
@@ -1238,7 +1261,7 @@ export function StrategySimulationWorkspace({
               return formatChartAxisLabel(ts, effectiveChartPeriod);
             },
           },
-          crossLines: selectedStepCrossLines,
+          crossLines: chartCrossLines,
           crosshair: { enabled: false },
           gridLine: { enabled: false },
         },
@@ -1274,7 +1297,7 @@ export function StrategySimulationWorkspace({
     tradeExecutionBands,
     isDark,
     effectiveChartPeriod,
-    selectedStepCrossLines,
+    chartCrossLines,
   ]);
 
   const agChartSafeOptions = useMemo(() => {
@@ -1321,7 +1344,7 @@ export function StrategySimulationWorkspace({
               return chartTimeOnly(ts);
             },
           },
-          crossLines: selectedStepCrossLines,
+          crossLines: chartCrossLines,
           crosshair: { enabled: false },
           gridLine: { enabled: false },
         },
@@ -1342,7 +1365,7 @@ export function StrategySimulationWorkspace({
         },
       },
     };
-  }, [visibleData, averageLineColor, stepLineInterpolation, chartAxisColor, chartTickColor, chartGridColor, isDark, xDomain, selectedStepCrossLines]);
+  }, [visibleData, averageLineColor, stepLineInterpolation, chartAxisColor, chartTickColor, chartGridColor, isDark, xDomain, chartCrossLines]);
 
   const [backtestPanelOpen, setBacktestPanelOpen] = useState(false);
 

@@ -189,6 +189,12 @@ export function StepResultPanel({
             )
           })}
 
+          {detail.status && (
+            <div className="mt-2 rounded px-2 py-1.5 text-[11px]" style={{ color: textSecondary, backgroundColor: isDark ? '#111722' : '#F8FAFC' }}>
+              {detail.status}
+            </div>
+          )}
+
           {(detail.buyQuote != null || detail.sellQuote != null || detail.avgQuote != null) && (
             <p className="mt-1 text-[10px]" style={{ color: textSecondary, fontFamily: 'var(--font-mono)' }}>
               bid {fmtNum(detail.sellQuote)} · ask {fmtNum(detail.buyQuote)} · ср. {fmtNum(detail.avgQuote)}

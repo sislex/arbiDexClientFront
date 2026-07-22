@@ -182,18 +182,25 @@ export class BotsController {
   @ApiParam({ name: 'id' })
   @ApiQuery({ name: 'from', required: false, description: 'Начало периода (метка времени)' })
   @ApiQuery({ name: 'to', required: false, description: 'Конец периода (метка времени)' })
+  @ApiQuery({
+    name: 'excludedRanges',
+    required: false,
+    description: 'JSON-массив диапазонов [{start,end}] для пропуска расчета',
+  })
   backtest(
     @CurrentUser() user: User,
     @Param('id') id: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
-    @Body() body?: { params?: Record<string, number> },
+    @Query('excludedRanges') excludedRanges?: string,
+    @Body() body?: { params?: Record<string, number>; excludedRanges?: Array<{ start: number; end: number }> },
   ) {
     return this.service.backtest(user.id, id, {
       from: from !== undefined ? Number(from) : undefined,
       to: to !== undefined ? Number(to) : undefined,
       // Коэффициенты комбо автоподбора поверх стратегии (опционально).
       params: body?.params,
+      excludedRanges: body?.excludedRanges ?? excludedRanges,
     });
   }
 
@@ -214,6 +221,11 @@ export class BotsController {
   @ApiQuery({ name: 'entryPrice', required: false, description: 'Цена входа моделируемой позиции (для sell-триггеров)' })
   @ApiQuery({ name: 'openedAt', required: false, description: 'Время открытия позиции; по умолчанию — первый шаг истории' })
   @ApiQuery({ name: 'size', required: false, description: 'Размер позиции в токене (по умолчанию 0)' })
+  @ApiQuery({
+    name: 'excludedRanges',
+    required: false,
+    description: 'JSON-массив диапазонов [{start,end}] для пропуска расчета',
+  })
   stepResult(
     @CurrentUser() user: User,
     @Param('id') id: string,
@@ -221,12 +233,14 @@ export class BotsController {
     @Query('entryPrice') entryPrice?: string,
     @Query('openedAt') openedAt?: string,
     @Query('size') size?: string,
+    @Query('excludedRanges') excludedRanges?: string,
   ) {
     return this.service.stepResult(user.id, id, {
       time: time !== undefined ? Number(time) : undefined,
       entryPrice: entryPrice !== undefined ? Number(entryPrice) : undefined,
       openedAt: openedAt !== undefined ? Number(openedAt) : undefined,
       size: size !== undefined ? Number(size) : undefined,
+      excludedRanges,
     });
   }
 

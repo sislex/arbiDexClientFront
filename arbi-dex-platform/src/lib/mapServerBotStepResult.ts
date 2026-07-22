@@ -62,6 +62,33 @@ export function mapServerStepToLogEvent(
 ): SimulationLogEvent {
   const index = record.index
   const time = stepTimeFromRecord(record)
+  if ('skipped' in record && record.skipped) {
+    return {
+      id: `srv-step-skipped-${index}-${time}`,
+      dataIdx: index,
+      time: eventTime(time),
+      type: 'System',
+      message: 'Расчет пропущен',
+      markerTs: time,
+      markerPrice: record.step.avgObservedQuote > 0 ? record.step.avgObservedQuote : record.step.buyQuote,
+      detail: {
+        status: `${record.skipped.reason}: ${eventTime(record.skipped.range.start)} - ${eventTime(record.skipped.range.end)}`,
+        stepIndex: index,
+        totalSteps: record.totalSteps,
+        windowSteps: record.windowSteps,
+        stepTime: time,
+        buyQuote: record.step.buyQuote,
+        sellQuote: record.step.sellQuote,
+        avgQuote: record.step.avgObservedQuote,
+        transactionBuy: false,
+        transactionSell: false,
+        forcedSell: false,
+        tookMs: record.tookMs,
+        evaluations: [],
+      },
+    }
+  }
+
   const result: ServerStepEngineResult =
     'result' in record
       ? record.result

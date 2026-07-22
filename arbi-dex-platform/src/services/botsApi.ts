@@ -51,6 +51,11 @@ export interface ServerStepConditionOutcome {
   required?: number
 }
 
+export interface ExcludedTimeRange {
+  start: number
+  end: number
+}
+
 export interface ServerStepEngineResult {
   transaction: { buy: boolean; sell: boolean; forcedSell: boolean }
   condition: {
@@ -119,6 +124,10 @@ export interface ServerBotStepResult extends ServerStepEngineResult {
   historyFrom: number
   historyTo: number
   tookMs: number
+  skipped?: {
+    reason: string
+    range: ExcludedTimeRange
+  }
 }
 
 export interface ServerBot {
@@ -138,6 +147,8 @@ export interface ServerBot {
   winRate: number
   openPosition: boolean
   positionSize?: number
+  entryPrice?: number
+  positionOpenedAt?: number
   slippagePct?: number
   createdAt: string
   updatedAt: string
@@ -215,17 +226,20 @@ export function fetchBotQuotes(
 
 export function runServerBacktest(
   botId: string,
-  params: { from?: number; to?: number } = {},
+  params: { from?: number; to?: number; excludedRanges?: ExcludedTimeRange[] } = {},
 ): Promise<ServerBacktestResult> {
   return apiRequest<ServerBacktestResult>(`/bots/${botId}/backtest`, {
     method: 'POST',
     query: { from: params.from, to: params.to },
+    body: JSON.stringify({
+      excludedRanges: params.excludedRanges ?? [],
+    }),
   })
 }
 
 export function fetchServerStepResult(
   botId: string,
-  params: { time: number; entryPrice?: number; openedAt?: number; size?: number },
+  params: { time: number; entryPrice?: number; openedAt?: number; size?: number; excludedRanges?: ExcludedTimeRange[] },
 ): Promise<ServerBotStepResult> {
   return apiRequest<ServerBotStepResult>(`/bots/${botId}/step-result`, {
     query: {
@@ -233,6 +247,10 @@ export function fetchServerStepResult(
       entryPrice: params.entryPrice,
       openedAt: params.openedAt,
       size: params.size,
+      excludedRanges:
+        params.excludedRanges && params.excludedRanges.length > 0
+          ? JSON.stringify(params.excludedRanges)
+          : undefined,
     },
   })
 }
