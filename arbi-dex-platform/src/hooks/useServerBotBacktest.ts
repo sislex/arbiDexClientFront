@@ -25,6 +25,11 @@ import { isTimeInExcludedRanges } from '../lib/excludedRanges'
 import type { SimulationLogEvent } from '../simulation/simulationViewerTypes'
 
 const TRADING_NET_ID = 'trading'
+const STABLE_ASSET_FRAGMENT = 'USD'
+
+function isStableAsset(symbol: string): boolean {
+  return symbol.toUpperCase().includes(STABLE_ASSET_FRAGMENT)
+}
 
 function resolveInspectPosition(
   time: number,
@@ -124,6 +129,15 @@ export function useBotBacktest({
   onBotRefreshRef.current = onBotRefresh
 
   const activeQuotes = backtest?.quotes ?? quotes
+  const invertedPair = useMemo(
+    () => isStableAsset(bot.baseAsset) && !isStableAsset(bot.quoteAsset),
+    [bot.baseAsset, bot.quoteAsset],
+  )
+  const toBotSide = useCallback(
+    (displaySide: 'buy' | 'sell'): 'buy' | 'sell' =>
+      invertedPair ? (displaySide === 'buy' ? 'sell' : 'buy') : displaySide,
+    [invertedPair],
+  )
   const chartData = useMemo(() => quotesToChartPoints(activeQuotes), [activeQuotes])
   const hasObservedAvg = useMemo(
     () => activeQuotes.some((quote) => quote.avgObservedQuote > 0),
@@ -241,12 +255,13 @@ export function useBotBacktest({
   }, [bot.id, period.from, period.to])
 
   const executeTrade = useCallback(
-    async (side: 'buy' | 'sell') => {
+    async (displaySide: 'buy' | 'sell') => {
       if (activeQuotes.length === 0 || tradePending) return
       const point = activeQuotes[Math.max(0, Math.min(playIdx, activeQuotes.length) - 1)] ?? activeQuotes[activeQuotes.length - 1]
       if (!point) return
 
-      const expectedPrice = side === 'buy' ? point.buyQuote : point.sellQuote
+      const side = toBotSide(displaySide)
+      const expectedPrice = displaySide === 'buy' ? point.buyQuote : point.sellQuote
       setTradePending(true)
       setTradeError(null)
       try {
@@ -259,15 +274,23 @@ export function useBotBacktest({
         setTradePending(false)
       }
     },
-    [activeQuotes, bot.id, playIdx, tradePending],
+    [activeQuotes, bot.id, playIdx, toBotSide, tradePending],
   )
 
   const executeBuy = useCallback(() => void executeTrade('buy'), [executeTrade])
   const executeSell = useCallback(() => void executeTrade('sell'), [executeTrade])
 
   const canTrade = bot.mode !== 'idle' && activeQuotes.length > 0 && !tradePending
-  const canBuy = canTrade && !bot.openPosition && bot.balance > 0
-  const canSell = canTrade && bot.openPosition
+  const canBuy =
+    canTrade &&
+    (toBotSide('buy') === 'buy'
+      ? !bot.openPosition && bot.balance > 0
+      : bot.openPosition)
+  const canSell =
+    canTrade &&
+    (toBotSide('sell') === 'buy'
+      ? !bot.openPosition && bot.balance > 0
+      : bot.openPosition)
 
   const analyzeCurrentStep = useCallback(
     (preferApi = false) => {

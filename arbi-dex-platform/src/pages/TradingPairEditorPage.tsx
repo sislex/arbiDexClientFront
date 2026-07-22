@@ -15,12 +15,15 @@ import { getTradingPairById } from '../data/mockData'
 import { selectionFromSearchParams, selectionToSearchParams } from '../lib/pairUrlParams'
 import { selectionToTradingPair } from '../lib/pairEditorUtils'
 import { loadTradingPairs, saveTradingPairs } from '../lib/tradingPairsStorage'
+import { loadBots, saveBots } from '../lib/botsStorage'
 import { getDefaultCexPairSymbol } from '../lib/pairSymbols'
 import {
   hasChartPairSelectionChanged,
   isChartPairSelectionComplete,
 } from '../lib/editorFormState'
 import { generateSelectionId } from '../types/chart'
+import { useAuth } from '../context/AuthContext'
+import { syncBotToServer } from '../lib/syncBotToServer'
 
 export function TradingPairEditorPage() {
   const { id } = useParams<{ id: string }>()
@@ -28,6 +31,7 @@ export function TradingPairEditorPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { pairs: catalogPairs } = useCatalogPairs()
+  const { isAuthenticated } = useAuth()
 
   const existingPair = !isNew && id ? getTradingPairById(id) : undefined
 
@@ -78,7 +82,7 @@ export function TradingPairEditorPage() {
   const isDirty = hasChartPairSelectionChanged(primary, baselineSelectionRef.current ?? undefined)
   const submitEnabled = isNew ? canCreate : isDirty && canCreate
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!submitEnabled || !primary?.pair) return
 
     if (isNew) {
@@ -95,6 +99,26 @@ export function TradingPairEditorPage() {
     const updated = selectionToTradingPair(primary, existingPair)
     const all = loadTradingPairs().map((p) => (p.id === existingPair.id ? updated : p))
     saveTradingPairs(all)
+
+    const bots = loadBots()
+    const linked = bots.filter((bot) => bot.pairSetId === updated.id)
+    if (linked.length > 0) {
+      const withUpdatedPair = bots.map((bot) =>
+        bot.pairSetId === updated.id ? { ...bot, pair: updated.pair } : bot,
+      )
+      if (isAuthenticated) {
+        const synced = await Promise.all(
+          withUpdatedPair.map(async (bot) => {
+            if (bot.pairSetId !== updated.id) return bot
+            return syncBotToServer(bot, { pairSet: updated })
+          }),
+        )
+        saveBots(synced)
+      } else {
+        saveBots(withUpdatedPair)
+      }
+    }
+
     navigate('/pairs')
   }
 
@@ -123,7 +147,7 @@ export function TradingPairEditorPage() {
                 <ArrowLeft size={14} /> Назад
               </Button>
             </Link>
-            <Button onClick={handleSave} disabled={!submitEnabled}>
+            <Button onClick={() => void handleSave()} disabled={!submitEnabled}>
               <Save size={14} />
               {isNew ? 'Создать' : 'Сохранить'}
             </Button>

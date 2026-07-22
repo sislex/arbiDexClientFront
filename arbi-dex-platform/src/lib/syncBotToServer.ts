@@ -45,13 +45,24 @@ function normalizeToken(value: string): string {
   return value.trim().toLowerCase()
 }
 
-function pairToPairId(pair: string): string {
-  const [base, quote] = pair.split('/')
-  return `${base}_${quote}`
+const ASSET_ALIASES: Record<string, string> = {
+  WBTC: 'BTC',
+  XBT: 'BTC',
+  WETH: 'ETH',
+  'USDC.E': 'USDC',
+}
+
+function canonicalAssetSymbol(value: string): string {
+  const upper = value.trim().toUpperCase()
+  return ASSET_ALIASES[upper] ?? upper
+}
+
+function normalizeExchangeLookupName(value: string): string {
+  return normalizeToken(value.replace(/\s+#\d+$/i, ''))
 }
 
 function exchangeTokens(exchangeName: string): string[] {
-  const key = normalizeToken(exchangeName)
+  const key = normalizeExchangeLookupName(exchangeName)
   const aliases = EXCHANGE_ALIASES[key] ?? [key]
   return aliases.map(normalizeToken)
 }
@@ -70,8 +81,18 @@ function marketMatchesExchange(market: CatalogMarket, exchangeName: string): boo
 }
 
 function marketMatchesPair(market: CatalogMarket, pair: string): boolean {
-  const pairId = pairToPairId(pair)
-  return market.pairId === pairId || `${market.base}/${market.quote}` === pair
+  const [pairBase, pairQuote] = pair.split('/')
+  const marketBase = canonicalAssetSymbol(market.base)
+  const marketQuote = canonicalAssetSymbol(market.quote)
+  const wantedBase = canonicalAssetSymbol(pairBase)
+  const wantedQuote = canonicalAssetSymbol(pairQuote)
+  if (marketBase === wantedBase && marketQuote === wantedQuote) return true
+
+  const [pairIdBase = '', pairIdQuote = ''] = market.pairId.split('_')
+  return (
+    canonicalAssetSymbol(pairIdBase) === wantedBase &&
+    canonicalAssetSymbol(pairIdQuote) === wantedQuote
+  )
 }
 
 export function resolveMarketId(
