@@ -13,6 +13,8 @@ export interface QuotesRangeResult {
   quotes: QuotePoint[];
   historyFrom: number;
   historyTo: number;
+  chartPoints: MarketChartPoint[];
+  networks: MarketChartNetwork[];
 }
 
 /** A market's data normalised to a bid/ask/mid tuple per timestamp. */
@@ -21,6 +23,20 @@ interface NormPoint {
   bid: number;
   ask: number;
   mid: number;
+}
+
+export interface MarketChartPoint {
+  t: number;
+  label: string;
+  avg?: number;
+  [key: string]: number | string | undefined;
+}
+
+export interface MarketChartNetwork {
+  id: string;
+  marketId: string;
+  label: string;
+  role: 'trading' | 'observed';
 }
 
 /** Per-direction follow stats. */
@@ -142,8 +158,9 @@ export class MarketConfigsService {
    * Real quote series for the config's trading market over `[from, to]`, with the
    * observed markets folded into a (weighted) `avgObservedQuote`.
    *
-   * The trading market drives the timeline: `buyQuote`=ask, `sellQuote`=bid. The
-   * observed markets are forward-filled and averaged at each trading timestamp.
+   * The timeline is the union of trading and observed market timestamps, clamped
+   * to the trading market's available bounds. Every market is forward-filled,
+   * so the response can drive the same multi-line chart as live mode.
    * `historyFrom`/`historyTo` are the full available bounds (for UI clamping);
    * `quotes` is filtered to the requested window. Falls back to the deterministic
    * synthetic series when no real trading data is available (demo/tests).
@@ -169,19 +186,55 @@ export class MarketConfigsService {
     const observed = await Promise.all(observedIds.map((m) => this.fetchNorm(m)));
     const weights = mc.weights ?? {};
 
-    // Forward-fill pointers per observed market.
+    const marketSeries = [
+      { marketId: tradingMarketId!, role: 'trading' as const, data: tradingSeries },
+      ...observedIds.map((marketId, index) => ({
+        marketId,
+        role: 'observed' as const,
+        data: observed[index],
+      })),
+    ];
+    const networks = marketSeries.map(({ marketId, role }, index) =>
+      this.toChartNetwork(marketId, role, index),
+    );
+
+    // Include observed ticks between trading ticks, but never extend history
+    // beyond the period where the trading market itself has a real quote.
+    const firstTradingTime = tradingSeries[0].time;
+    const lastTradingTime = tradingSeries[tradingSeries.length - 1].time;
+    const timeline = [...new Set(
+      marketSeries.flatMap(({ data }) =>
+        data
+          .map((point) => point.time)
+          .filter((time) => time >= firstTradingTime && time <= lastTradingTime),
+      ),
+    )].sort((a, b) => a - b);
+
+    // Forward-fill pointers per market.
+    const marketCursors = marketSeries.map(() => 0);
     const cursors = observed.map(() => 0);
 
-    const all: QuotePoint[] = tradingSeries.map((tp) => {
+    const all: QuotePoint[] = [];
+    const allChartPoints: MarketChartPoint[] = [];
+    for (const time of timeline) {
+      while (
+        marketCursors[0] + 1 < tradingSeries.length &&
+        tradingSeries[marketCursors[0] + 1].time <= time
+      ) {
+        marketCursors[0] += 1;
+      }
+      const tradingPoint = tradingSeries[marketCursors[0]];
+      if (!tradingPoint || tradingPoint.time > time) continue;
+
       let weightSum = 0;
       let acc = 0;
       observed.forEach((series, i) => {
         // Advance the cursor to the last point at or before this timestamp.
-        while (cursors[i] + 1 < series.length && series[cursors[i] + 1].time <= tp.time) {
+        while (cursors[i] + 1 < series.length && series[cursors[i] + 1].time <= time) {
           cursors[i] += 1;
         }
         const pt = series[cursors[i]];
-        if (pt && pt.time <= tp.time && pt.mid > 0) {
+        if (pt && pt.time <= time && pt.mid > 0) {
           const w = weights[observedIds[i]] ?? 1;
           acc += pt.mid * w;
           weightSum += w;
@@ -190,20 +243,41 @@ export class MarketConfigsService {
       // 0 = «нет данных наблюдаемых»: торговый рынок НЕ участвует в средней —
       // средневзвешенную формируют только наблюдаемые рынки.
       const avgObservedQuote = weightSum > 0 ? acc / weightSum : 0;
-      return {
-        time: tp.time,
-        buyQuote: tp.ask,
-        sellQuote: tp.bid,
+      all.push({
+        time,
+        buyQuote: tradingPoint.ask,
+        sellQuote: tradingPoint.bid,
         avgObservedQuote,
+      });
+
+      const chartPoint: MarketChartPoint = {
+        t: time,
+        label: new Date(time > 1e12 ? time : time * 1000).toISOString(),
+        ...(avgObservedQuote > 0 ? { avg: avgObservedQuote } : {}),
       };
-    });
+      marketSeries.forEach(({ data }, index) => {
+        while (
+          marketCursors[index] + 1 < data.length &&
+          data[marketCursors[index] + 1].time <= time
+        ) {
+          marketCursors[index] += 1;
+        }
+        const point = data[marketCursors[index]];
+        if (!point || point.time > time) return;
+        const networkId = networks[index].id;
+        chartPoint[`${networkId}_buy`] = point.ask;
+        chartPoint[`${networkId}_sell`] = point.bid;
+      });
+      allChartPoints.push(chartPoint);
+    }
 
     const historyFrom = all[0]?.time ?? 0;
     const historyTo = all[all.length - 1]?.time ?? 0;
     const lo = from ?? historyFrom;
     const hi = to ?? historyTo;
     const quotes = all.filter((q) => q.time >= lo && q.time <= hi);
-    return { quotes, historyFrom, historyTo };
+    const chartPoints = allChartPoints.filter((point) => point.t >= lo && point.t <= hi);
+    return { quotes, historyFrom, historyTo, chartPoints, networks };
   }
 
   /** Available history bounds for a config's trading market (for UI clamping). */
@@ -385,11 +459,50 @@ export class MarketConfigsService {
     return [market?.sourceId, market?.pairId];
   }
 
+  private toChartNetwork(
+    marketId: string,
+    role: 'trading' | 'observed',
+    index: number,
+  ): MarketChartNetwork {
+    const market = findMarket(marketId);
+    const [sourceId, pairId] = this.splitMarketId(marketId);
+    const sourceLabel =
+      market?.sourceName ??
+      (sourceId ?? 'Market')
+        .replace(/^cex[_:]/, '')
+        .replace(/^dex[_:]/, '')
+        .replace(/[_-]+/g, ' ')
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+    const pairLabel = market
+      ? `${market.base}/${market.quote}`
+      : (pairId ?? '').replace('_', '/');
+    return {
+      id: `market-${index}-${marketId.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+      marketId,
+      label: [sourceLabel, pairLabel].filter(Boolean).join(' '),
+      role,
+    };
+  }
+
   private sliceSynthetic(synthetic: QuotePoint[], from?: number, to?: number): QuotesRangeResult {
     const historyFrom = synthetic[0]?.time ?? 0;
     const historyTo = synthetic[synthetic.length - 1]?.time ?? 0;
     const lo = from ?? historyFrom;
     const hi = to ?? historyTo;
-    return { quotes: synthetic.filter((q) => q.time >= lo && q.time <= hi), historyFrom, historyTo };
+    const quotes = synthetic.filter((q) => q.time >= lo && q.time <= hi);
+    const network: MarketChartNetwork = {
+      id: 'trading',
+      marketId: 'synthetic',
+      label: 'Synthetic market',
+      role: 'trading',
+    };
+    const chartPoints = quotes.map((quote) => ({
+      t: quote.time,
+      label: new Date(quote.time > 1e12 ? quote.time : quote.time * 1000).toISOString(),
+      ...(quote.avgObservedQuote > 0 ? { avg: quote.avgObservedQuote } : {}),
+      [`${network.id}_buy`]: quote.buyQuote,
+      [`${network.id}_sell`]: quote.sellQuote,
+    }));
+    return { quotes, historyFrom, historyTo, chartPoints, networks: [network] };
   }
 }

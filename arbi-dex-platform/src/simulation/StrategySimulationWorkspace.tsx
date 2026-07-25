@@ -31,6 +31,7 @@ import { ChartErrorBoundary } from "./ChartErrorBoundary";
 import { PlayerBtn } from "./PlayerBtn";
 import { StepResultPanel } from "./StepResultPanel";
 import { EventExplainPanel } from "./EventExplainPanel";
+import { getEventTitle } from "./eventLabels";
 import {
   chartCrosshairDateTime,
   chartDateTime,
@@ -2267,7 +2268,7 @@ export function StrategySimulationWorkspace({
                       {cfg.label}
                     </span>
                     <span style={{ fontSize: "11px", color: textTertiary, flex: 1, lineHeight: "1.4" }}>
-                      {event.message}
+                      {getEventTitle(event)}
                     </span>
                     {hasDetail && (
                       <span

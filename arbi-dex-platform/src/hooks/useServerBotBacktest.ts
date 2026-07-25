@@ -11,6 +11,7 @@ import {
   type ServerBacktestResult,
   type ServerBot,
   type ServerBotTrade,
+  type ServerChartNetwork,
   type ServerQuotePoint,
 } from '../services/botsApi'
 import {
@@ -23,6 +24,7 @@ import { mapServerLiveTradeToLogEvent, mapServerStepToLogEvent, mapServerTradeTo
 import { derivePositionAtTime } from '../lib/derivePositionAtTime'
 import { isTimeInExcludedRanges } from '../lib/excludedRanges'
 import type { SimulationLogEvent } from '../simulation/simulationViewerTypes'
+import { NETWORK_COLORS } from '../simulation/simulationNetworkTypes'
 
 const TRADING_NET_ID = 'trading'
 const STABLE_ASSET_FRAGMENT = 'USD'
@@ -107,6 +109,8 @@ export function useBotBacktest({
   suspendPeriodReload = false,
 }: UseBotBacktestOptions) {
   const [quotes, setQuotes] = useState<ServerQuotePoint[]>([])
+  const [serverChartData, setServerChartData] = useState<ChartPoint[]>([])
+  const [serverNetworks, setServerNetworks] = useState<ServerChartNetwork[]>([])
   const [backtest, setBacktest] = useState<ServerBacktestResult | null>(null)
   const [backtestStrategyConfigId, setBacktestStrategyConfigId] = useState<string | null>(null)
   const [liveTrades, setLiveTrades] = useState<ServerBotTrade[]>([])
@@ -128,6 +132,7 @@ export function useBotBacktest({
   const onBotRefreshRef = useRef(onBotRefresh)
   onBotRefreshRef.current = onBotRefresh
 
+  const applyPeriodRange = period.applyRange
   const activeQuotes = backtest?.quotes ?? quotes
   const invertedPair = useMemo(
     () => isStableAsset(bot.baseAsset) && !isStableAsset(bot.quoteAsset),
@@ -138,7 +143,10 @@ export function useBotBacktest({
       invertedPair ? (displaySide === 'buy' ? 'sell' : 'buy') : displaySide,
     [invertedPair],
   )
-  const chartData = useMemo(() => quotesToChartPoints(activeQuotes), [activeQuotes])
+  const chartData = useMemo(
+    () => serverChartData.length > 0 ? serverChartData : quotesToChartPoints(activeQuotes),
+    [activeQuotes, serverChartData],
+  )
   const hasObservedAvg = useMemo(
     () => activeQuotes.some((quote) => quote.avgObservedQuote > 0),
     [activeQuotes],
@@ -170,16 +178,30 @@ export function useBotBacktest({
   }, [activeQuotes, backtest, liveTrades])
 
   const displayNetworks = useMemo(
-    () => [{ id: TRADING_NET_ID, label: `${bot.baseAsset}/${bot.quoteAsset}`, color: '#7C3AED' }],
-    [bot.baseAsset, bot.quoteAsset],
+    () => serverNetworks.length > 0
+      ? serverNetworks.map((network, index) => ({
+          id: network.id,
+          label: network.label,
+          color: NETWORK_COLORS[index % NETWORK_COLORS.length],
+        }))
+      : [{ id: TRADING_NET_ID, label: `${bot.baseAsset}/${bot.quoteAsset}`, color: '#7C3AED' }],
+    [bot.baseAsset, bot.quoteAsset, serverNetworks],
   )
 
-  const tradingNetworkIds = useMemo(() => new Set([TRADING_NET_ID]), [])
+  const tradingNetworkIds = useMemo(
+    () => new Set(
+      serverNetworks.length > 0
+        ? serverNetworks.filter((network) => network.role === 'trading').map((network) => network.id)
+        : [TRADING_NET_ID],
+    ),
+    [serverNetworks],
+  )
+  const primaryTradingNetworkId = tradingNetworkIds.values().next().value ?? TRADING_NET_ID
   const lastPoint = chartData[Math.max(0, playIdx - 1)]
   const lastPrice =
     (typeof lastPoint?.avg === 'number' && lastPoint.avg > 0 ? lastPoint.avg : undefined) ??
-    (typeof lastPoint?.[`${TRADING_NET_ID}_buy`] === 'number'
-      ? (lastPoint[`${TRADING_NET_ID}_buy`] as number)
+    (typeof lastPoint?.[`${primaryTradingNetworkId}_buy`] === 'number'
+      ? (lastPoint[`${primaryTradingNetworkId}_buy`] as number)
       : undefined)
 
   const inspectViaApi = useCallback(
@@ -311,9 +333,11 @@ export function useBotBacktest({
     try {
       const result = await fetchBotQuotes(bot.id, { from: period.from, to: period.to })
       if (result.historyFrom != null && result.historyTo != null) {
-        period.applyRange({ historyFrom: result.historyFrom, historyTo: result.historyTo })
+        applyPeriodRange({ historyFrom: result.historyFrom, historyTo: result.historyTo })
       }
       setQuotes(result.quotes)
+      setServerChartData((result.chartPoints ?? []) as ChartPoint[])
+      setServerNetworks(result.networks ?? [])
       skipPlayIdxInspectRef.current = true
       setPlayIdx(result.quotes.length)
       const last = result.quotes[result.quotes.length - 1]
@@ -321,13 +345,15 @@ export function useBotBacktest({
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось загрузить котировки')
       setQuotes([])
+      setServerChartData([])
+      setServerNetworks([])
       setPlayIdx(0)
       setStepResult(null)
       setStepSource(null)
     } finally {
       setQuotesLoading(false)
     }
-  }, [bot.id, period.from, period.to])
+  }, [applyPeriodRange, bot.id, period.from, period.to])
 
   const runBacktest = useCallback(async () => {
     if (period.from == null || period.to == null) return
@@ -336,7 +362,7 @@ export function useBotBacktest({
     try {
       const result = await runServerBacktest(bot.id, { from: period.from, to: period.to, excludedRanges })
       if (result.historyFrom != null && result.historyTo != null) {
-        period.applyRange({ historyFrom: result.historyFrom, historyTo: result.historyTo })
+        applyPeriodRange({ historyFrom: result.historyFrom, historyTo: result.historyTo })
       }
       setBacktest(result)
       setBacktestStrategyConfigId(bot.strategyConfigId)
@@ -351,7 +377,7 @@ export function useBotBacktest({
     } finally {
       setBacktestLoading(false)
     }
-  }, [bot.id, bot.strategyConfigId, excludedRanges, period.from, period.to])
+  }, [applyPeriodRange, bot.id, bot.strategyConfigId, excludedRanges, period.from, period.to])
 
   const invalidateSimulation = useCallback(() => {
     setBacktest(null)

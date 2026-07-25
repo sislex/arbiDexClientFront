@@ -64,7 +64,7 @@ export const jwtConfig = registerAs('jwt', () => ({
 export const marketDataConfig = registerAs('marketData', () => ({
   // Единственный источник URL market-data. В production MARKET_DATA_URL обязателен
   // (иначе падаем на старте); в dev — дефолт на общий сервер.
-  url: envOrDevDefault('MARKET_DATA_URL', 'http://45.135.182.251:3002'),
+  url: envOrDevDefault('MARKET_DATA_URL', 'http://89.125.68.35:3002'),
 }));
 
 export const swapNetworksConfig = registerAs('swapNetworks', () => ({

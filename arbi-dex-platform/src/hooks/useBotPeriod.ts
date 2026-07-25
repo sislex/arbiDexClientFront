@@ -14,7 +14,9 @@ export function useBotPeriod(botId: string | undefined) {
   useEffect(() => {
     if (!botId) return
     let alive = true
-    fetchBotHistoryRange(botId)
+    // Demo must start from fresh Market Data. The server refreshes every market
+    // in the bot configuration before returning the bounds used by the picker.
+    fetchBotHistoryRange(botId, { refresh: true })
       .then((r) => {
         if (!alive) return
         setRange(r)

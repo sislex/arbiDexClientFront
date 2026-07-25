@@ -135,7 +135,12 @@ export class PricesService {
       /* формат по умолчанию */
     }
 
-    const keys = buildStoreKeys(sourceId, pairId, format);
+    const isDex = sourceId.startsWith('dex');
+    // В Market Data актуальный DEX-поток хранится в обратной ориентации
+    // токенов (quote/base), при этом значения уже нормализованы как цена
+    // base в quote. CEX-ключи остаются в исходном направлении.
+    const keyPairId = isDex ? pairId.split('_').reverse().join('_') : pairId;
+    const keys = buildStoreKeys(sourceId, keyPairId, format);
     if (!keys) {
       throw new BadRequestException(
         `Не удалось построить ключи для sourceId="${sourceId}", pairId="${pairId}".`,
@@ -160,8 +165,6 @@ export class PricesService {
 
     const bidPoints: BotsPricePoint[] = botsData[bidKey]?.points ?? [];
     const askPoints: BotsPricePoint[] = botsData[askKey]?.points ?? [];
-    const isDex = sourceId.startsWith('dex');
-
     const timeMap = new Map<number, ChartPricePoint>();
     for (const p of bidPoints) timeMap.set(p.t, { time: p.t, bidPrice: p.v, askPrice: 0 });
     for (const p of askPoints) {

@@ -21,7 +21,7 @@ export const DEX_POOL_CATALOG: Array<DexPoolPreset & { network: string }> = [
   {
     id: 'arb-btc-usdc',
     network: 'arbitrum',
-    pair: 'BTC/USDT',
+    pair: 'BTC/USDC',
     label: 'WBTC / USDC',
     base: '0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f',
     quote: '0xaf88d065e77c8cc2239327c5edb3a432268e5831',
@@ -37,7 +37,7 @@ export const DEX_POOL_CATALOG: Array<DexPoolPreset & { network: string }> = [
   {
     id: 'arb-eth-usdc',
     network: 'arbitrum',
-    pair: 'ETH/USDT',
+    pair: 'ETH/USDC',
     label: 'WETH / USDC',
     base: '0x82af49447d8a07e3bd95bd0d56f35241523fbab1',
     quote: '0xaf88d065e77c8cc2239327c5edb3a432268e5831',

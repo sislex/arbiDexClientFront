@@ -2,6 +2,7 @@ import { useSimulatorI18n } from "./useSimulatorI18n";
 import { getConditionLabel } from "./conditionLabels";
 import { formatConditionOutcome } from "../lib/conditionsCatalog";
 import type { SimulationLogEvent } from "./simulationViewerTypes";
+import { getDecisionTitle, getRuleTitle } from "./eventLabels";
 
 interface EventExplainPanelProps {
   event: SimulationLogEvent;
@@ -113,14 +114,14 @@ export function EventExplainPanel({
           </div>
         )}
         {[
-          [t("simulator.rule"), d.rule],
+          [t("simulator.rule"), d.rule ? getRuleTitle(d.rule) : undefined],
           [t("simulator.currentValue"), d.currentValue],
           [t("simulator.required"), d.required],
-          ["Request price", d.requestPrice],
-          ["Executed price", d.executedPrice],
-          ["Execution ok", d.executionOk],
-          ["Execution delay ms", d.executionDelayMs],
-          ["Slippage", d.slippagePct],
+          ["Цена запроса", d.requestPrice],
+          ["Цена исполнения", d.executedPrice],
+          ["Исполнение успешно", d.executionOk],
+          ["Задержка исполнения, мс", d.executionDelayMs],
+          ["Проскальзывание", d.slippagePct],
           [t("simulator.riskLabel"), d.risk],
           [t("simulator.tradeSize"), d.amount],
           [t("simulator.status"), d.status],
@@ -154,7 +155,7 @@ export function EventExplainPanel({
             className="px-2 py-0.5 rounded text-xs"
             style={{ fontFamily: "var(--font-mono)", fontWeight: 600, backgroundColor: `${accent}20`, color: accent }}
           >
-            {d.decision}
+            {d.decision ? getDecisionTitle(d.decision) : d.decision}
           </span>
           {onJumpToPoint && (event.type === "Buy" || event.type === "Sell" || event.type === "Error") && (
             <button

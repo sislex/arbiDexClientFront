@@ -45,6 +45,30 @@ export interface ServerQuotePoint {
   avgObservedQuote: number
 }
 
+export interface ServerChartPoint {
+  t: number
+  label: string
+  avg?: number
+  [key: string]: number | string | undefined
+}
+
+export interface ServerChartNetwork {
+  id: string
+  marketId: string
+  label: string
+  role: 'trading' | 'observed'
+}
+
+export interface ServerBotQuotesResponse {
+  quotes: ServerQuotePoint[]
+  chartPoints?: ServerChartPoint[]
+  networks?: ServerChartNetwork[]
+  from: number
+  to: number
+  historyFrom: number
+  historyTo: number
+}
+
 export interface ServerStepConditionOutcome {
   passed: boolean
   actual?: number
@@ -211,16 +235,25 @@ export function deleteServerBot(botId: string): Promise<void> {
   return apiRequest<void>(`/bots/${botId}`, { method: 'DELETE' })
 }
 
-export function fetchBotHistoryRange(botId: string): Promise<{ historyFrom: number; historyTo: number }> {
-  return apiRequest(`/bots/${botId}/history-range`)
+export function fetchBotHistoryRange(
+  botId: string,
+  params: { refresh?: boolean } = {},
+): Promise<{ historyFrom: number; historyTo: number }> {
+  return apiRequest(`/bots/${botId}/history-range`, {
+    query: { refresh: params.refresh ? 1 : undefined },
+  })
 }
 
 export function fetchBotQuotes(
   botId: string,
-  params: { from?: number; to?: number } = {},
-): Promise<{ quotes: ServerQuotePoint[]; from: number; to: number; historyFrom: number; historyTo: number }> {
+  params: { from?: number; to?: number; refresh?: boolean } = {},
+): Promise<ServerBotQuotesResponse> {
   return apiRequest(`/bots/${botId}/quotes`, {
-    query: { from: params.from, to: params.to },
+    query: {
+      from: params.from,
+      to: params.to,
+      refresh: params.refresh ? 1 : undefined,
+    },
   })
 }
 

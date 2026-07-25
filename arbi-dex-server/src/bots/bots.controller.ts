@@ -58,10 +58,22 @@ export class BotsController {
   }
 
   @Get(':id/history-range')
-  @ApiOperation({ summary: 'Границы доступной истории котировок рынка бота (для выбора периода)' })
+  @ApiOperation({
+    summary: 'Границы доступной истории котировок рынка бота (для выбора периода)',
+    description: 'refresh=1 — сначала обновить кэш всех рынков конфигурации из Market Data.',
+  })
   @ApiParam({ name: 'id' })
-  historyRange(@CurrentUser() user: User, @Param('id') id: string) {
-    return this.service.historyRange(user.id, id);
+  @ApiQuery({ name: 'refresh', required: false, description: '1 — обновить Market Data перед расчётом границ' })
+  historyRange(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Query('refresh') refresh?: string,
+  ) {
+    return this.service.historyRange(
+      user.id,
+      id,
+      refresh === '1' || refresh === 'true',
+    );
   }
 
   @Get(':id/quotes')

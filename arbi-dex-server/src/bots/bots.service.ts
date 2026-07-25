@@ -324,8 +324,15 @@ export class BotsService {
   }
 
   /** Available history bounds for the bot's linked market (for period selection). */
-  async historyRange(userId: string, id: string): Promise<{ historyFrom: number; historyTo: number }> {
+  async historyRange(
+    userId: string,
+    id: string,
+    refresh = false,
+  ): Promise<{ historyFrom: number; historyTo: number }> {
     const bot = await this.findOne(userId, id);
+    if (refresh) {
+      await this.marketConfigs.refreshQuotesCache(userId, bot.marketConfigId);
+    }
     return this.marketConfigs.getHistoryRange(userId, bot.marketConfigId);
   }
 
@@ -340,7 +347,7 @@ export class BotsService {
     userId: string,
     id: string,
     opts: { from?: number; to?: number; refresh?: boolean } = {},
-  ): Promise<{ quotes: QuotePoint[]; from: number; to: number; historyFrom: number; historyTo: number }> {
+  ) {
     const bot = await this.findOne(userId, id);
     if (opts.refresh) await this.marketConfigs.refreshQuotesCache(userId, bot.marketConfigId);
 
@@ -352,8 +359,13 @@ export class BotsService {
     const to = clamp(opts.to ?? historyTo, historyFrom, historyTo);
     const from = clamp(opts.from ?? to - week, historyFrom, to);
 
-    const { quotes } = await this.marketConfigs.getQuotesRange(userId, bot.marketConfigId, from, to);
-    return { quotes, from, to, historyFrom, historyTo };
+    const { quotes, chartPoints, networks } = await this.marketConfigs.getQuotesRange(
+      userId,
+      bot.marketConfigId,
+      from,
+      to,
+    );
+    return { quotes, chartPoints, networks, from, to, historyFrom, historyTo };
   }
 
   /**

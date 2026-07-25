@@ -48,7 +48,7 @@ export class CatalogService {
     private readonly configService: ConfigService,
   ) {
     this.marketDataUrl =
-      this.configService.get<string>('marketData.url') ?? 'http://45.135.182.251:3002';
+      this.configService.get<string>('marketData.url') ?? 'http://89.125.68.35:3002';
   }
 
   /**
