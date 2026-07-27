@@ -16,6 +16,7 @@ export interface ServerBotSimulationPageProps {
   header?: Partial<SimulationWorkspaceHeader>
   onStepResultChange?: (stepResult: SimulationLogEvent | null) => void
   onBotRefresh?: () => void
+  onBotUpdated?: (bot: ServerBot) => void
   showPlayer?: boolean
   onTradeHandlersChange?: (handlers: BotTradeHandlers | null) => void
 }
@@ -38,6 +39,7 @@ export function ServerBotSimulationPage({
   header: headerOverride,
   onStepResultChange,
   onBotRefresh,
+  onBotUpdated,
   showPlayer = true,
   onTradeHandlersChange,
 }: ServerBotSimulationPageProps) {
@@ -62,6 +64,7 @@ export function ServerBotSimulationPage({
     excludedRanges: serverExcludedRanges,
     enabled: true,
     onBotRefresh,
+    onBotUpdated,
     suspendPeriodReload: chartPickMode !== 'idle',
   })
 

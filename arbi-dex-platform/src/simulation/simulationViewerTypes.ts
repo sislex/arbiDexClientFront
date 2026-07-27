@@ -34,6 +34,7 @@ export interface SimulationLogEvent {
   id: string;
   time: string;
   type: SimulationEventType;
+  source?: "live-trade";
   message: string;
   detail: SimulationEventDetail | null;
   dataIdx: number;

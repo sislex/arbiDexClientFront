@@ -272,7 +272,7 @@ export function StrategySimulationWorkspace({
     new Set(Object.keys(SIMULATION_EVENT_TYPE_CONFIG) as SimulationEventType[]),
   );
   const [filterOpen, setFilterOpen] = useState(false);
-  const [logClearedAtTs, setLogClearedAtTs] = useState<number>(-1);
+  const [clearedEventIds, setClearedEventIds] = useState<Set<string>>(() => new Set());
   const [eventPanelWidth, setEventPanelWidth] = useState(280);
   const [eventPanelCollapsed, setEventPanelCollapsed] = useState(false);
   const [playerPanelHeight, setPlayerPanelHeight] = useState(128);
@@ -578,20 +578,20 @@ export function StrategySimulationWorkspace({
   }, [events, chartData]);
 
   const allTypes = Object.keys(SIMULATION_EVENT_TYPE_CONFIG) as SimulationEventType[];
-  const timelineLastTs = chartSource.length > 0 ? chartSource[chartSource.length - 1].t : -1;
 
   const { visibleEvents, totalEventsAfterClear } = useMemo(() => {
     const filtered: SimulationLogEvent[] = [];
     let total = 0;
     for (const event of events) {
-      const eventTs = chartData[event.dataIdx]?.t ?? -1;
-      if (event.dataIdx <= playIdx && eventTs > logClearedAtTs) {
+      const reachedByPlayer = event.dataIdx <= playIdx;
+      const alwaysVisibleTrade = event.source === "live-trade";
+      if (!clearedEventIds.has(event.id) && (reachedByPlayer || alwaysVisibleTrade)) {
         total += 1;
         if (activeTypes.has(event.type)) filtered.push(event);
       }
     }
     return { visibleEvents: filtered, totalEventsAfterClear: total };
-  }, [events, chartData, playIdx, logClearedAtTs, activeTypes]);
+  }, [events, playIdx, clearedEventIds, activeTypes]);
 
   const renderedEvents = useMemo(
     () => [...visibleEvents].reverse().slice(0, MAX_RENDERED_LOG_EVENTS),
@@ -2083,7 +2083,11 @@ export function StrategySimulationWorkspace({
             <div className="flex items-center gap-1.5 mt-2">
               <button
                 onClick={() => {
-                  setLogClearedAtTs(timelineLastTs);
+                  setClearedEventIds((previous) => {
+                    const next = new Set(previous);
+                    for (const event of events) next.add(event.id);
+                    return next;
+                  });
                   setExpandedEvent(null);
                 }}
                 className="px-2 py-1 rounded text-xs transition-colors shrink-0"

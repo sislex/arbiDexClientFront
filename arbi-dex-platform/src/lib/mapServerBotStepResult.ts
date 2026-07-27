@@ -191,20 +191,23 @@ export function mapServerLiveTradeToLogEvent(
     trade.expectedPrice ??
     (trade.side === 'buy' ? quote?.buyQuote : quote?.sellQuote) ??
     0
-  return mapServerTradeToLogEvent(
-    {
-      id: trade.id,
-      time: trade.time,
-      side: trade.side,
-      price: markerPrice,
-      amount: trade.amountIn,
-      pnl: trade.pnl ?? undefined,
-      status: trade.status,
-      error: trade.error,
-    },
-    idx,
-    markerTs,
-  )
+  return {
+    ...mapServerTradeToLogEvent(
+      {
+        id: trade.id,
+        time: trade.time,
+        side: trade.side,
+        price: markerPrice,
+        amount: trade.amountIn,
+        pnl: trade.pnl ?? undefined,
+        status: trade.status,
+        error: trade.error,
+      },
+      idx,
+      markerTs,
+    ),
+    source: 'live-trade',
+  }
 }
 
 function findQuoteIndexByTime(quotes: ServerQuotePoint[], time: number): number {

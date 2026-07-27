@@ -124,6 +124,13 @@ export function BotDetailPage() {
     }
   }, [searchParams, fundMode, tradeMode, syncParams])
 
+  const handleBotRefresh = useCallback(() => {
+    if (!resolvedServerBotId) return
+    fetchServerBot(resolvedServerBotId)
+      .then(setServerBot)
+      .catch(() => {})
+  }, [resolvedServerBotId])
+
   if (!bot && !resolvedServerBotId && !urlServerBotId) {
     return (
       <PageContent className="py-12 text-center">
@@ -166,13 +173,6 @@ export function BotDetailPage() {
   const chartSelection = bot ? getBotChartSelection(bot) : null
   const useServerSimulation = isDemo && Boolean(resolvedServerBotId && serverBot)
   const editableBotId = bot?.id ?? urlServerBotId
-
-  const handleBotRefresh = useCallback(() => {
-    if (!resolvedServerBotId) return
-    fetchServerBot(resolvedServerBotId)
-      .then(setServerBot)
-      .catch(() => {})
-  }, [resolvedServerBotId])
 
   const simulationHeader = {
     pairLabel: displayPair,
@@ -247,6 +247,7 @@ export function BotDetailPage() {
             onStepResultChange={onStepResultChange}
             header={simulationHeader}
             onBotRefresh={handleBotRefresh}
+            onBotUpdated={setServerBot}
             onTradeHandlersChange={setTradeHandlers}
           />
         ) : simulationStrategy && chartSelection ? (
