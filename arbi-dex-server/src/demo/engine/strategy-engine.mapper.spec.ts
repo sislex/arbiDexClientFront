@@ -1,5 +1,5 @@
 import { runBacktest } from '@sislex/arbi-conditions-libs';
-import type { MarketStep } from '@sislex/arbi-conditions-libs';
+import type { EvalContext, MarketStep } from '@sislex/arbi-conditions-libs';
 import { toEngineStrategy } from './strategy-engine.mapper';
 import { defaultStrategySides } from './conditions-catalog';
 import { generateQuoteSeries } from './quotes';
@@ -77,5 +77,45 @@ describe('toEngineStrategy → runBacktest (demo bots path)', () => {
     expect(gateIds).toContain('no_transaction_in_progress');
     expect(gateIds).toContain('transaction_delay_ok');
     expect(gateIds).toContain('balance_ok');
+  });
+
+  it('treats sell avg deviation threshold as negative', () => {
+    const { buy, sell } = defaultStrategySides();
+    const sellWithTinyAvg = sell.map((c) =>
+      c.conditionId === 'avg_observed_higher_for_last_steps'
+        ? { ...c, enabled: true, params: { ...c.params, percent: 0.001, steps: 1 } }
+        : c,
+    );
+    const { strategy, gates } = toEngineStrategy(buy, sellWithTinyAvg);
+    const avgGate = gates.find((g) => g.id === 'avg_observed_higher_for_last_steps');
+
+    expect(avgGate).toBeDefined();
+
+    const ctx: EvalContext = {
+      window: [
+        {
+          time: 1,
+          quotes: {
+            buyQuote: 100.2,
+            sellQuote: 99.94338167661039,
+            avgObservedQuote: 100,
+          },
+        },
+      ],
+      current: {
+        time: 1,
+        quotes: {
+          buyQuote: 100.2,
+          sellQuote: 99.94338167661039,
+          avgObservedQuote: 100,
+        },
+      },
+      position: null,
+    };
+
+    const result = avgGate!.evaluate(ctx, strategy, 'sell');
+    expect(result.passed).toBe(true);
+    expect(result.actual).toBeCloseTo(-0.056618323389612856, 12);
+    expect(result.required).toBe(-0.001);
   });
 });

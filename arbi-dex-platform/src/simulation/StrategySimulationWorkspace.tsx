@@ -23,7 +23,14 @@ import {
 import { useSimulatorI18n } from "./useSimulatorI18n";
 import { ChartPeriodSelector } from "../components/charts/ChartPeriodSelector";
 import { ChartViewportControls } from "../components/charts/ChartViewportControls";
-import { filterChartDataWithBuffer, strictPeriodBounds, inferChartPeriodFromSpan, formatChartAxisLabel, type ChartPeriod } from "../lib/chartTimeRange";
+import {
+  filterChartDataWithBuffer,
+  strictPeriodBounds,
+  inferChartPeriodFromSpan,
+  formatChartAxisLabel,
+  computeYDomainWithPadding,
+  type ChartPeriod,
+} from "../lib/chartTimeRange";
 import type { ChartPeriodPickMode } from "../hooks/useBotPeriod";
 import { useChartViewport } from "../hooks/useChartViewport";
 import type { ChartPoint } from "../services/chartDataService";
@@ -111,6 +118,8 @@ export interface StrategySimulationWorkspaceProps {
   selectedStepTime?: number | null
   /** Time ranges to highlight as excluded from calculations. */
   excludedRanges?: Array<{ start: number; end: number }>
+  /** Increment to reset the event log (e.g. on each backtest run). */
+  eventLogRevision?: number
 }
 
 type VisKey = string;
@@ -234,6 +243,7 @@ export function StrategySimulationWorkspace({
   onChartStepInspect,
   selectedStepTime = null,
   excludedRanges = [],
+  eventLogRevision = 0,
 }: StrategySimulationWorkspaceProps) {
   const { t } = useSimulatorI18n();
   const tradingNetworkIds = useMemo(
@@ -273,6 +283,11 @@ export function StrategySimulationWorkspace({
   );
   const [filterOpen, setFilterOpen] = useState(false);
   const [clearedEventIds, setClearedEventIds] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    setClearedEventIds(new Set());
+    setExpandedEvent(null);
+  }, [eventLogRevision]);
   const [eventPanelWidth, setEventPanelWidth] = useState(280);
   const [eventPanelCollapsed, setEventPanelCollapsed] = useState(false);
   const [playerPanelHeight, setPlayerPanelHeight] = useState(128);
@@ -367,7 +382,7 @@ export function StrategySimulationWorkspace({
   const {
     visibleData: viewportVisibleData,
     renderData: viewportRenderData,
-    xDomain,
+    viewport,
     isAdjusted: isViewportAdjusted,
     reset: resetViewport,
     centerOnTimestamp,
@@ -382,10 +397,40 @@ export function StrategySimulationWorkspace({
     const source = viewportRenderData.length > 0 ? viewportRenderData : viewportVisibleData;
     return source as SimulationChartPoint[];
   }, [viewportRenderData, viewportVisibleData]);
+  // Only the visible viewport — never the padded xDomain from useChartViewport.
+  const chartSeriesClipRange = useMemo(
+    (): [number, number] => [viewport.start, viewport.end],
+    [viewport.end, viewport.start],
+  );
+
+  const chartRenderData = useMemo(() => {
+    const [clipMin, clipMax] = chartSeriesClipRange;
+    return visibleData
+      .map((point) => {
+        if (!Number.isFinite(point.t)) return null;
+        if (point.t < clipMin || point.t > clipMax) return null;
+        if (typeof point.xLabel !== "string") {
+          return { ...point, xLabel: chartDateTime(Number(point.t)) };
+        }
+        return point;
+      })
+      .filter((row): row is SimulationChartPoint => row !== null);
+  }, [visibleData, chartSeriesClipRange]);
+
+  /** Axis ends at the last in-window point so step lines do not extend to padding. */
+  const chartAxisDomain = useMemo((): [number, number] => {
+    const [clipMin, clipMax] = chartSeriesClipRange;
+    if (chartRenderData.length === 0) return [clipMin, clipMax];
+    const lastT = chartRenderData[chartRenderData.length - 1].t;
+    return [clipMin, Math.min(clipMax, lastT)];
+  }, [chartSeriesClipRange, chartRenderData]);
+
   const maxIdx = chartData.length;
 
   const selectedStepCrossLines = useMemo(() => {
     if (effectiveSelectedStepTime == null) return undefined;
+    const [clipMin, clipMax] = chartSeriesClipRange;
+    if (effectiveSelectedStepTime < clipMin || effectiveSelectedStepTime > clipMax) return undefined;
     return [
       {
         type: "line" as const,
@@ -396,21 +441,28 @@ export function StrategySimulationWorkspace({
         label: { enabled: false },
       },
     ];
-  }, [effectiveSelectedStepTime]);
+  }, [effectiveSelectedStepTime, chartSeriesClipRange]);
 
   const excludedRangesCrossLines = useMemo(() => {
     if (excludedRanges.length === 0) return [];
+    const [clipMin, clipMax] = chartSeriesClipRange;
     return excludedRanges
       .filter((range) => Number.isFinite(range.start) && Number.isFinite(range.end))
-      .map((range) => ({
-        type: "range" as const,
-        range: [Math.min(range.start, range.end), Math.max(range.start, range.end)] as [number, number],
-        fill: "#E5383B",
-        fillOpacity: 0.2,
-        strokeWidth: 0,
-        label: { enabled: false },
-      }));
-  }, [excludedRanges]);
+      .map((range) => {
+        const start = Math.max(clipMin, Math.min(range.start, range.end));
+        const end = Math.min(clipMax, Math.max(range.start, range.end));
+        if (end <= start) return null;
+        return {
+          type: "range" as const,
+          range: [start, end] as [number, number],
+          fill: "#E5383B",
+          fillOpacity: 0.2,
+          strokeWidth: 0,
+          label: { enabled: false },
+        };
+      })
+      .filter((line): line is NonNullable<typeof line> => line !== null);
+  }, [excludedRanges, chartSeriesClipRange]);
 
   const chartCrossLines = useMemo(() => {
     const stepLine = selectedStepCrossLines ?? [];
@@ -777,7 +829,7 @@ export function StrategySimulationWorkspace({
           const ts = timestampAtChartClientX(
             pending.clientX,
             panel.getBoundingClientRect(),
-            xDomain,
+            chartAxisDomain,
             visibleData,
           );
           if (ts != null) {
@@ -796,7 +848,7 @@ export function StrategySimulationWorkspace({
     };
     window.addEventListener("mouseup", onMouseUp);
     return () => window.removeEventListener("mouseup", onMouseUp);
-  }, [chartPeriodPickMode, visibleData, xDomain]);
+  }, [chartPeriodPickMode, visibleData, chartAxisDomain]);
 
   const borderColor = isDark ? "#1E2D40" : "#D1D9E0";
   const textPrimary = isDark ? "#E8EDF2" : "#0F1923";
@@ -854,7 +906,7 @@ export function StrategySimulationWorkspace({
     const xRaw = e.clientX - rect.left;
     const xClamped = Math.min(insets.left + plotWidth, Math.max(insets.left, xRaw));
     const ratio = (xClamped - insets.left) / plotWidth;
-    const tsAtCursor = xDomain[0] + ratio * (xDomain[1] - xDomain[0]);
+    const tsAtCursor = chartAxisDomain[0] + ratio * (chartAxisDomain[1] - chartAxisDomain[0]);
     const point = findNearestPointByTime(visibleData, tsAtCursor);
     if (!point) {
       setHoverCrosshair(null);
@@ -891,7 +943,7 @@ export function StrategySimulationWorkspace({
     }
     const yRatio = (price - hoverYDomain.min) / Math.max(hoverYDomain.max - hoverYDomain.min, 1e-9);
     const yPx = insets.top + (1 - Math.min(1, Math.max(0, yRatio))) * plotHeight;
-    const xPx = timestampToPlotClientX(point.t, rect, xDomain);
+    const xPx = timestampToPlotClientX(point.t, rect, chartAxisDomain);
     if (xPx == null) {
       setHoverCrosshair(null);
       return;
@@ -924,30 +976,25 @@ export function StrategySimulationWorkspace({
     });
   };
 
-  const chartRenderData = useMemo(() => {
-    return visibleData
-      .map((point) => {
-        if (!Number.isFinite(point.t)) return null;
-        if (typeof point.xLabel !== "string") {
-          return { ...point, xLabel: chartDateTime(Number(point.t)) };
-        }
-        return point;
-      })
-      .filter((row): row is SimulationChartPoint => row !== null);
-  }, [visibleData]);
+  const chartYDomain = useMemo(() => {
+    const keys: string[] = [];
+    if (visibility.avg && hasMeaningfulAvg) keys.push("avg");
+    for (const net of networks) {
+      if (visibility[`${net.id}_buy`]) keys.push(`${net.id}_buy`);
+      if (visibility[`${net.id}_sell`]) keys.push(`${net.id}_sell`);
+    }
+    return computeYDomainWithPadding(chartRenderData as ChartPoint[], keys.length > 0 ? keys : undefined);
+  }, [chartRenderData, visibility, hasMeaningfulAvg, networks]);
 
   const tradeMarkerData = useMemo(() => {
     const buy: Array<{ t: number; y: number }> = [];
     const sell: Array<{ t: number; y: number }> = [];
     const error: Array<{ t: number; y: number }> = [];
+    const [clipMin, clipMax] = chartAxisDomain;
     for (const ev of events) {
       if (ev.type !== "Buy" && ev.type !== "Sell" && ev.type !== "Error") continue;
       const ts = ev.markerTs ?? chartData[ev.dataIdx]?.t;
-      if (!ts) continue;
-      const inWindow =
-        ts >= (visibleData[0]?.t ?? Number.NEGATIVE_INFINITY) &&
-        ts <= (visibleData[visibleData.length - 1]?.t ?? Number.POSITIVE_INFINITY);
-      if (!inWindow) continue;
+      if (!ts || ts < clipMin || ts > clipMax) continue;
       let y = ev.markerPrice;
       if (typeof y !== "number" || !Number.isFinite(y) || y <= 0) {
         const nearest = chartData[ev.dataIdx];
@@ -968,7 +1015,7 @@ export function StrategySimulationWorkspace({
       else error.push(marker);
     }
     return { buy, sell, error };
-  }, [events, visibleData, chartData]);
+  }, [events, chartData, chartAxisDomain, networks]);
 
   const tradeExecutionBarData = useMemo(() => {
     const byId = new Map(events.map((event) => [event.id, event]));
@@ -985,8 +1032,7 @@ export function StrategySimulationWorkspace({
     }> = [];
     const sell: typeof buy = [];
     const error: Array<(typeof buy)[0] & { requestSide: "buy" | "sell" }> = [];
-    const minTs = visibleData[0]?.t ?? Number.NEGATIVE_INFINITY;
-    const maxTs = visibleData[visibleData.length - 1]?.t ?? Number.POSITIVE_INFINITY;
+    const [clipMin, clipMax] = chartAxisDomain;
     let yMin = Number.POSITIVE_INFINITY;
     let yMax = Number.NEGATIVE_INFINITY;
     for (const point of visibleData) {
@@ -1030,7 +1076,7 @@ export function StrategySimulationWorkspace({
       if (!Number.isFinite(requestPriceNum) || !Number.isFinite(responsePriceNum)) continue;
 
       const inWindow =
-        requestTs >= minTs && requestTs <= maxTs && responseTs >= minTs && responseTs <= maxTs;
+        requestTs >= clipMin && requestTs <= clipMax && responseTs >= clipMin && responseTs <= clipMax;
       if (!inWindow) continue;
       const delayMs = Math.max(0, responseTs - requestTs);
       const slippagePct =
@@ -1053,7 +1099,7 @@ export function StrategySimulationWorkspace({
       }
     }
     return { buy, sell, error };
-  }, [events, chartData, visibleData, networks]);
+  }, [events, chartData, visibleData, networks, chartAxisDomain]);
 
   const tradeExecutionBands = useMemo(() => {
     const toBands = (
@@ -1118,7 +1164,7 @@ export function StrategySimulationWorkspace({
         strokeWidth: 2.6,
         lineCap: "square",
         interpolation: stepLineInterpolation,
-        marker: { enabled: false },
+        marker: { enabled: false, size: 0 },
         connectMissingData: false,
         tooltip: { enabled: false },
       });
@@ -1137,7 +1183,7 @@ export function StrategySimulationWorkspace({
           strokeWidth: 1.4,
           lineCap: "square",
           interpolation: stepLineInterpolation,
-          marker: { enabled: false },
+          marker: { enabled: false, size: 0 },
           connectMissingData: false,
           tooltip: { enabled: false },
         });
@@ -1153,7 +1199,7 @@ export function StrategySimulationWorkspace({
           strokeWidth: 1.4,
           lineCap: "square",
           interpolation: stepLineInterpolation,
-          marker: { enabled: false },
+          marker: { enabled: false, size: 0 },
           connectMissingData: false,
           tooltip: { enabled: false },
         });
@@ -1242,14 +1288,16 @@ export function StrategySimulationWorkspace({
       legend: { enabled: false },
       background: { fill: "transparent" },
       padding: CHART_OUTER_PADDING,
+      seriesArea: { clip: true },
       series,
       axes: {
         x: {
           type: "number",
           position: "bottom",
           thickness: CHART_X_AXIS_THICKNESS,
-          min: xDomain[0],
-          max: xDomain[1],
+          min: chartAxisDomain[0],
+          max: chartAxisDomain[1],
+          nice: false,
           line: { stroke: chartAxisColor },
           tick: { stroke: chartAxisColor },
           label: {
@@ -1270,6 +1318,9 @@ export function StrategySimulationWorkspace({
           type: "number",
           position: "left",
           thickness: CHART_Y_AXIS_THICKNESS,
+          ...(chartYDomain
+            ? { min: chartYDomain[0], max: chartYDomain[1], nice: false }
+            : {}),
           line: { stroke: chartAxisColor },
           tick: { stroke: chartAxisColor },
           label: {
@@ -1285,7 +1336,8 @@ export function StrategySimulationWorkspace({
     };
   }, [
     chartRenderData,
-    xDomain,
+    chartYDomain,
+    chartAxisDomain,
     visibility,
     hasMeaningfulAvg,
     networks,
@@ -1302,9 +1354,11 @@ export function StrategySimulationWorkspace({
   ]);
 
   const agChartSafeOptions = useMemo(() => {
+    const [clipMin, clipMax] = chartAxisDomain;
     const data = visibleData
-      .filter((point) => Number.isFinite(point.t) && Number.isFinite(point.avg))
-      .map((point) => ({ t: Number(point.t), avg: Number(point.avg) }));
+      .filter((point) => Number.isFinite(point.t) && point.t >= clipMin && point.t <= clipMax && Number.isFinite(point.avg))
+      .map((point) => ({ t: Number(point.t), label: String(point.label ?? ""), avg: Number(point.avg) }));
+    const yDomain = computeYDomainWithPadding(data, ["avg"]);
     return {
       data,
       animation: { enabled: false },
@@ -1312,6 +1366,7 @@ export function StrategySimulationWorkspace({
       legend: { enabled: false },
       background: { fill: "transparent" },
       padding: CHART_OUTER_PADDING,
+      seriesArea: { clip: true },
       series: [
         {
           type: "line",
@@ -1322,7 +1377,7 @@ export function StrategySimulationWorkspace({
           strokeWidth: 2,
           lineCap: "square",
           interpolation: stepLineInterpolation,
-          marker: { enabled: false },
+          marker: { enabled: false, size: 0 },
           connectMissingData: false,
         },
       ],
@@ -1331,8 +1386,9 @@ export function StrategySimulationWorkspace({
           type: "number",
           position: "bottom",
           thickness: CHART_X_AXIS_THICKNESS,
-          min: xDomain[0],
-          max: xDomain[1],
+          min: chartAxisDomain[0],
+          max: chartAxisDomain[1],
+          nice: false,
           line: { stroke: chartAxisColor },
           tick: { stroke: chartAxisColor },
           label: {
@@ -1353,6 +1409,7 @@ export function StrategySimulationWorkspace({
           type: "number",
           position: "left",
           thickness: CHART_Y_AXIS_THICKNESS,
+          ...(yDomain ? { min: yDomain[0], max: yDomain[1], nice: false } : {}),
           line: { stroke: chartAxisColor },
           tick: { stroke: chartAxisColor },
           label: {
@@ -1366,7 +1423,7 @@ export function StrategySimulationWorkspace({
         },
       },
     };
-  }, [visibleData, averageLineColor, stepLineInterpolation, chartAxisColor, chartTickColor, chartGridColor, isDark, xDomain, chartCrossLines]);
+  }, [visibleData, averageLineColor, stepLineInterpolation, chartAxisColor, chartTickColor, chartGridColor, isDark, chartAxisDomain, chartCrossLines]);
 
   const [backtestPanelOpen, setBacktestPanelOpen] = useState(false);
 

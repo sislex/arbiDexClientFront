@@ -179,8 +179,13 @@ export function toEngineStrategy(
           ? ((avgObservedQuote - buyQuote) / avgObservedQuote) * 100
           : ((sellQuote - avgObservedQuote) / avgObservedQuote) * 100;
       });
-      const weakest = Math.min(...devs);
-      return { passed: devs.every((d) => d >= pct), actual: weakest, required: pct };
+      if (side === 'buy') {
+        const weakest = Math.min(...devs);
+        return { passed: devs.every((d) => d >= pct), actual: weakest, required: pct };
+      }
+      const required = -pct;
+      const weakest = Math.max(...devs);
+      return { passed: devs.every((d) => d <= required), actual: weakest, required };
     },
   };
 

@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { RefreshCw } from 'lucide-react'
 import type { BotTradeHandlers } from '../components/bot/BotTradingButtons'
 import { BotBacktestPeriodPicker, applyChartPeriodPick } from '../components/bot/BotBacktestPeriodPicker'
 import { BotExcludedRangesPicker } from '../components/bot/BotExcludedRangesPicker'
+import { Button } from '../components/ui/Button'
 import { useBotBacktest } from '../hooks/useServerBotBacktest'
 import { useBotPeriod, type ChartPeriodPickMode } from '../hooks/useBotPeriod'
-import { normalizeRange, toServerExcludedRanges, type EditableExcludedRange } from '../lib/excludedRanges'
+import { normalizeRange, toServerExcludedRanges } from '../lib/excludedRanges'
+import { usePersistedExcludedRanges } from '../lib/excludedRangesStorage'
 import type { ServerBot } from '../services/botsApi'
 import { StrategySimulationWorkspace, type SimulationWorkspaceHeader } from './StrategySimulationWorkspace'
 import type { SimulationLogEvent } from './simulationViewerTypes'
@@ -45,7 +48,7 @@ export function ServerBotSimulationPage({
 }: ServerBotSimulationPageProps) {
   const period = useBotPeriod(bot.id)
   const [chartPickMode, setChartPickMode] = useState<ChartPeriodPickMode>('idle')
-  const [excludedRanges, setExcludedRanges] = useState<EditableExcludedRange[]>([])
+  const [excludedRanges, setExcludedRanges] = usePersistedExcludedRanges(bot.id)
   const [selectedExcludedRangeId, setSelectedExcludedRangeId] = useState<string | null>(null)
   const [excludedPickMode, setExcludedPickMode] = useState<'idle' | 'add-start' | 'add-end' | 'edit-start' | 'edit-end'>('idle')
   const [excludedAnchorTime, setExcludedAnchorTime] = useState<number | null>(null)
@@ -106,6 +109,12 @@ export function ServerBotSimulationPage({
   useEffect(() => {
     if (sim.chartData.length === 0 && chartPickMode !== 'idle') setChartPickMode('idle')
   }, [sim.chartData.length, chartPickMode])
+
+  useEffect(() => {
+    setSelectedExcludedRangeId(null)
+    setExcludedPickMode('idle')
+    setExcludedAnchorTime(null)
+  }, [bot.id])
 
   useEffect(() => {
     if (excludedRanges.length === 0) {
@@ -284,6 +293,7 @@ export function ServerBotSimulationPage({
         chartData={sim.chartData}
         chartFullData={sim.fullChartData}
         events={sim.events}
+        eventLogRevision={sim.backtestRevision}
         stepResult={sim.stepResult}
         networks={sim.displayNetworks}
         tradingNetworkIds={sim.tradingNetworkIds}
@@ -331,6 +341,17 @@ export function ServerBotSimulationPage({
               onChartPickModeChange={setChartPickMode}
               chartDataAvailable={sim.chartData.length > 0}
             />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void sim.refreshChart()}
+              disabled={sim.loading}
+              title={sim.backtest ? 'Обновить график и выйти из текущего бэктеста' : 'Обновить график'}
+            >
+              <RefreshCw size={14} className={sim.loading ? 'animate-spin' : ''} />
+              Обновить график
+            </Button>
             <BotExcludedRangesPicker
               period={period}
               ranges={excludedRanges}

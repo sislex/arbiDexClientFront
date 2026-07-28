@@ -5,7 +5,6 @@ import {
   executeBotTrade,
   type ExcludedTimeRange,
   fetchBotQuotes,
-  fetchBotTrades,
   fetchServerBot,
   fetchServerStepResult,
   runServerBacktest,
@@ -30,7 +29,6 @@ import { NETWORK_COLORS } from '../simulation/simulationNetworkTypes'
 const TRADING_NET_ID = 'trading'
 const STABLE_ASSET_FRAGMENT = 'USD'
 const BACKTEST_MAX_POINTS = 1_000
-const STEP_INSPECT_MIN_MS = 3_000
 
 function mergeQuotes(previous: ServerQuotePoint[], incoming: ServerQuotePoint[]): ServerQuotePoint[] {
   const byTime = new Map(previous.map((point) => [point.time, point]))
@@ -141,6 +139,7 @@ export function useBotBacktest({
   const [serverNetworks, setServerNetworks] = useState<ServerChartNetwork[]>([])
   const [backtest, setBacktest] = useState<ServerBacktestResult | null>(null)
   const [backtestStrategyConfigId, setBacktestStrategyConfigId] = useState<string | null>(null)
+  const [backtestRevision, setBacktestRevision] = useState(0)
   const [liveTrades, setLiveTrades] = useState<ServerBotTrade[]>([])
   const [quotesLoading, setQuotesLoading] = useState(false)
   const [backtestLoading, setBacktestLoading] = useState(false)
@@ -161,7 +160,7 @@ export function useBotBacktest({
   const chartDataRef = useRef<ChartPoint[]>([])
   const playIdxRef = useRef(0)
   const pollInFlightRef = useRef(false)
-  const lastAutoInspectAtRef = useRef(0)
+  const backtestRef = useRef<ServerBacktestResult | null>(null)
   const onBotRefreshRef = useRef(onBotRefresh)
   onBotRefreshRef.current = onBotRefresh
   const onBotUpdatedRef = useRef(onBotUpdated)
@@ -169,6 +168,7 @@ export function useBotBacktest({
   quotesRef.current = quotes
   chartDataRef.current = serverChartData
   playIdxRef.current = playIdx
+  backtestRef.current = backtest
 
   const applyPeriodRange = period.applyRange
   const activeQuotes = backtest?.quotes ?? quotes
@@ -304,15 +304,6 @@ export function useBotBacktest({
 
   inspectStepRef.current = inspectStep
 
-  const loadLiveTrades = useCallback(async () => {
-    try {
-      const trades = await fetchBotTrades(bot.id)
-      setLiveTrades(trades)
-    } catch {
-      setLiveTrades([])
-    }
-  }, [bot.id])
-
   const executeTrade = useCallback(
     async (displaySide: 'buy' | 'sell') => {
       const currentQuotes = quotesRef.current.length > 0 ? quotesRef.current : activeQuotes
@@ -367,12 +358,12 @@ export function useBotBacktest({
     [activeQuotes, inspectStep, inspectTime, playIdx],
   )
 
-  const loadQuotes = useCallback(async () => {
+  const loadQuotes = useCallback(async (refresh = false) => {
     if (period.from == null || period.to == null) return
     setQuotesLoading(true)
     setError(null)
     try {
-      const result = await fetchBotQuotes(bot.id, { from: period.from, to: period.to })
+      const result = await fetchBotQuotes(bot.id, { from: period.from, to: period.to, refresh })
       if (result.historyFrom != null && result.historyTo != null) {
         applyPeriodRange({ historyFrom: result.historyFrom, historyTo: result.historyTo })
       }
@@ -385,8 +376,10 @@ export function useBotBacktest({
       skipPlayIdxInspectRef.current = true
       setPlayIdx(result.quotes.length)
       playIdxRef.current = result.quotes.length
-      const last = result.quotes[result.quotes.length - 1]
-      if (last) inspectStepRef.current(last.time, false, false)
+      setStepResult(null)
+      setStepSource(null)
+      setStepError(null)
+      setInspectTime(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось загрузить котировки')
       setQuotes([])
@@ -406,6 +399,12 @@ export function useBotBacktest({
     const backtestQuotes = graphQuotes.slice(-BACKTEST_MAX_POINTS)
     const backtestFrom = backtestQuotes[0]?.time ?? period.from
     const backtestTo = backtestQuotes[backtestQuotes.length - 1]?.time ?? period.to
+    setBacktest(null)
+    setBacktestStrategyConfigId(null)
+    setBacktestRevision((revision) => revision + 1)
+    skipPlayIdxInspectRef.current = true
+    setPlayIdx(0)
+    playIdxRef.current = 0
     setBacktestLoading(true)
     setError(null)
     try {
@@ -459,9 +458,21 @@ export function useBotBacktest({
     setInspectTime(null)
   }, [])
 
+  const refreshChart = useCallback(async () => {
+    invalidateSimulation()
+    await loadQuotes(true)
+  }, [invalidateSimulation, loadQuotes])
+
   useEffect(() => {
     invalidateSimulation()
   }, [period.from, period.to, bot.strategyConfigId, excludedRanges, invalidateSimulation])
+
+  useEffect(() => {
+    // Old server-side demo/backtest trades must not leak into a new UI session.
+    // After a page reload the chart/log should start clean until the user runs
+    // a backtest or executes a manual trade in this session.
+    setLiveTrades([])
+  }, [bot.id])
 
   useEffect(() => {
     const onStrategyUpdated = (event: Event) => {
@@ -481,8 +492,7 @@ export function useBotBacktest({
   useEffect(() => {
     if (!enabled || suspendPeriodReload) return
     void loadQuotes()
-    void loadLiveTrades()
-  }, [enabled, loadLiveTrades, loadQuotes, suspendPeriodReload])
+  }, [enabled, loadQuotes, suspendPeriodReload])
 
   useEffect(() => {
     if (!enabled || suspendPeriodReload || period.from == null || period.to == null) return
@@ -498,19 +508,17 @@ export function useBotBacktest({
       try {
         const currentQuotes = quotesRef.current
         const previousLastTime = currentQuotes[currentQuotes.length - 1]?.time ?? periodFrom
-        const [quoteResult, tradesResult, botResult] = await Promise.all([
+        const [quoteResult, botResult] = await Promise.all([
           fetchBotQuotes(bot.id, {
             // Keep one overlap point so a same-timestamp bid/ask update
             // replaces the previous value instead of creating a duplicate.
             from: previousLastTime,
             refresh: true,
           }),
-          fetchBotTrades(bot.id),
           fetchServerBot(bot.id),
         ])
         if (cancelled) return
 
-        setLiveTrades((previous) => mergeTrades(previous, tradesResult))
         onBotUpdatedRef.current?.(botResult)
 
         const incomingQuotes = quoteResult.quotes
@@ -520,28 +528,26 @@ export function useBotBacktest({
         const hasNewStep = nextLastTime > previousLastTime
         const wasFollowing = playIdxRef.current >= currentQuotes.length
         const mergedQuotes = mergeQuotes(currentQuotes, incomingQuotes)
-        const mergedChart = mergeChartData(chartDataRef.current, incomingChart)
+        const backtestActive = backtestRef.current != null
+        const mergedChart = backtestActive
+          ? chartDataRef.current
+          : mergeChartData(chartDataRef.current, incomingChart)
 
         quotesRef.current = mergedQuotes
-        chartDataRef.current = mergedChart
         setQuotes(mergedQuotes)
-        setServerChartData(mergedChart)
-        setServerNetworks(quoteResult.networks ?? [])
+        if (!backtestActive) {
+          chartDataRef.current = mergedChart
+          setServerChartData(mergedChart)
+          setServerNetworks(quoteResult.networks ?? [])
+        }
 
         if (!hasNewStep) return
-        setBacktest(null)
-        setBacktestStrategyConfigId(null)
+        if (backtestActive) return
 
         if (wasFollowing) {
           skipPlayIdxInspectRef.current = true
           playIdxRef.current = mergedQuotes.length
           setPlayIdx(mergedQuotes.length)
-          const latest = mergedQuotes[mergedQuotes.length - 1]
-          const now = Date.now()
-          if (latest && now - lastAutoInspectAtRef.current >= STEP_INSPECT_MIN_MS) {
-            lastAutoInspectAtRef.current = now
-            inspectStepRef.current(latest.time, true, false)
-          }
         }
       } catch {
         // Preserve the last complete state; the next interval retries.
@@ -569,10 +575,11 @@ export function useBotBacktest({
       skipPlayIdxInspectRef.current = false
       return
     }
-    if (playIdx <= 0 || activeQuotes.length === 0) return
+    // Step/backtest breakdown only on explicit actions (chart click, analyze, playback).
+    if (!isPlaying || playIdx <= 0 || activeQuotes.length === 0) return
     const time = activeQuotes[playIdx - 1]?.time
     if (time != null) inspectStepRef.current(time, false, false)
-  }, [playIdx, activeQuotes])
+  }, [playIdx, activeQuotes, isPlaying])
 
   useEffect(() => {
     if (!isPlaying || chartData.length === 0) return
@@ -591,6 +598,7 @@ export function useBotBacktest({
 
   return {
     backtest,
+    backtestRevision,
     chartData,
     fullChartData: chartData,
     events,
@@ -616,6 +624,7 @@ export function useBotBacktest({
     live: false,
     token1Label: bot.baseAsset,
     token2Label: bot.quoteAsset,
+    refreshChart,
     runBacktest,
     analyzeCurrentStep,
     inspectStep,
