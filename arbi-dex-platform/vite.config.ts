@@ -32,5 +32,10 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), tailwindcss()],
     server: { proxy },
     preview: { proxy },
+    test: {
+      environment: 'jsdom',
+      globals: true,
+      setupFiles: './src/test/setup.ts',
+    },
   }
 })

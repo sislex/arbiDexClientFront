@@ -382,6 +382,8 @@ export function ServerBotSimulationPage({
           backtestDone: !!sim.backtest,
           stepSource: sim.stepSource,
         }}
+        backtestResult={sim.backtest}
+        onBacktestTradeSelect={(time) => sim.inspectStep(time, false, true)}
       />
     </div>
   )

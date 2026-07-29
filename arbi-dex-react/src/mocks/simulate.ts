@@ -7,6 +7,10 @@ import type {
   Trade,
 } from '../domain/types';
 
+/**
+ * Legacy frontend mock simulator. Useful for old stories/mocks, but the current
+ * server-backed bot/demo flow should be validated against the shared engine.
+ */
 /** Read a numeric coefficient from one side of a strategy. */
 function num(side: StrategyConditionValue[], conditionId: string, key: string, fallback: number): number {
   const c = side.find((x) => x.conditionId === conditionId);

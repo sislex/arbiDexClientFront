@@ -36,7 +36,7 @@ services:
       DB_NAME: arbidex_db
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-super-secret-access-key}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-super-secret-refresh-key}
-      JWT_ACCESS_EXPIRES_IN: 15m
+      JWT_ACCESS_EXPIRES_IN: 6h
       JWT_REFRESH_EXPIRES_IN: 7d
       CORS_ORIGIN: '*'
       MARKET_DATA_URL: ${MARKET_DATA_URL:-http://89.125.68.35:3002}

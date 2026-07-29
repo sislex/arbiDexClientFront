@@ -12,7 +12,7 @@ function buildMocks() {
   const configMap: Record<string, string> = {
     'jwt.accessSecret': 'test_access_secret',
     'jwt.refreshSecret': 'test_refresh_secret',
-    'jwt.accessExpiresIn': '15m',
+    'jwt.accessExpiresIn': '6h',
     'jwt.refreshExpiresIn': '7d',
   };
   return {

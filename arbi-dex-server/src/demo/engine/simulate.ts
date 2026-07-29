@@ -7,6 +7,11 @@ import {
   Trade,
 } from './types';
 
+/**
+ * Legacy simulator kept for the old demo-engine path and historical comparison.
+ * The canonical bot/demo path now uses `strategy-engine.mapper.ts` together with
+ * `@sislex/arbi-conditions-libs`.
+ */
 function num(side: StrategyConditionValue[], conditionId: string, key: string, fallback: number): number {
   const c = side.find((x) => x.conditionId === conditionId);
   if (!c || !c.enabled) return fallback;

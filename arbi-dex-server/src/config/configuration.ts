@@ -57,7 +57,7 @@ export const jwtConfig = registerAs('jwt', () => ({
   // Secrets are mandatory in every environment — no hardcoded fallback (forgeable tokens).
   accessSecret: requireEnv('JWT_ACCESS_SECRET'),
   refreshSecret: requireEnv('JWT_REFRESH_SECRET'),
-  accessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN ?? '4h',
+  accessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN ?? '6h',
   refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '7d',
 }));
 

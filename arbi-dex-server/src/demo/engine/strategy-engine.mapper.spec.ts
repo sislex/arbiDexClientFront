@@ -79,6 +79,33 @@ describe('toEngineStrategy → runBacktest (demo bots path)', () => {
     expect(gateIds).toContain('balance_ok');
   });
 
+  it('evaluates balance_ok against the correct side balance field', () => {
+    const { buy, sell } = defaultStrategySides();
+    const buyWithBalance = buy.map((c) =>
+      c.conditionId === 'balance_ok'
+        ? { ...c, enabled: true, params: { ...c.params, require: true, minBalance: 10 } }
+        : c,
+    );
+    const sellWithBalance = sell.map((c) =>
+      c.conditionId === 'balance_ok'
+        ? { ...c, enabled: true, params: { ...c.params, require: true, minBalance: 2 } }
+        : c,
+    );
+    const { strategy, gates } = toEngineStrategy(buyWithBalance, sellWithBalance);
+    const balanceGate = gates.find((g) => g.id === 'balance_ok');
+    expect(balanceGate).toBeDefined();
+
+    const step: MarketStep = {
+      time: 1_000,
+      quotes: { buyQuote: 100, sellQuote: 99, avgObservedQuote: 100 },
+      balances: { token1: 12, token2: 3 },
+    };
+    const ctx: EvalContext = { window: [step], current: step, position: null };
+
+    expect(balanceGate!.evaluate(ctx, strategy, 'buy')).toMatchObject({ passed: true, actual: 12, required: 10 });
+    expect(balanceGate!.evaluate(ctx, strategy, 'sell')).toMatchObject({ passed: true, actual: 3, required: 2 });
+  });
+
   it('treats sell avg deviation threshold as negative', () => {
     const { buy, sell } = defaultStrategySides();
     const sellWithTinyAvg = sell.map((c) =>
@@ -117,5 +144,32 @@ describe('toEngineStrategy → runBacktest (demo bots path)', () => {
     expect(result.passed).toBe(true);
     expect(result.actual).toBeCloseTo(-0.056618323389612856, 12);
     expect(result.required).toBe(-0.001);
+  });
+
+  it('uses the least-negative sell step as the limiting actual value across multiple steps', () => {
+    const { buy, sell } = defaultStrategySides();
+    const sellWithAvg = sell.map((c) =>
+      c.conditionId === 'avg_observed_higher_for_last_steps'
+        ? { ...c, enabled: true, params: { ...c.params, percent: 0.01, steps: 2 } }
+        : c,
+    );
+    const { strategy, gates } = toEngineStrategy(buy, sellWithAvg);
+    const avgGate = gates.find((g) => g.id === 'avg_observed_higher_for_last_steps');
+    expect(avgGate).toBeDefined();
+
+    const step1: MarketStep = {
+      time: 1,
+      quotes: { buyQuote: 100.2, sellQuote: 99.9, avgObservedQuote: 100 },
+    };
+    const step2: MarketStep = {
+      time: 2,
+      quotes: { buyQuote: 100.2, sellQuote: 99.98, avgObservedQuote: 100 },
+    };
+    const ctx: EvalContext = { window: [step1, step2], current: step2, position: null };
+
+    const result = avgGate!.evaluate(ctx, strategy, 'sell');
+    expect(result.passed).toBe(false);
+    expect(result.required).toBe(-0.01);
+    expect(result.actual).toBeCloseTo(-0.02, 8);
   });
 });

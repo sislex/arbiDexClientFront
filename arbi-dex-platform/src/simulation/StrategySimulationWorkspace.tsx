@@ -34,6 +34,8 @@ import {
 import type { ChartPeriodPickMode } from "../hooks/useBotPeriod";
 import { useChartViewport } from "../hooks/useChartViewport";
 import type { ChartPoint } from "../services/chartDataService";
+import type { ServerBacktestResult } from "../services/botsApi";
+import { BacktestAnalyticsPanel } from "./BacktestAnalyticsPanel";
 import { ChartErrorBoundary } from "./ChartErrorBoundary";
 import { PlayerBtn } from "./PlayerBtn";
 import { StepResultPanel } from "./StepResultPanel";
@@ -120,6 +122,10 @@ export interface StrategySimulationWorkspaceProps {
   excludedRanges?: Array<{ start: number; end: number }>
   /** Increment to reset the event log (e.g. on each backtest run). */
   eventLogRevision?: number
+  /** Server backtest result — shows expandable analytics at the bottom. */
+  backtestResult?: ServerBacktestResult | null
+  /** Click on a trade row in backtest analytics. */
+  onBacktestTradeSelect?: (time: number) => void
 }
 
 type VisKey = string;
@@ -244,6 +250,8 @@ export function StrategySimulationWorkspace({
   selectedStepTime = null,
   excludedRanges = [],
   eventLogRevision = 0,
+  backtestResult = null,
+  onBacktestTradeSelect,
 }: StrategySimulationWorkspaceProps) {
   const { t } = useSimulatorI18n();
   const tradingNetworkIds = useMemo(
@@ -301,6 +309,8 @@ export function StrategySimulationWorkspace({
   const [chartErrorMessage, setChartErrorMessage] = useState<string | null>(null);
   const [hoverCrosshair, setHoverCrosshair] = useState<HoverCrosshair | null>(null);
   const [chartInspectTime, setChartInspectTime] = useState<number | null>(null);
+  /** Last measured chart height before backtest analytics appears — keeps chart from shrinking. */
+  const lastChartHeightRef = useRef(360);
 
   const effectiveSelectedStepTime = selectedStepTime ?? chartInspectTime;
 
@@ -322,6 +332,16 @@ export function StrategySimulationWorkspace({
   const eventsControlsSectionRef = useRef<HTMLDivElement>(null);
   const chartPanelRef = useRef<HTMLDivElement>(null);
   const logPrevMetricsRef = useRef<{ length: number; scrollHeight: number }>({ length: 0, scrollHeight: 0 });
+
+  useLayoutEffect(() => {
+    if (!backtestResult && chartPanelRef.current) {
+      const h = chartPanelRef.current.offsetHeight;
+      if (h >= 240) lastChartHeightRef.current = h;
+    }
+  });
+
+  const chartLockedHeight = backtestResult ? Math.max(lastChartHeightRef.current, 360) : null;
+
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const playIdxRef = useRef(playIdx);
   const eventResizeStartXRef = useRef(0);
@@ -1659,12 +1679,17 @@ export function StrategySimulationWorkspace({
           ) : null}
         </div>
 
+        <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto">
         <div
           ref={chartPanelRef}
-          className={`relative min-h-0 w-full flex-1 select-none touch-none overscroll-none ${
-            chartPeriodPickMode !== "idle" ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"
-          }`}
-          style={{ minWidth: 0 }}
+          data-testid="simulation-chart-panel"
+          className={`relative w-full shrink-0 select-none touch-none overscroll-none ${
+            chartLockedHeight == null ? "min-h-[360px] flex-1" : ""
+          } ${chartPeriodPickMode !== "idle" ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}
+          style={{
+            minWidth: 0,
+            ...(chartLockedHeight != null ? { height: chartLockedHeight } : {}),
+          }}
           onWheel={handleWheel}
           onMouseDown={handleChartMouseDown}
           onMouseMove={handleChartMouseMoveWithPick}
@@ -2023,6 +2048,17 @@ export function StrategySimulationWorkspace({
           )}
         </div>
         ) : null}
+
+        {backtestResult && (
+          <BacktestAnalyticsPanel
+            result={backtestResult}
+            baseAsset={token1Label}
+            quoteAsset={token2Label}
+            isDark={isDark}
+            onTradeSelect={onBacktestTradeSelect}
+          />
+        )}
+        </div>
       </div>
 
       <div
