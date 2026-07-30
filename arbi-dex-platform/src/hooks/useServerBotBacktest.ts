@@ -277,8 +277,14 @@ export function useBotBacktest({
       setInspectTime(time)
       const records = backtest?.stepResults?.records
       const backtestFresh = backtestStrategyConfigId === bot.strategyConfigId
-      const hasPosition = resolveInspectPosition(time, bot, backtest, liveTrades) != null
       const excluded = isTimeInExcludedRanges(time, excludedRanges)
+      const backtestFrom = backtest?.quotes[0]?.time ?? null
+      const backtestTo = backtest?.quotes[backtest.quotes.length - 1]?.time ?? null
+      const insideBacktestWindow =
+        backtestFrom != null &&
+        backtestTo != null &&
+        time >= backtestFrom &&
+        time <= backtestTo
 
       if (syncPlayIdx && activeQuotes.length > 0) {
         const idx = findQuoteIndexByTime(activeQuotes, time) + 1
@@ -286,8 +292,10 @@ export function useBotBacktest({
         setPlayIdx(idx)
       }
 
-      // Sell triggers need an open position; cached stepResults have none.
-      if (!preferApi && !excluded && !hasPosition && backtestFresh && records?.length) {
+      // If this step is already covered by the latest backtest window, reuse the
+      // cached backtest result on click. The API should only be used explicitly
+      // via "Рассчитать в API".
+      if (!preferApi && !excluded && backtestFresh && insideBacktestWindow && records?.length) {
         const rec = findNearestStepRecord(records, time)
         setStepError(null)
         setStepResult(

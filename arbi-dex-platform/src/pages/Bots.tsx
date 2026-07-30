@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Edit2, Trash2, Plus, Clock } from 'lucide-react'
+import { Edit2, Loader2, Pause, Play, Plus, Clock, Square, Trash2 } from 'lucide-react'
 import { PageHeader, PageContent } from '../components/layout/PageHeader'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -16,24 +16,38 @@ import {
 } from '../components/ui/ResizableTable'
 import { SearchInput, Select } from '../components/ui/SearchInput'
 import { type Bot } from '../data/mockData'
-import { loadBots } from '../lib/botsStorage'
+import { loadBots, saveBots } from '../lib/botsStorage'
 import { useTableSort } from '../hooks/useTableSort'
 import { useUndoDelete } from '../context/UndoDeleteContext'
 import { useAuth } from '../context/AuthContext'
 import { cn, formatCurrency, formatPercent } from '../lib/utils'
+import {
+  fetchServerBots,
+  updateServerBot,
+  type ServerBotMode,
+  type ServerBotStatus,
+  type ServerBotUpdatePayload,
+} from '../services/botsApi'
 
 type BotSortKey = 'name' | 'pair' | 'strategy' | 'roi' | 'winRate' | 'drawdown' | 'status'
+type SessionUiStatus = Bot['status']
 
 const BOTS_TABLE_COLUMNS: ResizableColumnConfig[] = [
-  { id: 'name', defaultPercent: 20, minPercent: 12 },
-  { id: 'pair', defaultPercent: 10, minPercent: 8 },
-  { id: 'strategy', defaultPercent: 14, minPercent: 10 },
-  { id: 'roi', defaultPercent: 9, minPercent: 7 },
-  { id: 'winRate', defaultPercent: 10, minPercent: 8 },
-  { id: 'drawdown', defaultPercent: 10, minPercent: 8 },
-  { id: 'status', defaultPercent: 10, minPercent: 8 },
-  { id: 'actions', defaultPercent: 13, minPercent: 11 },
+  { id: 'name', defaultPercent: 18, minPercent: 12 },
+  { id: 'pair', defaultPercent: 9, minPercent: 7 },
+  { id: 'strategy', defaultPercent: 12, minPercent: 9 },
+  { id: 'roi', defaultPercent: 8, minPercent: 6 },
+  { id: 'winRate', defaultPercent: 9, minPercent: 7 },
+  { id: 'drawdown', defaultPercent: 9, minPercent: 7 },
+  { id: 'status', defaultPercent: 11, minPercent: 9 },
+  { id: 'actions', defaultPercent: 20, minPercent: 16 },
 ]
+
+function mapServerStatusToUi(status: ServerBotStatus): SessionUiStatus {
+  if (status === 'running') return 'active'
+  if (status === 'paused') return 'paused'
+  return 'stopped'
+}
 
 function getBotSortValue(bot: Bot, key: BotSortKey) {
   switch (key) {
@@ -61,12 +75,44 @@ export function BotsPage() {
   const [statusTab, setStatusTab] = useState('all')
   const [pairTab, setPairTab] = useState('all')
   const [search, setSearch] = useState('')
+  const [serverModes, setServerModes] = useState<Record<string, ServerBotMode>>({})
+  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null)
+  const [statusError, setStatusError] = useState<string | null>(null)
   const { sortKey, direction, toggleSort, sort } = useTableSort<BotSortKey>()
   const { scheduleDelete, isEntityPending, deleteRevision, pendingKeys } = useUndoDelete()
+
+  const applyServerStatuses = useCallback((serverBots: Awaited<ReturnType<typeof fetchServerBots>>) => {
+    const byId = new Map(serverBots.map((b) => [b.id, b]))
+    const modes: Record<string, ServerBotMode> = {}
+    for (const sb of serverBots) modes[sb.id] = sb.mode
+    setServerModes(modes)
+
+    const next = loadBots().map((bot) => {
+      if (!bot.serverBotId) return bot
+      const sb = byId.get(bot.serverBotId)
+      if (!sb) return bot
+      return { ...bot, status: mapServerStatusToUi(sb.status) }
+    })
+    saveBots(next)
+    setBots(next)
+  }, [])
 
   useEffect(() => {
     setBots(loadBots())
   }, [deleteRevision])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    let cancelled = false
+    fetchServerBots()
+      .then((serverBots) => {
+        if (!cancelled) applyServerStatuses(serverBots)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [isAuthenticated, deleteRevision, applyServerStatuses])
 
   const pairOptions = useMemo(() => {
     const symbols = [...new Set(bots.map((b) => b.pair))].sort((a, b) => a.localeCompare(b))
@@ -114,6 +160,29 @@ export function BotsPage() {
     })
   }
 
+  const patchSessionStatus = async (bot: Bot, nextStatus: 'running' | 'paused' | 'stopped') => {
+    if (!bot.serverBotId) return
+    setStatusUpdatingId(bot.id)
+    setStatusError(null)
+    try {
+      const payload: ServerBotUpdatePayload = { status: nextStatus }
+      if (nextStatus === 'running' && bot.status !== 'paused') {
+        const mode = serverModes[bot.serverBotId]
+        payload.mode = mode === 'real-live' ? 'real-live' : 'demo-live'
+      }
+      const updated = await updateServerBot(bot.serverBotId, payload)
+      setServerModes((prev) => ({ ...prev, [updated.id]: updated.mode }))
+      const uiStatus = mapServerStatusToUi(updated.status)
+      const nextBots = loadBots().map((b) => (b.id === bot.id ? { ...b, status: uiStatus } : b))
+      saveBots(nextBots)
+      setBots(nextBots)
+    } catch (e) {
+      setStatusError(e instanceof Error ? e.message : 'Не удалось обновить статус сессии')
+    } finally {
+      setStatusUpdatingId(null)
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -130,6 +199,11 @@ export function BotsPage() {
           <Card className="px-4 py-3 text-sm text-muted">
             Войдите через кошелёк, чтобы новые боты сохранялись на сервер и был доступен бэктест.{' '}
             <Link to="/login" className="text-accent-cyan hover:underline">Войти</Link>
+          </Card>
+        )}
+        {statusError && (
+          <Card className="px-4 py-3 text-sm text-error border-error/20">
+            {statusError}
           </Card>
         )}
         <div className="flex items-center gap-3">
@@ -165,63 +239,101 @@ export function BotsPage() {
                     <SortableTableHead label="ROI" column="roi" columnId="roi" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as BotSortKey)} className={TABLE_HEAD} align="right" />
                     <SortableTableHead label="Win Rate" column="winRate" columnId="winRate" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as BotSortKey)} className={TABLE_HEAD} align="right" />
                     <SortableTableHead label="Drawdown" column="drawdown" columnId="drawdown" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as BotSortKey)} className={TABLE_HEAD} align="right" />
-                    <SortableTableHead label="Status" column="status" columnId="status" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as BotSortKey)} className={TABLE_HEAD} />
+                    <SortableTableHead label="Сессия" column="status" columnId="status" sortKey={sortKey} direction={direction} onSort={(col) => toggleSort(col as BotSortKey)} className={TABLE_HEAD} />
                     <TableHeadCell columnId="actions" className={TABLE_HEAD} align="center">Actions</TableHeadCell>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((bot) => (
-                    <tr
-                      key={bot.id}
-                      onClick={() => navigate(`/bots/${bot.id}?mode=demo&trade=auto`)}
-                      className="border-b border-border/50 hover:bg-white/[0.02] transition-colors cursor-pointer"
-                    >
-                      <td className={TABLE_CELL}>
-                        <p className="font-semibold text-white truncate">{bot.name}</p>
-                        <p className="text-[11px] text-muted mt-0.5 truncate">
-                          {formatCurrency(bot.balance)} · {bot.runtime}
-                          {isAuthenticated && bot.serverBotId ? ' · на сервере' : ''}
-                          {isAuthenticated && !bot.serverBotId ? ' · не синхронизирован' : ''}
-                        </p>
-                      </td>
-                      <td className={cn(TABLE_CELL, 'text-muted truncate')}>{bot.pair}</td>
-                      <td className={cn(TABLE_CELL, 'text-muted truncate')}>{bot.strategy}</td>
-                      <td className={cn(TABLE_CELL, 'text-right font-medium', bot.roi >= 0 ? 'text-success' : 'text-error')}>
-                        {formatPercent(bot.roi)}
-                      </td>
-                      <td className={cn(TABLE_CELL, 'text-right text-white')}>{bot.winRate}%</td>
-                      <td className={cn(TABLE_CELL, 'text-right text-warning')}>{bot.drawdown}%</td>
-                      <td className={TABLE_CELL}>
-                        <StatusBadge status={bot.status} />
-                      </td>
-                      <td className={TABLE_ACTIONS_CELL} onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-center gap-0.5">
-                          <Link
-                            to={`/bots/${bot.id}/history`}
-                            className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-accent-cyan shrink-0"
-                            title="Исторические данные"
-                          >
-                            <Clock size={13} />
-                          </Link>
-                          <Link
-                            to={`/bots/${bot.id}/edit`}
-                            className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-white shrink-0"
-                            title="Редактировать"
-                          >
-                            <Edit2 size={13} />
-                          </Link>
-                          <button
-                            type="button"
-                            onClick={(e) => handleDeleteBot(bot, e)}
-                            className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-error shrink-0"
-                            title="Удалить"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {filtered.map((bot) => {
+                    const sessionBusy = statusUpdatingId === bot.id
+                    const canControlSession = Boolean(isAuthenticated && bot.serverBotId)
+                    return (
+                      <tr
+                        key={bot.id}
+                        onClick={() => navigate(`/bots/${bot.id}?mode=demo&trade=auto`)}
+                        className="border-b border-border/50 hover:bg-white/[0.02] transition-colors cursor-pointer"
+                      >
+                        <td className={TABLE_CELL}>
+                          <p className="font-semibold text-white truncate">{bot.name}</p>
+                          <p className="text-[11px] text-muted mt-0.5 truncate">
+                            {formatCurrency(bot.balance)} · {bot.runtime}
+                            {isAuthenticated && bot.serverBotId ? ' · на сервере' : ''}
+                            {isAuthenticated && !bot.serverBotId ? ' · не синхронизирован' : ''}
+                          </p>
+                        </td>
+                        <td className={cn(TABLE_CELL, 'text-muted truncate')}>{bot.pair}</td>
+                        <td className={cn(TABLE_CELL, 'text-muted truncate')}>{bot.strategy}</td>
+                        <td className={cn(TABLE_CELL, 'text-right font-medium', bot.roi >= 0 ? 'text-success' : 'text-error')}>
+                          {formatPercent(bot.roi)}
+                        </td>
+                        <td className={cn(TABLE_CELL, 'text-right text-white')}>{bot.winRate}%</td>
+                        <td className={cn(TABLE_CELL, 'text-right text-warning')}>{bot.drawdown}%</td>
+                        <td className={TABLE_CELL}>
+                          <StatusBadge status={bot.status} />
+                        </td>
+                        <td className={TABLE_ACTIONS_CELL} onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-center gap-0.5">
+                            {canControlSession && (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={sessionBusy || bot.status === 'active'}
+                                  onClick={() => void patchSessionStatus(bot, 'running')}
+                                  className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-success disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                                  title="Старт"
+                                  data-testid={`bot-start-${bot.id}`}
+                                >
+                                  {sessionBusy ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={sessionBusy || bot.status !== 'active'}
+                                  onClick={() => void patchSessionStatus(bot, 'paused')}
+                                  className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-warning disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                                  title="Пауза"
+                                  data-testid={`bot-pause-${bot.id}`}
+                                >
+                                  <Pause size={13} />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={sessionBusy || bot.status === 'stopped'}
+                                  onClick={() => void patchSessionStatus(bot, 'stopped')}
+                                  className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-error disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                                  title="Стоп"
+                                  data-testid={`bot-stop-${bot.id}`}
+                                >
+                                  <Square size={13} />
+                                </button>
+                              </>
+                            )}
+                            <Link
+                              to={`/bots/${bot.id}/history`}
+                              className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-accent-cyan shrink-0"
+                              title="Исторические данные"
+                            >
+                              <Clock size={13} />
+                            </Link>
+                            <Link
+                              to={`/bots/${bot.id}/edit`}
+                              className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-white shrink-0"
+                              title="Редактировать"
+                            >
+                              <Edit2 size={13} />
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteBot(bot, e)}
+                              className="p-1 rounded-md hover:bg-white/5 text-muted hover:text-error shrink-0"
+                              title="Удалить"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </ResizableTable>
             </div>

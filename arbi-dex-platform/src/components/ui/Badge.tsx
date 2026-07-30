@@ -40,10 +40,10 @@ export function StatusBadge({ status }: { status: string }) {
     inactive: 'default',
   }
   const labels: Record<string, string> = {
-    active: 'Активен',
-    running: 'Работает',
+    active: 'Активна',
+    running: 'Активна',
     paused: 'Пауза',
-    stopped: 'Остановлен',
+    stopped: 'Остановлена',
     inactive: 'Неактивен',
   }
   return <Badge variant={map[status] ?? 'default'}>{labels[status] ?? status}</Badge>
