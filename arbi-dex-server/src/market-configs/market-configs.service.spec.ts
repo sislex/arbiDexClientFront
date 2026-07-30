@@ -36,7 +36,14 @@ describe('MarketConfigsService real quote chart', () => {
         };
       }),
     };
-    const service = new MarketConfigsService(repo as never, prices as never);
+    const botsRepo = { find: jest.fn(), update: jest.fn() };
+    const sessionsRepo = { update: jest.fn() };
+    const service = new MarketConfigsService(
+      repo as never,
+      prices as never,
+      botsRepo as never,
+      sessionsRepo as never,
+    );
 
     const result = await service.getQuotesRange('user-id', 'config-id');
 
@@ -74,7 +81,14 @@ describe('MarketConfigsService real quote chart', () => {
     const prices = {
       getPricesByMarket: jest.fn().mockResolvedValue({ series: [], data: [] }),
     };
-    const service = new MarketConfigsService(repo as never, prices as never);
+    const botsRepo = { find: jest.fn(), update: jest.fn() };
+    const sessionsRepo = { update: jest.fn() };
+    const service = new MarketConfigsService(
+      repo as never,
+      prices as never,
+      botsRepo as never,
+      sessionsRepo as never,
+    );
 
     await service.refreshQuotesCache('user-id', 'config-id');
 
@@ -104,7 +118,14 @@ describe('MarketConfigsService real quote chart', () => {
         ],
       }),
     };
-    const service = new MarketConfigsService(repo as never, prices as never);
+    const botsRepo = { find: jest.fn(), update: jest.fn() };
+    const sessionsRepo = { update: jest.fn() };
+    const service = new MarketConfigsService(
+      repo as never,
+      prices as never,
+      botsRepo as never,
+      sessionsRepo as never,
+    );
 
     await expect(service.getHistoryRange('user-id', 'config-id')).resolves.toEqual({
       historyFrom: 1_700_000_000_000,

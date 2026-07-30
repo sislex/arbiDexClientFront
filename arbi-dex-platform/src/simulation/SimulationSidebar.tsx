@@ -9,6 +9,7 @@ import {
   type SimulationEventType,
   type SimulationLogEvent,
 } from "./simulationViewerTypes";
+import { getEventTitle } from "./eventLabels";
 
 export interface SimulationSidebarProps {
   events: SimulationLogEvent[];
@@ -428,7 +429,7 @@ export function SimulationSidebar({
                     {cfg.label}
                   </span>
                   <span style={{ fontSize: "11px", color: textTertiary, flex: 1, lineHeight: "1.4" }}>
-                    {event.message}
+                    {getEventTitle(event)}
                   </span>
                   {hasDetail && (
                     <span

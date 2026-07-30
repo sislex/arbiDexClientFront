@@ -105,7 +105,7 @@ export function ServerBotEditorPage({ botId }: ServerBotEditorPageProps) {
       await updateServerBot(bot.id, {
         name: name.trim(),
         mode,
-        status,
+        status: 'stopped',
         initialBalance,
         slippagePct,
         marketConfigId,

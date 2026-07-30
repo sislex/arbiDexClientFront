@@ -298,11 +298,22 @@ export class BotsService {
     // непереданные равны undefined и затирали бота (balance и т.п. пропадали
     // из ответа, фронт падал). Копируем только реально переданные значения.
     const patch = Object.fromEntries(Object.entries(dto).filter(([, v]) => v !== undefined));
-    // Переходы статуса управляют сессиями: запуск открывает новую сессию,
-    // остановка закрывает активную. startedAt — начало текущей сессии.
-    const starting = dto.status === 'running' && bot.status !== 'running';
-    const stopping = dto.status !== undefined && dto.status !== 'running' && bot.status === 'running';
-    if (starting) bot.startedAt = Date.now();
+    // Start шлёт status (+ mode), Pause/Stop — только status.
+    // Любой другой PATCH (редактор бота: name, strategy, balance, …)
+    // всегда останавливает бота и закрывает сессию — без автозапуска.
+    const runtimeOnly = Object.keys(patch).every((k) => k === 'status' || k === 'mode');
+    if (!runtimeOnly) {
+      patch.status = 'stopped';
+    }
+    const starting = patch.status === 'running' && bot.status !== 'running';
+    const stopping = patch.status === 'stopped' && bot.status !== 'stopped';
+    // Resume с паузы: status→running без новой сессии.
+    // Новый старт (из stopped): открываем сессию. mode в PATCH не мешает.
+    const openingSession = Boolean(patch.status === 'running') && starting && bot.status !== 'paused';
+    const closingSession =
+      !runtimeOnly ||
+      (stopping && (bot.status === 'running' || bot.status === 'paused'));
+    if (openingSession) bot.startedAt = Date.now();
     Object.assign(bot, patch);
     if (resetAccount && dto.balance === undefined) {
       bot.balance = bot.initialBalance;
@@ -313,9 +324,43 @@ export class BotsService {
       bot.pnlPct = 0;
     }
     const saved = await this.repo.save(bot);
-    if (starting) await this.openSession(saved, saved.startedAt);
-    if (stopping) await this.closeSessions(saved.id);
+    if (openingSession) await this.openSession(saved, saved.startedAt);
+    else if (closingSession) await this.closeSessions(saved.id);
     return saved;
+  }
+
+  /** Закрыть сессии и остановить ботов на стратегии — без автозапуска. */
+  async endSessionsForStrategy(strategyConfigId: string): Promise<void> {
+    const bots = await this.repo.find({ where: { strategyConfigId } });
+    await this.stopSessionsForBots(bots);
+  }
+
+  /** Закрыть сессии и остановить ботов, привязанных к рынку (пары) — без автозапуска. */
+  async endSessionsForMarket(marketConfigId: string): Promise<void> {
+    const bots = await this.repo.find({ where: { marketConfigId } });
+    await this.stopSessionsForBots(bots);
+  }
+
+  private async stopSessionsForBots(bots: Bot[]): Promise<void> {
+    if (bots.length === 0) return;
+    const at = Date.now();
+    const ids = bots.map((b) => b.id);
+    await this.sessionsRepo
+      .createQueryBuilder()
+      .update()
+      .set({ endedAt: at })
+      .where('botId IN (:...ids)', { ids })
+      .andWhere('endedAt = 0')
+      .execute();
+    const toStop = bots.filter((b) => b.status === 'running' || b.status === 'paused').map((b) => b.id);
+    if (toStop.length > 0) {
+      await this.repo
+        .createQueryBuilder()
+        .update()
+        .set({ status: 'stopped' })
+        .where('id IN (:...ids)', { ids: toStop })
+        .execute();
+    }
   }
 
   async remove(userId: string, id: string): Promise<void> {

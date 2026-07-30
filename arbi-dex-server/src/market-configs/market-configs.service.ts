@@ -7,6 +7,8 @@ import { generateQuoteSeries } from '../demo/engine/quotes';
 import { basePriceForPair, findMarket, NOW } from '../demo/engine/markets';
 import { QuotePoint } from '../demo/engine/types';
 import { PricesService, ChartPricePoint } from '../prices/prices.service';
+import { Bot } from '../bots/entities/bot.entity';
+import { BotSession } from '../bots/entities/bot-session.entity';
 
 /** Real quote series for a market config plus the bounds of available history. */
 export interface QuotesRangeResult {
@@ -104,6 +106,10 @@ export class MarketConfigsService {
     @InjectRepository(MarketConfig)
     private readonly repo: Repository<MarketConfig>,
     private readonly prices: PricesService,
+    @InjectRepository(Bot)
+    private readonly botsRepo: Repository<Bot>,
+    @InjectRepository(BotSession)
+    private readonly sessionsRepo: Repository<BotSession>,
   ) {}
 
   findAll(userId: string): Promise<MarketConfig[]> {
@@ -131,7 +137,38 @@ export class MarketConfigsService {
   async update(userId: string, id: string, dto: UpdateMarketConfigDto): Promise<MarketConfig> {
     const mc = await this.findOne(userId, id);
     Object.assign(mc, dto);
-    return this.repo.save(mc);
+    const saved = await this.repo.save(mc);
+    // Смена пар: закрыть сессию и остановить бота (запуск вручную).
+    await this.endLinkedBotSessions(id);
+    return saved;
+  }
+
+  /**
+   * Смена пар: закрыть сессию и остановить бота (запуск вручную).
+   */
+  private async endLinkedBotSessions(marketConfigId: string): Promise<void> {
+    const bots = await this.botsRepo.find({ where: { marketConfigId } });
+    if (bots.length === 0) return;
+    const at = Date.now();
+    const ids = bots.map((b) => b.id);
+
+    await this.sessionsRepo
+      .createQueryBuilder()
+      .update(BotSession)
+      .set({ endedAt: at })
+      .where('botId IN (:...ids)', { ids })
+      .andWhere('endedAt = 0')
+      .execute();
+
+    const toStop = bots.filter((b) => b.status === 'running' || b.status === 'paused').map((b) => b.id);
+    if (toStop.length > 0) {
+      await this.botsRepo
+        .createQueryBuilder()
+        .update(Bot)
+        .set({ status: 'stopped' })
+        .where('id IN (:...ids)', { ids: toStop })
+        .execute();
+    }
   }
 
   async remove(userId: string, id: string): Promise<void> {

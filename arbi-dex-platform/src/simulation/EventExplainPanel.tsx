@@ -2,7 +2,7 @@ import { useSimulatorI18n } from "./useSimulatorI18n";
 import { getConditionLabel } from "./conditionLabels";
 import { formatConditionOutcome } from "../lib/conditionsCatalog";
 import type { SimulationLogEvent } from "./simulationViewerTypes";
-import { getDecisionTitle, getRuleTitle } from "./eventLabels";
+import { getDecisionTitle, getRuleTitle, formatForcedSellTitle } from "./eventLabels";
 
 interface EventExplainPanelProps {
   event: SimulationLogEvent;
@@ -155,7 +155,11 @@ export function EventExplainPanel({
             className="px-2 py-0.5 rounded text-xs"
             style={{ fontFamily: "var(--font-mono)", fontWeight: 600, backgroundColor: `${accent}20`, color: accent }}
           >
-            {d.decision ? getDecisionTitle(d.decision) : d.decision}
+            {d.forcedSell
+              ? formatForcedSellTitle(d.forcedSellReasons ?? [])
+              : d.decision
+                ? getDecisionTitle(d.decision)
+                : d.decision}
           </span>
           {onJumpToPoint && (event.type === "Buy" || event.type === "Sell" || event.type === "Error") && (
             <button

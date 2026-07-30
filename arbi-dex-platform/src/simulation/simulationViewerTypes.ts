@@ -27,6 +27,8 @@ export interface SimulationEventDetail {
   transactionBuy?: boolean;
   transactionSell?: boolean;
   forcedSell?: boolean;
+  /** Trigger condition ids that caused forcedSell (stop_loss, …). */
+  forcedSellReasons?: string[];
   tookMs?: number;
 }
 

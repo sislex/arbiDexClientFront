@@ -4,6 +4,7 @@ import { Button } from '../ui/Button'
 import { StatusBadge } from '../ui/Badge'
 import { BotTradingButtons, type BotTradeHandlers } from './BotTradingButtons'
 import { BotSettingsDropdown } from './BotSettingsDropdown'
+import type { ServerBotStatus } from '../../services/botsApi'
 import type { FundMode, TradeMode } from './TradingModeToggles'
 
 export interface BotDetailHeaderProps {
@@ -19,12 +20,15 @@ export interface BotDetailHeaderProps {
   useServerSimulation?: boolean
   fundMode: FundMode
   tradeMode: TradeMode
-  autoRunning: boolean
+  serverBotStatus?: ServerBotStatus | null
+  statusLoading?: boolean
+  onStart?: () => void
+  onPause?: () => void
+  onStop?: () => void
   editableBotId?: string
   historyHref?: string
   onFundModeChange: (mode: FundMode) => void
   onTradeModeChange: (mode: TradeMode) => void
-  onAutoToggle: () => void
   tradeHandlers?: BotTradeHandlers | null
 }
 
@@ -41,12 +45,15 @@ export function BotDetailHeader({
   useServerSimulation,
   fundMode,
   tradeMode,
-  autoRunning,
+  serverBotStatus = null,
+  statusLoading = false,
+  onStart,
+  onPause,
+  onStop,
   editableBotId,
   historyHref,
   onFundModeChange,
   onTradeModeChange,
-  onAutoToggle,
   tradeHandlers,
 }: BotDetailHeaderProps) {
   return (
@@ -115,8 +122,11 @@ export function BotDetailHeader({
       <BotTradingButtons
         fundMode={fundMode}
         tradeMode={tradeMode}
-        autoRunning={autoRunning}
-        onAutoToggle={onAutoToggle}
+        serverBotStatus={tradeMode === 'auto' ? serverBotStatus : null}
+        statusLoading={statusLoading}
+        onStart={onStart}
+        onPause={onPause}
+        onStop={onStop}
         tradeHandlers={tradeHandlers}
       />
       {tradeHandlers?.tradeError && (

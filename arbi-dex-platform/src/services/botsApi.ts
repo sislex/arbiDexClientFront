@@ -301,6 +301,14 @@ export interface ServerBotTrade {
   amountOut: number | null
   pnl: number | null
   error: string | null
+  /** Engine step breakdown for auto trades (null for manual button trades). */
+  stepResult?: {
+    transaction?: { buy?: boolean; sell?: boolean; forcedSell?: boolean }
+    condition?: {
+      buy?: Record<string, { passed?: boolean; actual?: number; required?: number }>
+      sell?: Record<string, { passed?: boolean; actual?: number; required?: number }>
+    }
+  } | null
 }
 
 export interface ServerBotTradeResult {
@@ -325,4 +333,29 @@ export function executeBotTrade(
     method: 'POST',
     body: JSON.stringify(payload),
   })
+}
+
+/** Торговая сессия бота с итогами по журналу сделок за окно [startedAt, endedAt]. */
+export interface ServerBotSession {
+  id: string
+  userId: string
+  botId: string
+  startedAt: number
+  endedAt: number
+  startBalance: number
+  mode: string
+  createdAt: string
+  active: boolean
+  tradesCount: number
+  failedCount: number
+  pnl: number
+  pnlPct: number
+}
+
+export function fetchBotSessions(botId: string): Promise<ServerBotSession[]> {
+  return apiRequest<ServerBotSession[]>(`/bots/${botId}/sessions`)
+}
+
+export function fetchBotSession(botId: string, sessionId: string): Promise<ServerBotSession> {
+  return apiRequest<ServerBotSession>(`/bots/${botId}/sessions/${sessionId}`)
 }

@@ -1,5 +1,5 @@
 import { TRADING_RULE_DEFINITIONS } from '../../data/tradingRulesDefaults'
-import type { TradingRuleState } from '../../types/tradingRules'
+import type { TradingRuleDefinition, TradingRuleState } from '../../types/tradingRules'
 import { cn } from '../../lib/utils'
 import { Toggle } from '../ui/Toggle'
 
@@ -63,6 +63,66 @@ function RuleRow({
   )
 }
 
+function TriggerCard({
+  def,
+  rule,
+  onToggle,
+  onValueChange,
+}: {
+  def: TradingRuleDefinition
+  rule: TradingRuleState
+  onToggle: (enabled: boolean) => void
+  onValueChange: (key: string, value: number) => void
+}) {
+  const paramPart = def.parts.find((p) => p.type === 'param')
+  const paramKey = paramPart && paramPart.type === 'param' ? paramPart.key : null
+  const unit = paramPart && paramPart.type === 'param' ? (paramPart.suffix ?? '') : ''
+  const value = paramKey != null ? (rule.values[paramKey] ?? def.defaults[paramKey] ?? 0) : 0
+
+  return (
+    <div
+      className={cn(
+        'rounded-xl border border-border bg-surface/60 p-4 transition-opacity',
+        !rule.enabled && 'opacity-60',
+      )}
+      data-testid={`trigger-${rule.id}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h5 className="text-sm font-semibold text-white">{def.title}</h5>
+            <span className="rounded-full border border-border bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+              trigger
+            </span>
+          </div>
+          {def.description && (
+            <p className="mt-1 text-xs leading-relaxed text-muted">{def.description}</p>
+          )}
+        </div>
+        <Toggle checked={rule.enabled} onChange={onToggle} className="mt-0.5" />
+      </div>
+
+      {rule.enabled && paramKey && (
+        <div className="relative mt-4">
+          <label className="absolute -top-2 left-3 z-10 bg-surface px-1 text-[11px] text-muted">
+            {def.paramLabel ?? paramKey}
+          </label>
+          <div className="flex items-center rounded-lg border border-border bg-transparent px-3 py-2.5 focus-within:border-accent-cyan/50">
+            <input
+              type="number"
+              value={value}
+              onChange={(e) => onValueChange(paramKey, Number(e.target.value))}
+              className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              data-testid={`param-${rule.id}-${paramKey}`}
+            />
+            {unit && <span className="ml-2 shrink-0 text-sm text-muted">{unit}</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function RuleSection({
   title,
   ruleIds,
@@ -105,8 +165,59 @@ function RuleSection({
   )
 }
 
-const BUY_RULE_IDS = TRADING_RULE_DEFINITIONS.filter((d) => d.side === 'buy').map((d) => d.id)
-const SELL_RULE_IDS = TRADING_RULE_DEFINITIONS.filter((d) => d.side === 'sell').map((d) => d.id)
+function TriggerSection({
+  rules,
+  onChange,
+}: {
+  rules: TradingRuleState[]
+  onChange: (rules: TradingRuleState[]) => void
+}) {
+  const defs = TRADING_RULE_DEFINITIONS.filter((d) => d.side === 'sell' && d.kind === 'trigger')
+
+  const updateRule = (id: string, patch: Partial<TradingRuleState>) => {
+    onChange(rules.map((r) => (r.id === id ? { ...r, ...patch } : r)))
+  }
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+          Триггеры принудительной продажи
+        </h4>
+        <p className="mt-1 text-xs text-muted">
+          Срабатывают независимо от обычных условий продажи и закрывают позицию.
+        </p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-1">
+        {defs.map((def) => {
+          const rule = rules.find((r) => r.id === def.id)
+          if (!rule) return null
+          return (
+            <TriggerCard
+              key={def.id}
+              def={def}
+              rule={rule}
+              onToggle={(enabled) => updateRule(def.id, { enabled })}
+              onValueChange={(key, value) =>
+                updateRule(def.id, {
+                  values: { ...rule.values, [key]: value },
+                })
+              }
+            />
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+const BUY_RULE_IDS = TRADING_RULE_DEFINITIONS.filter(
+  (d) => d.side === 'buy' && (d.kind ?? 'gate') === 'gate',
+).map((d) => d.id)
+
+const SELL_GATE_IDS = TRADING_RULE_DEFINITIONS.filter(
+  (d) => d.side === 'sell' && (d.kind ?? 'gate') === 'gate',
+).map((d) => d.id)
 
 export function TradingRulesForm({ rules, onChange }: TradingRulesFormProps) {
   return (
@@ -125,10 +236,12 @@ export function TradingRulesForm({ rules, onChange }: TradingRulesFormProps) {
 
       <RuleSection
         title="Условия для продажи"
-        ruleIds={SELL_RULE_IDS}
+        ruleIds={SELL_GATE_IDS}
         rules={rules}
         onChange={onChange}
       />
+
+      <TriggerSection rules={rules} onChange={onChange} />
     </div>
   )
 }

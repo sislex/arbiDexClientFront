@@ -161,7 +161,10 @@ export function toEngineStrategy(
     },
   };
 
-  // Custom avg-deviation gate (legacy simulate.ts formula). Disabled side → neutral.
+  // Custom avg-deviation gate (aligned with simulate.ts arb formula).
+  // buy:  (avg − buy) / avg ≥ percent%  — buy below fair price
+  // sell: (sell − avg) / avg ≥ percent% — sell above fair price
+  // percent may be negative. Disabled side → neutral.
   const avgDeviation: ConditionDef = {
     id: 'avg_observed_higher_for_last_steps',
     window: () => ({ steps: Math.max(buySteps, sellSteps) }),
@@ -179,13 +182,8 @@ export function toEngineStrategy(
           ? ((avgObservedQuote - buyQuote) / avgObservedQuote) * 100
           : ((sellQuote - avgObservedQuote) / avgObservedQuote) * 100;
       });
-      if (side === 'buy') {
-        const weakest = Math.min(...devs);
-        return { passed: devs.every((d) => d >= pct), actual: weakest, required: pct };
-      }
-      const required = -pct;
-      const weakest = Math.max(...devs);
-      return { passed: devs.every((d) => d <= required), actual: weakest, required };
+      const weakest = Math.min(...devs);
+      return { passed: devs.every((d) => d >= pct), actual: weakest, required: pct };
     },
   };
 

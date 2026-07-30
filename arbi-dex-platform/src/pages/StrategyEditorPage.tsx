@@ -6,7 +6,10 @@ import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { StatusBadge } from '../components/ui/Badge'
 import { TradingRulesForm } from '../components/forms/TradingRulesForm'
-import { createDefaultTradingRules } from '../data/tradingRulesDefaults'
+import {
+  createDefaultTradingRules,
+  ensureCompleteTradingRules,
+} from '../data/tradingRulesDefaults'
 import { getStrategyById, type StrategyData } from '../data/mockData'
 import type { StrategyDraft } from '../types/tradingRules'
 import { draftFromSearchParams, draftToSearchParams } from '../lib/strategyUrlParams'
@@ -35,7 +38,9 @@ function strategyToDraft(strategy: StrategyData): StrategyDraft {
   return {
     name: strategy.name,
     description: strategy.description,
-    rules: getStrategyRulesForId(strategy.id) ?? createDefaultTradingRules(),
+    rules: ensureCompleteTradingRules(
+      getStrategyRulesForId(strategy.id) ?? createDefaultTradingRules(),
+    ),
   }
 }
 

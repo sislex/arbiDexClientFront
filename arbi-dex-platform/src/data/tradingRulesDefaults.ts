@@ -6,7 +6,7 @@ export const TRADING_RULE_DEFINITIONS: TradingRuleDefinition[] = [
     number: 1,
     side: 'buy',
     parts: [
-      { type: 'text', text: 'Если Средняя цена выше покупки за последние N шагов (процент) >= ' },
+      { type: 'text', text: 'Если Средняя цена выше покупки за последние N шагов (процент, можно с минусом) >= ' },
       { type: 'param', key: 'percent', suffix: ' %', width: 56 },
     ],
     defaults: { percent: 1 },
@@ -116,6 +116,42 @@ export const TRADING_RULE_DEFINITIONS: TradingRuleDefinition[] = [
     defaults: { percent: 1000 },
     defaultEnabled: false,
   },
+  {
+    id: 'sell-stop-loss',
+    number: 12,
+    side: 'sell',
+    kind: 'trigger',
+    title: 'Стоп-лосс',
+    description: '% убытка от цены входа, при котором позиция принудительно продаётся.',
+    paramLabel: 'Стоп-лосс',
+    parts: [{ type: 'param', key: 'stopLossPercent', suffix: '%', width: 80 }],
+    defaults: { stopLossPercent: 2 },
+    defaultEnabled: true,
+  },
+  {
+    id: 'sell-trailing-tp',
+    number: 13,
+    side: 'sell',
+    kind: 'trigger',
+    title: 'Trailing take-profit',
+    description: '% отката от пика цены после входа, фиксирующий прибыль.',
+    paramLabel: 'Trailing TP',
+    parts: [{ type: 'param', key: 'trailingTakeProfitPercent', suffix: '%', width: 80 }],
+    defaults: { trailingTakeProfitPercent: 1 },
+    defaultEnabled: true,
+  },
+  {
+    id: 'sell-max-hold',
+    number: 14,
+    side: 'sell',
+    kind: 'trigger',
+    title: 'Макс. время удержания',
+    description: 'Принудительная продажа по истечении времени удержания позиции.',
+    paramLabel: 'Макс. удержание',
+    parts: [{ type: 'param', key: 'maxHoldingTimeMs', suffix: 'мс', width: 100 }],
+    defaults: { maxHoldingTimeMs: 300000 },
+    defaultEnabled: true,
+  },
 ]
 
 export function createDefaultTradingRules(): TradingRuleState[] {
@@ -124,6 +160,25 @@ export function createDefaultTradingRules(): TradingRuleState[] {
     enabled: def.defaultEnabled,
     values: { ...def.defaults },
   }))
+}
+
+/** Merge saved rules with catalog defaults so newly added definitions appear. */
+export function ensureCompleteTradingRules(rules: TradingRuleState[]): TradingRuleState[] {
+  const byId = new Map(rules.map((r) => [r.id, r]))
+  return TRADING_RULE_DEFINITIONS.map((def) => {
+    const existing = byId.get(def.id)
+    if (!existing) {
+      return {
+        id: def.id,
+        enabled: def.defaultEnabled,
+        values: { ...def.defaults },
+      }
+    }
+    return {
+      ...existing,
+      values: { ...def.defaults, ...existing.values },
+    }
+  })
 }
 
 export function getRuleDefinition(id: string): TradingRuleDefinition | undefined {

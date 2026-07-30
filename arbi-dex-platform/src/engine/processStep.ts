@@ -366,8 +366,11 @@ export function processStep(
   const pushEval = (group: "toBuy" | "toSell", id: string, passed: boolean, current?: string, required?: string) => {
     evaluations.push({ group, id, passed, current, required });
   };
-  const currentBuyPercent = pctDiff(avg, step.quotes.buyQuote);
-  const currentSellPercent = pctDiff(avg, step.quotes.sellQuote);
+  const currentBuyPercent =
+    avg > 0 ? ((avg - step.quotes.buyQuote) / avg) * 100 : Number.NEGATIVE_INFINITY;
+  // Sell: quote above fair avg (arb). Negative threshold allowed.
+  const currentSellPercent =
+    avg > 0 ? ((step.quotes.sellQuote - avg) / avg) * 100 : Number.NEGATIVE_INFINITY;
   const currentSpreadPercent = pctDiff(step.quotes.buyQuote, step.quotes.sellQuote);
 
   const maxHistoryLength = Math.max(

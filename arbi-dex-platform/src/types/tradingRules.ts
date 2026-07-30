@@ -1,4 +1,5 @@
 export type RuleSide = 'buy' | 'sell'
+export type RuleKind = 'gate' | 'trigger'
 
 export type RulePart =
   | { type: 'text'; text: string }
@@ -8,6 +9,12 @@ export interface TradingRuleDefinition {
   id: string
   number: number
   side: RuleSide
+  /** gate = numbered rule row; trigger = sell force-exit card (stop-loss etc.) */
+  kind?: RuleKind
+  title?: string
+  description?: string
+  /** Floating label for the primary numeric param (trigger cards). */
+  paramLabel?: string
   parts: RulePart[]
   defaults: Record<string, number>
   defaultEnabled: boolean

@@ -11,13 +11,11 @@ import {
   fetchStrategyConfigs,
   fetchStrategyDefaults,
   updateMarketConfig,
-  updateStrategyConfig,
   type MarketConfigDetail,
 } from '../services/configApi'
 import {
   createServerBot,
   updateServerBot,
-  type ServerBotStatus,
 } from '../services/botsApi'
 
 const EXCHANGE_ALIASES: Record<string, string[]> = {
@@ -204,11 +202,6 @@ async function upsertMarketConfigId(
   return created.id
 }
 
-function mapLocalStatusToServer(status: Bot['status']): ServerBotStatus {
-  if (status === 'active') return 'running'
-  return status
-}
-
 async function ensureMarketConfigId(
   bot: Bot,
   pairSet: TradingPair | undefined,
@@ -223,20 +216,17 @@ async function ensureStrategyConfigId(
   defaults: Awaited<ReturnType<typeof fetchStrategyDefaults>>,
   existingConfigs: Awaited<ReturnType<typeof fetchStrategyConfigs>>,
 ): Promise<string> {
-  const sides = buildServerStrategySides(bot.strategyId, defaults)
-  const payload = { name: bot.strategy, buy: sides.buy, sell: sides.sell }
-
+  // Не вызываем updateStrategyConfig при сохранении бота — это перезапускает
+  // сессии. Правила стратегии пушатся только из редактора стратегии.
   if (bot.strategyConfigId && existingConfigs.some((item) => item.id === bot.strategyConfigId)) {
-    await updateStrategyConfig(bot.strategyConfigId, payload)
     return bot.strategyConfigId
   }
 
   const matched = existingConfigs.find((item) => item.name === bot.strategy)
-  if (matched) {
-    await updateStrategyConfig(matched.id, payload)
-    return matched.id
-  }
+  if (matched) return matched.id
 
+  const sides = buildServerStrategySides(bot.strategyId, defaults)
+  const payload = { name: bot.strategy, buy: sides.buy, sell: sides.sell }
   const created = await createStrategyConfig(payload)
   return created.id
 }
@@ -261,7 +251,7 @@ export async function syncBotToServer(bot: Bot, options: SyncBotToServerOptions 
   const payload = {
     name: bot.name,
     mode: 'demo-live' as const,
-    status: mapLocalStatusToServer(bot.status),
+    status: 'stopped' as const,
     marketConfigId,
     strategyConfigId,
     baseAsset,

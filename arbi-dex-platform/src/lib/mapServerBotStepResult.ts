@@ -6,6 +6,11 @@ import type {
   ServerStepEngineResult,
 } from '../services/botsApi'
 import { eventTime } from '../simulation/simulationFormatters'
+import {
+  FORCED_SELL_TRIGGER_IDS,
+  isForcedSellTriggerId,
+  parseForcedSellReasonsFromTradeReason,
+} from '../simulation/eventLabels'
 import type { SimulationEventType, SimulationLogEvent } from '../simulation/simulationViewerTypes'
 
 import { formatEngineConditionActual, formatEngineConditionRequired } from './formatEngineConditionActual'
@@ -21,6 +26,16 @@ function mapConditionSide(
     current: formatEngineConditionActual(id, outcome.actual),
     required: formatEngineConditionRequired(id, outcome.required),
   }))
+}
+
+function forcedSellReasonsFromResult(result: ServerStepEngineResult): string[] {
+  if (!result.transaction.forcedSell) return []
+  const sell = result.condition.sell ?? {}
+  const fromOutcomes = FORCED_SELL_TRIGGER_IDS.filter((id) => sell[id]?.passed)
+  if (fromOutcomes.length > 0) return [...fromOutcomes]
+  return Object.entries(sell)
+    .filter(([id, outcome]) => outcome.passed && isForcedSellTriggerId(id))
+    .map(([id]) => id)
 }
 
 function decisionFromResult(result: ServerStepEngineResult): 'BUY' | 'SELL' | 'NO ACTION' {
@@ -104,6 +119,7 @@ export function mapServerStepToLogEvent(
     ...mapConditionSide(result.condition.buy, 'toBuy'),
     ...mapConditionSide(result.condition.sell, 'toSell'),
   ]
+  const forcedSellReasons = forcedSellReasonsFromResult(result)
   const markerPrice =
     decision === 'BUY'
       ? step?.buyQuote
@@ -134,6 +150,7 @@ export function mapServerStepToLogEvent(
       transactionBuy: result.transaction.buy,
       transactionSell: result.transaction.sell,
       forcedSell: result.transaction.forcedSell,
+      forcedSellReasons: forcedSellReasons.length > 0 ? forcedSellReasons : undefined,
       tookMs: 'tookMs' in record ? record.tookMs : undefined,
     },
   }
@@ -152,17 +169,25 @@ export function mapServerTradeToLogEvent(trade: {
 }, dataIdx: number, markerTs?: number): SimulationLogEvent {
   const ts = markerTs ?? trade.time
   const isFailed = trade.status === 'failed'
+  const forcedSellReasons = parseForcedSellReasonsFromTradeReason(trade.reason)
+  const forcedSell = forcedSellReasons.length > 0
   return {
     id: `srv-trade-${trade.id}`,
     dataIdx,
     time: eventTime(trade.time),
     type: isFailed ? 'Error' : trade.side === 'buy' ? 'Buy' : 'Sell',
-    message: isFailed ? (trade.error ?? 'Сделка не прошла') : (trade.reason ?? trade.side.toUpperCase()),
+    message: isFailed
+      ? (trade.error ?? 'Сделка не прошла')
+      : forcedSell
+        ? trade.reason!
+        : (trade.reason ?? trade.side.toUpperCase()),
     detail: {
       decision: trade.side === 'buy' ? 'BUY' : 'SELL',
       currentValue: String(trade.price),
       amount: `${trade.amount.toFixed(4)}`,
       status: isFailed ? 'failed' : 'success',
+      forcedSell: forcedSell || undefined,
+      forcedSellReasons: forcedSellReasons.length > 0 ? forcedSellReasons : undefined,
     },
     markerTs: ts,
     markerPrice: trade.price,
@@ -180,6 +205,12 @@ export function mapServerLiveTradeToLogEvent(
     amountIn: number
     pnl?: number | null
     error?: string | null
+    stepResult?: {
+      transaction?: { buy?: boolean; sell?: boolean; forcedSell?: boolean }
+      condition?: {
+        sell?: Record<string, { passed?: boolean }>
+      }
+    } | null
   },
   quotes: ServerQuotePoint[],
 ): SimulationLogEvent {
@@ -191,22 +222,44 @@ export function mapServerLiveTradeToLogEvent(
     trade.expectedPrice ??
     (trade.side === 'buy' ? quote?.buyQuote : quote?.sellQuote) ??
     0
+
+  const forcedFromStep =
+    trade.stepResult?.transaction?.forcedSell
+      ? FORCED_SELL_TRIGGER_IDS.filter((id) => trade.stepResult?.condition?.sell?.[id]?.passed)
+      : []
+
+  const base = mapServerTradeToLogEvent(
+    {
+      id: trade.id,
+      time: trade.time,
+      side: trade.side,
+      price: markerPrice,
+      amount: trade.amountIn,
+      pnl: trade.pnl ?? undefined,
+      status: trade.status,
+      error: trade.error,
+      reason:
+        forcedFromStep.length > 0
+          ? forcedFromStep.join(', ')
+          : trade.side === 'sell' && trade.stepResult?.transaction?.forcedSell
+            ? 'forced_sell'
+            : undefined,
+    },
+    idx,
+    markerTs,
+  )
+
   return {
-    ...mapServerTradeToLogEvent(
-      {
-        id: trade.id,
-        time: trade.time,
-        side: trade.side,
-        price: markerPrice,
-        amount: trade.amountIn,
-        pnl: trade.pnl ?? undefined,
-        status: trade.status,
-        error: trade.error,
-      },
-      idx,
-      markerTs,
-    ),
+    ...base,
     source: 'live-trade',
+    detail: {
+      ...base.detail,
+      forcedSell: Boolean(trade.stepResult?.transaction?.forcedSell) || base.detail?.forcedSell,
+      forcedSellReasons:
+        forcedFromStep.length > 0
+          ? [...forcedFromStep]
+          : base.detail?.forcedSellReasons,
+    },
   }
 }
 

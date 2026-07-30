@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -21,8 +21,8 @@ import { SettingsModule } from '../settings/settings.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Bot, BotTrade, BotSession]),
-    MarketConfigsModule,
-    StrategyConfigsModule,
+    forwardRef(() => MarketConfigsModule),
+    forwardRef(() => StrategyConfigsModule),
     MarketDataModule,
     SwapExecutionModule,
     SettingsModule,
@@ -36,5 +36,6 @@ import { SettingsModule } from '../settings/settings.module';
   ],
   controllers: [BotsController, ComputeController],
   providers: [BotsService, LiveTradingService, LiveEngineService, AutotuneJobsService, AutotuneProgressGateway],
+  exports: [BotsService],
 })
 export class BotsModule {}

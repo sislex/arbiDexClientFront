@@ -4,6 +4,7 @@ import { useSimulatorI18n } from './useSimulatorI18n'
 import { getConditionLabel } from './conditionLabels'
 import { formatConditionOutcome } from '../lib/conditionsCatalog'
 import type { SimulationLogEvent } from './simulationViewerTypes'
+import { formatForcedSellReasonLabel } from './eventLabels'
 
 interface StepResultPanelProps {
   event: SimulationLogEvent | null
@@ -127,7 +128,16 @@ export function StepResultPanel({
           <div className="mb-2 flex flex-wrap gap-1">
             <SignalChip label="Покупка" active={Boolean(detail.transactionBuy)} color="#10B981" isDark={isDark} />
             <SignalChip label="Продажа" active={Boolean(detail.transactionSell)} color="#E5383B" isDark={isDark} />
-            <SignalChip label="Принуд. продажа" active={Boolean(detail.forcedSell)} color="#F59E0B" isDark={isDark} />
+            <SignalChip
+              label={
+                detail.forcedSell && detail.forcedSellReasons && detail.forcedSellReasons.length > 0
+                  ? `Принуд. продажа: ${detail.forcedSellReasons.map(formatForcedSellReasonLabel).join(', ')}`
+                  : 'Принуд. продажа'
+              }
+              active={Boolean(detail.forcedSell)}
+              color="#F59E0B"
+              isDark={isDark}
+            />
           </div>
 
           {groups.map(({ group, items }) => {

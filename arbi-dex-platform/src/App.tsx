@@ -14,6 +14,7 @@ import { BotsPage } from './pages/Bots'
 import { BotEditorPage } from './pages/BotEditorPage'
 import { BotEditRoute } from './pages/BotEditRoute'
 import { BotDetailPage } from './pages/BotDetail'
+import { BotSessionPage } from './pages/BotSessionPage'
 import { BotHistoryPage } from './pages/BotHistory'
 import { LiveTradingPage } from './pages/LiveTrading'
 import { PairChartPage } from './pages/PairChartPage'
@@ -43,6 +44,7 @@ export default function App() {
                   <Route path="bots/:id/edit" element={<BotEditRoute />} />
                   <Route path="bots" element={<BotsPage />} />
                   <Route path="bots/:id/history" element={<BotHistoryPage />} />
+                  <Route path="bots/:id/sessions/:sessionId" element={<BotSessionPage />} />
                   <Route path="bots/:id" element={<BotDetailPage />} />
                   <Route path="live" element={<LiveTradingPage />} />
                   <Route path="analytics" element={<AnalyticsPage />} />

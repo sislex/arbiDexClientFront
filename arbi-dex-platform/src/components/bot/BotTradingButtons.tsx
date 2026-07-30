@@ -1,5 +1,6 @@
-import { AlertOctagon, Loader2, TrendingDown, TrendingUp } from 'lucide-react'
+import { AlertOctagon, Loader2, Pause, Play, Square, TrendingDown, TrendingUp } from 'lucide-react'
 import { Button } from '../ui/Button'
+import type { ServerBotStatus } from '../../services/botsApi'
 import type { FundMode, TradeMode } from './TradingModeToggles'
 
 export interface BotTradeHandlers {
@@ -14,20 +15,28 @@ export interface BotTradeHandlers {
 interface BotTradingButtonsProps {
   fundMode: FundMode
   tradeMode: TradeMode
-  autoRunning?: boolean
-  onAutoToggle?: () => void
+  serverBotStatus?: ServerBotStatus | null
+  statusLoading?: boolean
+  onStart?: () => void
+  onPause?: () => void
+  onStop?: () => void
   tradeHandlers?: BotTradeHandlers | null
 }
 
 export function BotTradingButtons({
   fundMode,
   tradeMode,
-  autoRunning,
-  onAutoToggle,
+  serverBotStatus = null,
+  statusLoading = false,
+  onStart,
+  onPause,
+  onStop,
   tradeHandlers,
 }: BotTradingButtonsProps) {
   const isDemo = fundMode === 'demo'
-  const isAuto = tradeMode === 'auto'
+  const isManual = tradeMode === 'manual'
+  const hasRuntimeControls = tradeMode === 'auto' && serverBotStatus != null
+
   const buyLabel = isDemo ? 'Demo Buy' : 'Buy'
   const sellLabel = isDemo ? 'Demo Sell' : 'Sell'
   const pending = tradeHandlers?.tradePending ?? false
@@ -36,15 +45,41 @@ export function BotTradingButtons({
 
   return (
     <>
-      {isAuto && !isDemo && onAutoToggle && (
-        <Button
-          variant={autoRunning ? 'danger' : 'secondary'}
-          size="sm"
-          onClick={onAutoToggle}
-        >
-          {autoRunning ? 'Пауза авто' : 'Запустить авто'}
-        </Button>
+      {hasRuntimeControls && (
+        <>
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={statusLoading || serverBotStatus === 'running'}
+            onClick={onStart}
+            data-testid="bot-start"
+          >
+            <Play size={14} />
+            Старт
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={statusLoading || serverBotStatus !== 'running'}
+            onClick={onPause}
+            data-testid="bot-pause"
+          >
+            <Pause size={14} />
+            Пауза
+          </Button>
+          <Button
+            size="sm"
+            variant="danger"
+            disabled={statusLoading || serverBotStatus === 'stopped'}
+            onClick={onStop}
+            data-testid="bot-stop"
+          >
+            <Square size={14} />
+            Стоп
+          </Button>
+        </>
       )}
+
       <Button
         variant="secondary"
         size="sm"
@@ -79,7 +114,8 @@ export function BotTradingButtons({
         {pending ? <Loader2 size={14} className="animate-spin" /> : null}
         <TrendingDown size={14} /> {sellLabel}
       </Button>
-      {!isDemo && !isAuto && (
+
+      {!isDemo && isManual && (
         <Button variant="danger" size="sm">
           <AlertOctagon size={14} /> Emergency Stop
         </Button>

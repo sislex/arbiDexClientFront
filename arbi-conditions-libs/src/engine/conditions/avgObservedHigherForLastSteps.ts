@@ -1,4 +1,3 @@
-import { pctDiff } from '../helpers';
 import type {
   AvgObservedHigherThanForLastStepsConfig,
   ConditionDef,
@@ -13,9 +12,12 @@ function cfgFor(strategy: StrategyEngineConfig, side: Side): AvgObservedHigherTh
 }
 
 /**
- * For each of the last `steps` steps, the observed price was at least
- * `percent`% above the side's quote (buy → buyQuote, sell → sellQuote).
- * `actual` reports the weakest (minimum) percent over that window.
+ * Arb deviation gate over the last `steps` ticks (denominator = avgObservedQuote):
+ * - buy:  (avg − buyQuote) / avg · 100 ≥ percent  → buyQuote below avg
+ * - sell: (sellQuote − avg) / avg · 100 ≥ percent → sellQuote above avg
+ *
+ * `percent` may be negative (looser / inverted threshold). `actual` is the
+ * weakest (minimum) deviation in the window.
  */
 export const avgObservedHigherForLastStepsCondition: ConditionDef = {
   id: 'avg_observed_higher_for_last_steps',
@@ -23,9 +25,14 @@ export const avgObservedHigherForLastStepsCondition: ConditionDef = {
   evaluate: (ctx, strategy, side) => {
     const cfg = cfgFor(strategy, side);
     const n = Math.max(1, Math.floor(cfg.steps));
-    const quoteKey = side === 'buy' ? 'buyQuote' : 'sellQuote';
     const last = ctx.window.slice(-n);
-    const percents = last.map((s) => pctDiff(s.quotes.avgObservedQuote, s.quotes[quoteKey]));
+    const percents = last.map((s) => {
+      const avg = s.quotes.avgObservedQuote;
+      if (avg <= 0) return Number.NEGATIVE_INFINITY;
+      return side === 'buy'
+        ? ((avg - s.quotes.buyQuote) / avg) * 100
+        : ((s.quotes.sellQuote - avg) / avg) * 100;
+    });
     const passed = ctx.window.length >= n && percents.every((p) => p >= cfg.percent);
     const weakest = percents.length ? Math.min(...percents) : Number.NEGATIVE_INFINITY;
     return { passed, actual: weakest, required: cfg.percent };

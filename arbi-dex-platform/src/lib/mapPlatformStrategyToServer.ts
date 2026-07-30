@@ -1,4 +1,8 @@
-import { createDefaultTradingRules, getRuleDefinition } from '../data/tradingRulesDefaults'
+import {
+  createDefaultTradingRules,
+  ensureCompleteTradingRules,
+  getRuleDefinition,
+} from '../data/tradingRulesDefaults'
 import { getStrategyRulesForId } from './strategyRulesStorage'
 import type { StrategyDefaults } from '../services/configApi'
 import type { TradingRuleState } from '../types/tradingRules'
@@ -77,6 +81,22 @@ function applyBuyRules(conditions: ServerCondition[], rules: TradingRuleState[])
   }
 }
 
+function upsertCondition(
+  conditions: ServerCondition[],
+  conditionId: string,
+  defaults: Record<string, number | boolean> = {},
+): ServerCondition {
+  const existing = findCondition(conditions, conditionId)
+  if (existing) return existing
+  const created: ServerCondition = {
+    conditionId,
+    enabled: false,
+    params: { ...defaults },
+  }
+  conditions.push(created)
+  return created
+}
+
 function applySellRules(conditions: ServerCondition[], rules: TradingRuleState[]) {
   const avg = findCondition(conditions, 'avg_observed_higher_for_last_steps')
   if (avg) {
@@ -106,6 +126,25 @@ function applySellRules(conditions: ServerCondition[], rules: TradingRuleState[]
       balance.params.minBalance = ruleNumber(rules, 'sell-11', 'percent', 1000)
     }
   }
+
+  const stopLoss = upsertCondition(conditions, 'stop_loss', { stopLossPercent: 2 })
+  stopLoss.enabled = ruleEnabled(rules, 'sell-stop-loss', true)
+  stopLoss.params.stopLossPercent = ruleNumber(rules, 'sell-stop-loss', 'stopLossPercent', 2)
+
+  const trailing = upsertCondition(conditions, 'trailing_take_profit', {
+    trailingTakeProfitPercent: 1,
+  })
+  trailing.enabled = ruleEnabled(rules, 'sell-trailing-tp', true)
+  trailing.params.trailingTakeProfitPercent = ruleNumber(
+    rules,
+    'sell-trailing-tp',
+    'trailingTakeProfitPercent',
+    1,
+  )
+
+  const maxHold = upsertCondition(conditions, 'max_holding_time', { maxHoldingTimeMs: 300000 })
+  maxHold.enabled = ruleEnabled(rules, 'sell-max-hold', true)
+  maxHold.params.maxHoldingTimeMs = ruleNumber(rules, 'sell-max-hold', 'maxHoldingTimeMs', 300000)
 }
 
 /** Map platform strategy editor rules to server strategy-config buy/sell sides. */
@@ -113,8 +152,8 @@ export function buildServerStrategySides(
   strategyId: string | undefined,
   defaults: StrategyDefaults,
 ): { buy: ServerCondition[]; sell: ServerCondition[] } {
-  const rules =
-    (strategyId ? getStrategyRulesForId(strategyId) : undefined) ?? createDefaultTradingRules()
+  const stored = strategyId ? getStrategyRulesForId(strategyId) : undefined
+  const rules = ensureCompleteTradingRules(stored ?? createDefaultTradingRules())
 
   const buy = cloneDefaults(defaults, 'buy')
   const sell = cloneDefaults(defaults, 'sell')
