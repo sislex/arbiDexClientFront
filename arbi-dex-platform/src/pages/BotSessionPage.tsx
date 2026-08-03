@@ -25,6 +25,7 @@ import {
   fetchServerStepResult,
   type ServerBot,
   type ServerBotSession,
+  type ServerBotStepResult,
   type ServerBotTrade,
   type ServerChartPoint,
   type ServerQuotePoint,
@@ -134,6 +135,31 @@ function CompletedSessionView({
       setStepLoading(true)
       setStepError(null)
       try {
+        const tradeWithStep = [...trades]
+          .filter((t) => t.stepResult && typeof t.stepResult === 'object')
+          .filter((t) => {
+            const stepTime =
+              typeof (t.stepResult as { step?: { time?: number } }).step?.time === 'number'
+                ? (t.stepResult as { step: { time: number } }).step.time
+                : t.time
+            return t.time === time || stepTime === time || Math.abs(t.time - time) < 2_000
+          })
+          .sort((a, b) => Math.abs(a.time - time) - Math.abs(b.time - time))[0]
+        if (tradeWithStep?.stepResult && typeof tradeWithStep.stepResult === 'object') {
+          const stored = tradeWithStep.stepResult as unknown as ServerBotStepResult
+          if (stored.transaction && stored.condition) {
+            const idx = findQuoteIndexByTime(quotes, time)
+            setStepResult(
+              mapServerStepToLogEvent(stored, {
+                quote: quotes[idx],
+                totalSteps: quotes.length,
+              }),
+            )
+            setStepSource('api')
+            return
+          }
+        }
+
         const pos = derivePositionAtTime(
           trades
             .filter((t) => t.status === 'success')

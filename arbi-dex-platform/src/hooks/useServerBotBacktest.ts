@@ -11,6 +11,7 @@ import {
   runServerBacktest,
   type ServerBacktestResult,
   type ServerBot,
+  type ServerBotStepResult,
   type ServerBotTrade,
   type ServerChartNetwork,
   type ServerQuotePoint,
@@ -254,6 +255,27 @@ export function useBotBacktest({
       setStepAnalyzing(true)
       setStepError(null)
       try {
+        // Prefer the engine breakdown stored on the trade at this tick — it has
+        // the real trigger outcomes (stop-loss «да») from decision time.
+        const tradeWithStep = [...liveTrades]
+          .filter((t) => t.stepResult && typeof t.stepResult === 'object')
+          .filter((t) => {
+            const stepTime =
+              typeof (t.stepResult as { step?: { time?: number } }).step?.time === 'number'
+                ? (t.stepResult as { step: { time: number } }).step.time
+                : t.time
+            return t.time === time || stepTime === time || Math.abs(t.time - time) < 2_000
+          })
+          .sort((a, b) => Math.abs(a.time - time) - Math.abs(b.time - time))[0]
+        if (tradeWithStep?.stepResult && typeof tradeWithStep.stepResult === 'object') {
+          const stored = tradeWithStep.stepResult as unknown as ServerBotStepResult
+          if (stored.transaction && stored.condition) {
+            setStepResult(mapServerStepToLogEvent(stored))
+            setStepSource('api')
+            return
+          }
+        }
+
         const pos = resolveInspectPosition(time, bot, backtest, liveTrades)
         const apiResult = await fetchServerStepResult(bot.id, {
           time,
