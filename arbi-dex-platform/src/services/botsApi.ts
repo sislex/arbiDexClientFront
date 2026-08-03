@@ -318,10 +318,14 @@ export interface ServerBotTradeResult {
 
 export function fetchBotTrades(
   botId: string,
-  params: { from?: number; to?: number } = {},
+  params: { from?: number; to?: number; limit?: number } = {},
 ): Promise<ServerBotTrade[]> {
   return apiRequest<ServerBotTrade[]>(`/bots/${botId}/trades`, {
-    query: { from: params.from, to: params.to },
+    query: {
+      from: params.from,
+      to: params.to,
+      limit: params.limit ?? 2000,
+    },
   })
 }
 

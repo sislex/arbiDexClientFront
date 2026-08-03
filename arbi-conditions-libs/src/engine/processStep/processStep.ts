@@ -10,7 +10,7 @@
  *   both sides and AND-ed → `transaction.buy` / `transaction.sell`.
  * - TRIGGER conditions (from `triggerConditions`, default `TRIGGER_CONDITIONS`)
  *   are evaluated on the sell side and OR-ed → `transaction.forcedSell` (stop-loss,
- *   trailing take-profit, max holding time). Their per-condition outcomes are
+ *   take-profit, max holding time). Their per-condition outcomes are
  *   merged into `condition.sell`.
  *
  * Pure and framework-agnostic. Throws when the resulting window is empty.

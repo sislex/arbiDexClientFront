@@ -47,15 +47,15 @@ describe('AutoTradeEngine (shared-engine adapter)', () => {
     expect(e.stopLossLevel).toBeCloseTo(94.05, 4);
   });
 
-  it('sells via trailing take-profit on a pullback from the peak', () => {
+  it('sells via take-profit when bid ≥ entry·(1 + trailingTakeProfitPct/100)', () => {
     const e = make({ autoSellThresholdPct: null, stopLossPct: null });
     e.tick(98, 99, 100);
     e.onBuy(99);
-    expect(e.tick(110, 111, 100).action).toBe('none'); // peak 110, no pullback yet
-    const r = e.tick(106, 107, 100); // trail = 110·0.97 = 106.7, bid 106 ≤ 106.7
+    expect(e.tick(100, 101, 100).action).toBe('none'); // target = 99·1.03 = 101.97
+    const r = e.tick(102, 103, 100); // bid 102 ≥ 101.97
     expect(r.action).toBe('sell');
-    expect(r.reason).toContain('Trailing');
-    expect(e.peakSellPrice).toBe(110);
+    expect(r.reason).toContain('Take-profit');
+    expect(e.trailingSellLevel).toBeCloseTo(101.97, 2);
   });
 
   it('sells via arbitrage when bid ≥ avg·(1 + autoSellThresholdPct/100)', () => {

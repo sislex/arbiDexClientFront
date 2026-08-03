@@ -118,6 +118,9 @@ describe('runBacktest', () => {
     expect(result.stats.winRate).toBe(0);
     expect(result.stats.maxDrawdownPct).toBe(6);
     expect(result.summary.forcedSells).toBe(1);
+    const stopStep = result.stepRecords[1]!;
+    expect(stopStep.result.transaction.forcedSell).toBe(true);
+    expect(stopStep.result.condition.sell.stop_loss?.passed).toBe(true);
   });
 
   it('applies slippage and tradeAmountPct to fills', () => {
@@ -169,6 +172,65 @@ describe('runBacktest', () => {
     expect(result.trades).toHaveLength(2);
     expect(result.trades[0]?.side).toBe('buy');
     expect(result.trades[1]?.side).toBe('sell');
+  });
+
+  it('delays buy fill by buyExecutionDelayMs and uses ask at fill time', () => {
+    const steps = [
+      step(0, 100, 100, 100), // signal
+      step(5_000, 101, 101, 101), // still in flight
+      step(10_000, 110, 110, 110), // fill at ask 110
+      step(20_000, 120, 120, 120), // sell
+    ];
+    const result = runBacktest(steps, PERMISSIVE, {
+      initialBalance: 1100,
+      buyExecutionDelayMs: 10_000,
+      conditions: levelGates(100, 120),
+      triggerConditions: [],
+    });
+
+    expect(result.trades).toHaveLength(2);
+    expect(result.trades[0]).toMatchObject({ side: 'buy', time: 10_000, price: 110, reason: 'auto_buy' });
+    expect(result.trades[0]!.amount).toBeCloseTo(10, 8); // 1100 / 110
+    expect(result.trades[1]).toMatchObject({ side: 'sell', time: 20_000, price: 120, pnl: 100 });
+    expect(steps[0]!.events?.transaction).toMatchObject({ side: 'buy', status: 'started' });
+    expect(steps[2]!.events?.transaction).toMatchObject({ side: 'buy', status: 'finished' });
+    expect(result.stepRecords).toHaveLength(4);
+  });
+
+  it('cancels an unfilled pending buy at series end and refunds cash', () => {
+    const steps = [
+      step(0, 100, 100, 100),
+      step(5_000, 100, 100, 100), // delay not elapsed
+    ];
+    const result = runBacktest(steps, PERMISSIVE, {
+      initialBalance: 1000,
+      buyExecutionDelayMs: 10_000,
+      conditions: levelGates(100, 999),
+      triggerConditions: [],
+    });
+    expect(result.trades).toHaveLength(0);
+    expect(result.stats.finalBalance).toBe(1000);
+  });
+
+  it('delays sell fill by sellExecutionDelayMs and uses bid at fill time', () => {
+    const steps = [
+      step(0, 100, 100, 100), // buy (instant)
+      step(1_000, 150, 120, 120), // sell signal (ask above buy level)
+      step(5_000, 150, 125, 125), // still in flight
+      step(11_000, 150, 130, 130), // fill sell at bid 130
+    ];
+    const result = runBacktest(steps, PERMISSIVE, {
+      initialBalance: 1000,
+      sellExecutionDelayMs: 10_000,
+      conditions: levelGates(100, 120),
+      triggerConditions: [],
+    });
+
+    expect(result.trades).toHaveLength(2);
+    expect(result.trades[0]).toMatchObject({ side: 'buy', time: 0, price: 100 });
+    expect(result.trades[1]).toMatchObject({ side: 'sell', time: 11_000, price: 130, pnl: 300 });
+    expect(steps[1]!.events?.transaction).toMatchObject({ side: 'sell', status: 'started' });
+    expect(steps[3]!.events?.transaction).toMatchObject({ side: 'sell', status: 'finished' });
   });
 
   it('makes no trades when no buy signal ever fires', () => {

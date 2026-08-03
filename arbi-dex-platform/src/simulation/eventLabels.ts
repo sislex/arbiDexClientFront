@@ -33,7 +33,7 @@ const RULE_TITLES: Record<string, string> = {
 
 const FORCED_SELL_REASON_LABELS: Record<string, string> = {
   stop_loss: 'стоп-лосс',
-  trailing_take_profit: 'trailing take-profit',
+  trailing_take_profit: 'take-profit',
   max_holding_time: 'макс. время удержания',
 }
 

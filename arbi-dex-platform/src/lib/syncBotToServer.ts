@@ -257,6 +257,7 @@ export async function syncBotToServer(bot: Bot, options: SyncBotToServerOptions 
     baseAsset,
     quoteAsset: bot.profitCurrency ?? quoteAssetFromPair,
     initialBalance: bot.startingBudget ?? bot.balance,
+    slippagePct: bot.slippagePct ?? 0.5,
   }
 
   if (bot.serverBotId) {

@@ -5,7 +5,7 @@ import { fmtTime } from '../../components/format';
 
 const REASON_LABEL: Record<string, string> = {
   stop_loss: 'стоп-лосс',
-  trailing_take_profit: 'trailing TP',
+  trailing_take_profit: 'take-profit',
   max_holding_time: 'время удержания',
   close_at_end: 'закрытие в конце',
 };

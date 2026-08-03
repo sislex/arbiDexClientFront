@@ -20,9 +20,9 @@ export function useBotPeriod(botId: string | undefined) {
       .then((r) => {
         if (!alive) return
         setRange(r)
-        const week = isMsUnit(r.historyTo) ? 7 * 24 * 3600 * 1000 : 7 * 24 * 3600
+        const hour = isMsUnit(r.historyTo) ? 3600 * 1000 : 3600
         setToState(r.historyTo)
-        setFromState(Math.max(r.historyFrom, r.historyTo - week))
+        setFromState(Math.max(r.historyFrom, r.historyTo - hour))
       })
       .catch(() => {
         /* history unavailable — server falls back to default period */
@@ -41,14 +41,14 @@ export function useBotPeriod(botId: string | undefined) {
   const applyRange = useCallback((r: { historyFrom: number; historyTo: number }): void => {
     setRange(r)
     setFromState((f) => {
-      if (f == null) return Math.max(r.historyFrom, r.historyTo - WEEK)
+      if (f == null) return Math.max(r.historyFrom, r.historyTo - HOUR)
       return Math.min(Math.max(f, r.historyFrom), r.historyTo)
     })
     setToState((t) => {
       if (t == null) return r.historyTo
       return Math.min(Math.max(t, r.historyFrom), r.historyTo)
     })
-  }, [WEEK])
+  }, [HOUR])
 
   const effectiveBounds = useCallback((): { historyFrom: number; historyTo: number } | null => {
     if (range) return range

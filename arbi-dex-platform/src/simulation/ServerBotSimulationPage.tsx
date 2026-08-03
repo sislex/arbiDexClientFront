@@ -22,6 +22,10 @@ export interface ServerBotSimulationPageProps {
   onBotUpdated?: (bot: ServerBot) => void
   showPlayer?: boolean
   onTradeHandlersChange?: (handlers: BotTradeHandlers | null) => void
+  /** When false, hide backtest panel/actions (e.g. session view). Default true. */
+  enableBacktest?: boolean
+  /** Keep chart/trades polling the live tip (active session). */
+  followLive?: boolean
 }
 
 function tradeHandlersEqual(a: BotTradeHandlers, b: BotTradeHandlers): boolean {
@@ -45,6 +49,8 @@ export function ServerBotSimulationPage({
   onBotUpdated,
   showPlayer = true,
   onTradeHandlersChange,
+  enableBacktest = true,
+  followLive = false,
 }: ServerBotSimulationPageProps) {
   const period = useBotPeriod(bot.id)
   const [chartPickMode, setChartPickMode] = useState<ChartPeriodPickMode>('idle')
@@ -69,6 +75,7 @@ export function ServerBotSimulationPage({
     onBotRefresh,
     onBotUpdated,
     suspendPeriodReload: chartPickMode !== 'idle',
+    followLive,
   })
 
   const onTradeHandlersChangeRef = useRef(onTradeHandlersChange)
@@ -83,7 +90,7 @@ export function ServerBotSimulationPage({
     pairLabel: `${bot.baseAsset}/${bot.quoteAsset}`,
     networksLabel: `${bot.baseAsset}/${bot.quoteAsset}`,
     lastPrice: sim.lastPrice !== undefined ? String(sim.lastPrice) : undefined,
-    live: false,
+    live: followLive,
     id: bot.id,
     status: bot.status === 'running' ? 'Running' : bot.status === 'paused' ? 'Paused' : 'Stopped',
     rules: 0,
@@ -347,43 +354,57 @@ export function ServerBotSimulationPage({
               size="sm"
               onClick={() => void sim.refreshChart()}
               disabled={sim.loading}
-              title={sim.backtest ? 'Обновить график и выйти из текущего бэктеста' : 'Обновить график'}
+              title={
+                enableBacktest && sim.backtest
+                  ? 'Обновить график и выйти из текущего бэктеста'
+                  : 'Обновить график'
+              }
             >
               <RefreshCw size={14} className={sim.loading ? 'animate-spin' : ''} />
               Обновить график
             </Button>
-            <BotExcludedRangesPicker
-              period={period}
-              ranges={excludedRanges}
-              selectedRangeId={selectedExcludedRangeId}
-              modeLabel={modeLabel}
-              onSelectRange={setSelectedExcludedRangeId}
-              onAddMode={startAddExcludedRange}
-              onEditMode={startEditExcludedRange}
-              onDeleteSelected={deleteSelectedExcludedRange}
-              onUpdateRangeBounds={updateRangeBounds}
-            />
+            {enableBacktest && (
+              <BotExcludedRangesPicker
+                period={period}
+                ranges={excludedRanges}
+                selectedRangeId={selectedExcludedRangeId}
+                modeLabel={modeLabel}
+                onSelectRange={setSelectedExcludedRangeId}
+                onAddMode={startAddExcludedRange}
+                onEditMode={startEditExcludedRange}
+                onDeleteSelected={deleteSelectedExcludedRange}
+                onUpdateRangeBounds={updateRangeBounds}
+              />
+            )}
           </div>
         }
         chartPeriodPickMode={chartPickMode}
         onChartPeriodPick={handleChartPeriodPick}
         onChartStepInspect={handleChartStepInspect}
         selectedStepTime={sim.inspectTime}
-        excludedRanges={serverExcludedRanges}
+        excludedRanges={enableBacktest ? serverExcludedRanges : []}
         stepLoading={sim.stepAnalyzing}
         stepError={sim.stepError}
         onStepRecalc={sim.inspectTime != null ? handleStepRecalc : undefined}
-        collapsibleBacktestPanel
-        simulationActions={{
-          onRunBacktest: () => void sim.runBacktest(),
-          onAnalyzeStep: () => sim.analyzeCurrentStep(false),
-          backtestLoading: sim.backtestLoading,
-          stepAnalyzing: sim.stepAnalyzing,
-          backtestDone: !!sim.backtest,
-          stepSource: sim.stepSource,
-        }}
-        backtestResult={sim.backtest}
-        onBacktestTradeSelect={(time) => sim.inspectStep(time, false, true)}
+        collapsibleBacktestPanel={enableBacktest}
+        simulationActions={
+          enableBacktest
+            ? {
+                onRunBacktest: () => void sim.runBacktest(),
+                onAnalyzeStep: () => sim.analyzeCurrentStep(false),
+                backtestLoading: sim.backtestLoading,
+                stepAnalyzing: sim.stepAnalyzing,
+                backtestDone: !!sim.backtest,
+                stepSource: sim.stepSource,
+              }
+            : {
+                stepSource: sim.stepSource,
+                stepAnalyzing: sim.stepAnalyzing,
+                showBacktest: false,
+              }
+        }
+        backtestResult={enableBacktest ? sim.backtest : null}
+        onBacktestTradeSelect={enableBacktest ? (time) => sim.inspectStep(time, false, true) : undefined}
       />
     </div>
   )

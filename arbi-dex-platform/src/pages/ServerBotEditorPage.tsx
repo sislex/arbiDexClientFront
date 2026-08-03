@@ -254,8 +254,8 @@ export function ServerBotEditorPage({ botId }: ServerBotEditorPageProps) {
                 className="w-full"
               />
             </div>
-            <div>
-              <label className="text-sm text-muted block mb-1.5">Проскальзывание, %</label>
+            <div className="md:col-span-2">
+              <label className="text-sm text-muted block mb-1.5">Допустимое проскальзывание, %</label>
               <input
                 type="number"
                 min={0}
@@ -264,7 +264,12 @@ export function ServerBotEditorPage({ botId }: ServerBotEditorPageProps) {
                 value={slippagePct}
                 onChange={(e) => setSlippagePct(Number(e.target.value))}
                 className="w-full px-4 py-2.5 bg-surface border border-border rounded-xl text-white text-sm"
+                data-testid="edit-bot-slippage"
               />
+              <p className="mt-1.5 text-xs text-muted">
+                Если к моменту сделки котировка ушла в невыгодную сторону сильнее — транзакция
+                отклоняется
+              </p>
             </div>
           </div>
         </Card>

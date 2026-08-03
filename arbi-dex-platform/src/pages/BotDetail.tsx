@@ -55,6 +55,7 @@ export function BotDetailPage() {
   const [serverBot, setServerBot] = useState<ServerBot | null>(null)
   const [serverLoadError, setServerLoadError] = useState<string | null>(null)
   const [serverLoading, setServerLoading] = useState(false)
+  const [slippageSaving, setSlippageSaving] = useState(false)
 
   useEffect(() => {
     if (!resolvedServerBotId) {
@@ -214,6 +215,23 @@ export function BotDetailPage() {
     void patchBotStatus({ status: 'stopped' })
   }, [patchBotStatus])
 
+  const handleSlippagePctChange = useCallback(
+    async (value: number) => {
+      if (!resolvedServerBotId) return
+      setSlippageSaving(true)
+      setStatusError(null)
+      try {
+        const updated = await updateServerBot(resolvedServerBotId, { slippagePct: value })
+        setServerBot(updated)
+      } catch (e) {
+        setStatusError(e instanceof Error ? e.message : 'Не удалось сохранить проскальзывание')
+      } finally {
+        setSlippageSaving(false)
+      }
+    },
+    [resolvedServerBotId],
+  )
+
   if (!bot && !resolvedServerBotId && !urlServerBotId) {
     return (
       <PageContent className="py-12 text-center">
@@ -298,6 +316,9 @@ export function BotDetailPage() {
         onFundModeChange={setFundMode}
         onTradeModeChange={setTradeMode}
         tradeHandlers={useServerSimulation && botTab === 'trade' ? tradeHandlers : null}
+        slippagePct={serverBot?.slippagePct ?? 0.5}
+        onSlippagePctChange={resolvedServerBotId ? handleSlippagePctChange : undefined}
+        slippageSaving={slippageSaving}
       />
 
       {statusError && (

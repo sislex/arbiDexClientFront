@@ -114,7 +114,7 @@ export function OverviewTab({ bot }: { bot: Bot }) {
                   <KeyVal k="Порог покупки" v={sum.buyThreshold != null ? fmtPct(sum.buyThreshold) : '—'} />
                   <KeyVal k="Порог продажи" v={sum.sellThreshold != null ? fmtPct(sum.sellThreshold) : '—'} />
                   <KeyVal k="Стоп-лосс" v={sum.stopLoss != null ? fmtPct(sum.stopLoss) : 'выкл'} />
-                  <KeyVal k="Trailing TP" v={sum.trailingTP != null ? fmtPct(sum.trailingTP) : 'выкл'} />
+                  <KeyVal k="Take-profit" v={sum.trailingTP != null ? fmtPct(sum.trailingTP) : 'выкл'} />
                 </Stack>
               ) : (
                 <Typography color="text.secondary" variant="body2">Не найдена</Typography>

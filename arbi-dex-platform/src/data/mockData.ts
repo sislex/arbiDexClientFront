@@ -178,6 +178,8 @@ export interface Bot {
   minStopBudget?: number
   peakStopPercent?: number
   profitCurrency?: string
+  /** Допустимое проскальзывание сделки, %. */
+  slippagePct?: number
   /** When set, demo mode uses arbi-dex-server backtest/step-result APIs. */
   serverBotId?: string
   /** Cached server market config used for backtest sync. */

@@ -102,8 +102,52 @@ describe('toEngineStrategy → runBacktest (demo bots path)', () => {
     };
     const ctx: EvalContext = { window: [step], current: step, position: null };
 
-    expect(balanceGate!.evaluate(ctx, strategy, 'buy')).toMatchObject({ passed: true, actual: 12, required: 10 });
-    expect(balanceGate!.evaluate(ctx, strategy, 'sell')).toMatchObject({ passed: true, actual: 3, required: 2 });
+    expect(balanceGate!.evaluate(ctx, strategy, 'buy')).toMatchObject({ passed: false, actual: 3, required: 10 });
+    expect(balanceGate!.evaluate(ctx, strategy, 'sell')).toMatchObject({ passed: true, actual: 12, required: 2 });
+  });
+
+  it('fails buy balance_ok when quote cash is below minBalance', () => {
+    const { buy, sell } = defaultStrategySides();
+    const buyWithBalance = buy.map((c) =>
+      c.conditionId === 'balance_ok'
+        ? { ...c, enabled: true, params: { ...c.params, require: true, minBalance: 10 } }
+        : c,
+    );
+    const { strategy, gates } = toEngineStrategy(buyWithBalance, sell);
+    const balanceGate = gates.find((g) => g.id === 'balance_ok');
+    const step: MarketStep = {
+      time: 1_000,
+      quotes: { buyQuote: 100, sellQuote: 99, avgObservedQuote: 100 },
+      balances: { token1: 0, token2: 3 },
+    };
+    const ctx: EvalContext = { window: [step], current: step, position: null };
+    expect(balanceGate!.evaluate(ctx, strategy, 'buy')).toMatchObject({
+      passed: false,
+      actual: 3,
+      required: 10,
+    });
+  });
+
+  it('passes buy balance_ok when quote cash meets minBalance', () => {
+    const { buy, sell } = defaultStrategySides();
+    const buyWithBalance = buy.map((c) =>
+      c.conditionId === 'balance_ok'
+        ? { ...c, enabled: true, params: { ...c.params, require: true, minBalance: 300 } }
+        : c,
+    );
+    const { strategy, gates } = toEngineStrategy(buyWithBalance, sell);
+    const balanceGate = gates.find((g) => g.id === 'balance_ok');
+    const step: MarketStep = {
+      time: 1_000,
+      quotes: { buyQuote: 100, sellQuote: 99, avgObservedQuote: 100 },
+      balances: { token1: 0, token2: 600 },
+    };
+    const ctx: EvalContext = { window: [step], current: step, position: null };
+    expect(balanceGate!.evaluate(ctx, strategy, 'buy')).toMatchObject({
+      passed: true,
+      actual: 600,
+      required: 300,
+    });
   });
 
   it('passes sell when sellQuote is above avg by at least percent', () => {

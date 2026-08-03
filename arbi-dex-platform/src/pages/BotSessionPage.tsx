@@ -8,8 +8,9 @@ import { BotSessionTradesTable } from '../components/bot/BotSessionTradesTable'
 import { ServerBotSimulationPage } from '../simulation/ServerBotSimulationPage'
 import { StrategySimulationWorkspace } from '../simulation/StrategySimulationWorkspace'
 import { NETWORK_COLORS } from '../simulation/simulationNetworkTypes'
-import { mapServerLiveTradeToLogEvent } from '../lib/mapServerBotStepResult'
+import { mapServerLiveTradeToLogEvent, mapServerStepToLogEvent } from '../lib/mapServerBotStepResult'
 import { findQuoteIndexByTime } from '../lib/inspectBotStep'
+import { derivePositionAtTime } from '../lib/derivePositionAtTime'
 import {
   fmtDurationMs,
   fmtSessionTime,
@@ -21,6 +22,7 @@ import {
   fetchBotSession,
   fetchBotTrades,
   fetchServerBot,
+  fetchServerStepResult,
   type ServerBot,
   type ServerBotSession,
   type ServerBotTrade,
@@ -28,6 +30,7 @@ import {
   type ServerQuotePoint,
 } from '../services/botsApi'
 import { useAppPreferences } from '../context/AppPreferencesContext'
+import type { SimulationLogEvent } from '../simulation/simulationViewerTypes'
 
 function quotesToChartData(quotes: ServerQuotePoint[], chartPoints?: ServerChartPoint[]) {
   if (chartPoints?.length) return chartPoints
@@ -66,6 +69,10 @@ function CompletedSessionView({
   const [error, setError] = useState<string | null>(null)
   const [playIdx, setPlayIdx] = useState(0)
   const [selectedStepTime, setSelectedStepTime] = useState<number | null>(null)
+  const [stepResult, setStepResult] = useState<SimulationLogEvent | null>(null)
+  const [stepLoading, setStepLoading] = useState(false)
+  const [stepError, setStepError] = useState<string | null>(null)
+  const [stepSource, setStepSource] = useState<'api' | null>(null)
 
   const sessionTo = session.endedAt || Date.now()
 
@@ -74,7 +81,7 @@ function CompletedSessionView({
     setLoading(true)
     Promise.all([
       fetchBotQuotes(bot.id, { from: session.startedAt, to: sessionTo }),
-      fetchBotTrades(bot.id, { from: session.startedAt, to: sessionTo }),
+      fetchBotTrades(bot.id, { from: session.startedAt, to: sessionTo, limit: 5000 }),
     ])
       .then(([quotesResponse, tradeRows]) => {
         if (!alive) return
@@ -82,7 +89,7 @@ function CompletedSessionView({
         setChartPoints(quotesResponse.chartPoints ?? [])
         setNetworks(quotesResponse.networks ?? [])
         setTrades(tradeRows)
-        setPlayIdx(Math.max(0, quotesResponse.quotes.length - 1))
+        setPlayIdx(Math.max(0, quotesResponse.quotes.length))
       })
       .catch((e) => {
         if (!alive) return
@@ -121,13 +128,57 @@ function CompletedSessionView({
     [trades, quotes],
   )
 
+  const analyzeStepAt = useCallback(
+    async (time: number) => {
+      setSelectedStepTime(time)
+      setStepLoading(true)
+      setStepError(null)
+      try {
+        const pos = derivePositionAtTime(
+          trades
+            .filter((t) => t.status === 'success')
+            .map((t) => ({
+              time: t.time,
+              side: t.side,
+              price: t.price ?? t.expectedPrice ?? 0,
+              amount: t.amountIn,
+            })),
+          time,
+        )
+        const apiResult = await fetchServerStepResult(bot.id, {
+          time,
+          ...(pos
+            ? {
+                entryPrice: pos.entryPrice,
+                openedAt: pos.openedAt,
+                size: pos.size,
+              }
+            : {}),
+        })
+        const idx = findQuoteIndexByTime(quotes, time)
+        setStepResult(
+          mapServerStepToLogEvent(apiResult, {
+            quote: quotes[idx],
+            totalSteps: quotes.length,
+          }),
+        )
+        setStepSource('api')
+      } catch (e) {
+        setStepResult(null)
+        setStepSource(null)
+        setStepError(e instanceof Error ? e.message : 'Не удалось рассчитать шаг')
+      } finally {
+        setStepLoading(false)
+      }
+    },
+    [bot.id, quotes, trades],
+  )
+
   const handleTradeClick = useCallback(
     (trade: ServerBotTrade) => {
-      const idx = findQuoteIndexByTime(quotes, trade.time)
-      setPlayIdx(idx)
-      setSelectedStepTime(quotes[idx]?.time ?? trade.time)
+      void analyzeStepAt(trade.time)
     },
-    [quotes],
+    [analyzeStepAt],
   )
 
   if (loading) {
@@ -186,7 +237,7 @@ function CompletedSessionView({
               chartFullData={chartData}
               events={events}
               eventLogRevision={Math.trunc(session.startedAt / 1000)}
-              stepResult={null}
+              stepResult={stepResult}
               networks={displayNetworks.length > 0 ? displayNetworks : [{ id: 'trading', label: `${bot.baseAsset}/${bot.quoteAsset}`, color: NETWORK_COLORS[0] }]}
               tradingNetworkIds={tradingNetworkIds.size > 0 ? tradingNetworkIds : new Set(['trading'])}
               playIdx={playIdx}
@@ -205,9 +256,16 @@ function CompletedSessionView({
               }}
               showPlayer
               selectedStepTime={selectedStepTime}
+              stepLoading={stepLoading}
+              stepError={stepError}
+              onStepRecalc={selectedStepTime != null ? () => void analyzeStepAt(selectedStepTime) : undefined}
+              simulationActions={{
+                stepSource,
+                stepAnalyzing: stepLoading,
+                showBacktest: false,
+              }}
               onChartStepInspect={(time) => {
-                setSelectedStepTime(time)
-                setPlayIdx(findQuoteIndexByTime(quotes, time))
+                void analyzeStepAt(time)
               }}
             />
           )}
@@ -307,6 +365,8 @@ export function BotSessionPage() {
             bot={bot}
             isDark={isDark}
             className="h-full min-h-0 w-full flex-1 overflow-hidden"
+            enableBacktest={false}
+            followLive
             header={{
               pairLabel: `${bot.baseAsset}/${bot.quoteAsset}`,
               networksLabel: `${bot.baseAsset}/${bot.quoteAsset}`,

@@ -216,7 +216,10 @@ export function mapServerLiveTradeToLogEvent(
 ): SimulationLogEvent {
   const idx = findQuoteIndexByTime(quotes, trade.time)
   const quote = quotes[idx] ?? quotes[quotes.length - 1]
-  const markerTs = quote?.time ?? trade.time
+  // Keep the real trade timestamp for X placement. Snapping to the nearest quote
+  // (especially quotes[0] when trade.time is before the loaded series) stacked
+  // out-of-view markers on the left chart edge.
+  const markerTs = trade.time
   const markerPrice =
     trade.price ??
     trade.expectedPrice ??

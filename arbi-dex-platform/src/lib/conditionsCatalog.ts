@@ -18,7 +18,7 @@ export const CONDITIONS_CATALOG: ConditionCatalogEntry[] = [
   { id: 'transaction_delay_ok', title: 'Задержка между сделками', valueUnit: 'мс' },
   { id: 'balance_ok', title: 'Достаточный баланс' },
   { id: 'stop_loss', title: 'Стоп-лосс', valueUnit: '%' },
-  { id: 'trailing_take_profit', title: 'Trailing take-profit', valueUnit: '%' },
+  { id: 'trailing_take_profit', title: 'Take-profit', valueUnit: '%' },
   { id: 'max_holding_time', title: 'Макс. время удержания', valueUnit: 'мс' },
   // Legacy / local engine ids (live simulation)
   { id: 'avg_observed_higher_than_buy', title: 'Средняя цена выше цены покупки', valueUnit: '%' },

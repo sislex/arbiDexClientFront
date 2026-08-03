@@ -165,14 +165,14 @@ export const CONDITIONS_CATALOG: ConditionCatalogEntry[] = [
   },
   {
     id: 'trailing_take_profit',
-    title: 'Trailing take-profit',
-    description: '% отката от пика цены после входа, фиксирующий прибыль.',
+    title: 'Take-profit',
+    description: '% прибыли от цены входа, при котором позиция принудительно продаётся.',
     kind: 'trigger',
     sides: ['sell'],
     params: [
       {
         key: 'trailingTakeProfitPercent',
-        label: 'Trailing TP',
+        label: 'Take-profit',
         unit: '%',
         type: 'number',
         default: 1,

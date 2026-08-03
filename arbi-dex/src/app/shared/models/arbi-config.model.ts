@@ -24,7 +24,7 @@ export interface ArbiConfig {
   autoBuyThresholdPct: number | null;
   /** Порог автопродажи: на сколько % цена торгуемого выше средней reference */
   autoSellThresholdPct: number | null;
-  /** Trailing take-profit: % отката от максимума цены продажи */
+  /** Take-profit: % прибыли от цены входа */
   trailingTakeProfitPct: number | null;
   /** Стоп-лосс: % убытка от цены покупки */
   stopLossPct: number | null;

@@ -2077,7 +2077,7 @@ export class ArbiConfigDetailPageComponent implements OnInit, OnDestroy {
         lines.push({ value: this.engine.buyPrice, color: '#0ecb81', label: 'Buy Price' });
       }
       if (this.engine.trailingSellLevel > 0) {
-        lines.push({ value: this.engine.trailingSellLevel, color: '#2196f3', label: 'Trailing TP' });
+        lines.push({ value: this.engine.trailingSellLevel, color: '#2196f3', label: 'Take-profit' });
       }
       const slLevel = this.engine.stopLossLevel;
       if (slLevel > 0) {

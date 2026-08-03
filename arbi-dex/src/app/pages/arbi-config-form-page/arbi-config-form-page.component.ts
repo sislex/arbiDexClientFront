@@ -135,9 +135,9 @@ interface SubOption {
 
           <div class="row-fields">
             <mat-form-field appearance="outline">
-              <mat-label>Trailing Take-Profit %</mat-label>
+              <mat-label>Take-Profit %</mat-label>
               <input matInput type="number" [(ngModel)]="trailingTakeProfitPct" min="0" max="100" step="0.1" />
-              <mat-hint>Sell on X% pullback from peak price</mat-hint>
+              <mat-hint>Sell when trading bid is X% above entry price</mat-hint>
             </mat-form-field>
 
             <mat-form-field appearance="outline">

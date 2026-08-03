@@ -71,6 +71,7 @@ function makeService() {
   const botsService = {
     ensureSession: vi.fn(async () => undefined),
     enrichStepsWithTrades: vi.fn(async () => undefined),
+    applyBotBalancesToSteps: vi.fn(),
   }
   const marketConfigs = {
     refreshQuotesCache: vi.fn(async () => undefined),

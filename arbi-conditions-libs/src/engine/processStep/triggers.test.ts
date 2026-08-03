@@ -43,27 +43,27 @@ describe('sell trigger conditions (forcedSell)', () => {
     });
   });
 
-  describe('trailing_take_profit', () => {
-    it('fires on a pullback past the trailing level from the post-entry peak', () => {
+  describe('trailing_take_profit (fixed take-profit)', () => {
+    it('fires when the exit price reaches the take-profit level above entry', () => {
       const r = processStep({ steps: WINDOW_TRAILING_HIT, strategy: TEST_STRATEGY_TRAILING, position: TEST_POSITION });
       expect(r.condition.sell.trailing_take_profit?.passed).toBe(true);
       expect(r.transaction.forcedSell).toBe(true);
+      expect(r.condition.sell.trailing_take_profit?.required).toBeCloseTo(103, 8);
     });
 
-    it('does not fire on a shallow pullback', () => {
+    it('does not fire when the exit price is below the take-profit level', () => {
       const r = processStep({ steps: WINDOW_TRAILING_MISS, strategy: TEST_STRATEGY_TRAILING, position: TEST_POSITION });
       expect(r.condition.sell.trailing_take_profit?.passed).toBe(false);
       expect(r.transaction.forcedSell).toBe(false);
     });
 
-    it('acts as a trailing stop even below entry (pullback from the running peak)', () => {
-      // Peak (after open) 100, pullback to 96 (< 100*0.97=97) → fires though below entry 100.
+    it('does not fire on a pullback below entry (no longer a trailing stop)', () => {
       const down = [step(1_000, 100, 100, 100), step(2_000, 100, 100, 100), step(3_000, 100, 96, 96)];
       const r = processStep({ steps: down, strategy: TEST_STRATEGY_TRAILING, position: TEST_POSITION });
-      expect(r.condition.sell.trailing_take_profit?.passed).toBe(true);
+      expect(r.condition.sell.trailing_take_profit?.passed).toBe(false);
     });
 
-    it('does not fire on the entry step alone (no pullback yet)', () => {
+    it('does not fire at entry price alone', () => {
       const r = processStep({ steps: [step(1_000, 100, 100, 100)], strategy: TEST_STRATEGY_TRAILING, position: TEST_POSITION });
       expect(r.condition.sell.trailing_take_profit?.passed).toBe(false);
     });
@@ -97,20 +97,19 @@ describe('sell trigger conditions (forcedSell)', () => {
     expect(r.transaction.forcedSell).toBe(false);
   });
 
-  describe('prepareSteps with sincePositionOpen (trailing)', () => {
-    it('keeps history back to when the position opened', () => {
+  describe('prepareSteps for take-profit', () => {
+    it('does not require sincePositionOpen window for take-profit', () => {
       const history = [
         step(1_000, 100, 100, 100),
         step(2_000, 100, 100, 100),
-        step(3_000, 100, 110, 110), // position opens here
+        step(3_000, 100, 110, 110),
         step(4_000, 100, 108, 108),
         step(5_000, 100, 106, 106),
       ];
       const position = { entryPrice: 100, size: 1, openedAt: 3_000 };
       const { steps } = prepareSteps({ steps: history, strategy: TEST_STRATEGY_TRAILING, position });
-      // Must reach back to t=3000 (the open) for the trailing peak.
-      expect(steps[0]?.time).toBe(3_000);
-      expect(steps.map((s) => s.time)).toEqual([3_000, 4_000, 5_000]);
+      // Take-profit only needs the current step (no peak history).
+      expect(steps.map((s) => s.time)).toEqual([5_000]);
     });
   });
 });

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Between, Repository } from 'typeorm';
 import { Bot } from './entities/bot.entity';
 import { BotTrade } from './entities/bot-trade.entity';
 import { BotSession } from './entities/bot-session.entity';
@@ -19,7 +19,6 @@ import {
   runBacktest,
   processStep,
   prepareSteps,
-  processAllStepsAndRecordResults,
 } from '@sislex/arbi-conditions-libs';
 import type {
   MarketStep,
@@ -28,6 +27,16 @@ import type {
   TradingConditionsStepResult,
 } from '@sislex/arbi-conditions-libs';
 import { filterStepsByExcludedRanges, isTimeExcluded, parseExcludedRanges } from './excluded-ranges';
+
+/** Время шага котировки из разбора сделки (для transaction_delay_ok). */
+function signalTimeFromStepResult(stepResult: Record<string, unknown> | null | undefined): number | null {
+  if (!stepResult || typeof stepResult !== 'object') return null;
+  const step = stepResult.step;
+  if (!step || typeof step !== 'object') return null;
+  const time = (step as { time?: unknown }).time;
+  return typeof time === 'number' && Number.isFinite(time) ? time : null;
+}
+
 /** Per-step engine breakdown recorded during a backtest run. */
 export interface BacktestStepRecord {
   index: number;
@@ -39,8 +48,7 @@ export interface BacktestStepRecord {
 export interface BotBacktestResult extends BacktestResult {
   historyFrom: number;
   historyTo: number;
-  /** Engine dry run over every step (processAllStepsAndRecordResults) — the
-   * frontend works with this output to show per-step condition breakdowns. */
+  /** Per-step engine breakdown from the backtest run (with position for sell triggers). */
   stepResults: ProcessAllStepsAndRecordResultsOutput;
   /** Server-side computation time, ms (data load + engine run). */
   tookMs: number;
@@ -114,7 +122,16 @@ export class BotsService {
       where: { botId, status: 'success' },
       order: { time: 'ASC' },
     });
-    injectTradeEventsIntoSteps(steps, trades, upToTime);
+    injectTradeEventsIntoSteps(
+      steps,
+      trades.map((t) => ({
+        id: t.id,
+        time: t.time,
+        side: t.side,
+        signalTime: signalTimeFromStepResult(t.stepResult),
+      })),
+      upToTime,
+    );
   }
 
   /** Journal trades → step events (transaction_delay_ok, no_transaction_in_progress). */
@@ -122,7 +139,87 @@ export class BotsService {
     await this.injectBotTradesIntoSteps(botId, steps, upToTime);
   }
 
-  /** Итоги торговли по журналу за окно времени [from, to] (unix ms). */
+  /**
+   * Подставляет демо-портфель в шаги: token2 = кэш (quote), token1 = база.
+   * Mapper `balance_ok`: buy читает token2, sell — token1.
+   */
+  applyBotBalancesToSteps(bot: Bot, steps: MarketStep[]): void {
+    const balances = {
+      token1: bot.openPosition ? bot.positionSize : 0,
+      token2: bot.balance,
+    };
+    for (const step of steps) {
+      step.balances = { ...balances };
+    }
+  }
+
+  /**
+   * Портфель на момент `upToTime` внутри сессии: startBalance + успешные сделки.
+   * Вне сессии / до её старта — текущий ledger бота.
+   */
+  async applyPortfolioBalancesToSteps(
+    bot: Bot,
+    steps: MarketStep[],
+    upToTime: number,
+  ): Promise<void> {
+    const balances = await this.portfolioBalancesAt(bot, upToTime);
+    for (const step of steps) {
+      step.balances = { ...balances };
+    }
+  }
+
+  private async portfolioBalancesAt(
+    bot: Bot,
+    upToTime: number,
+  ): Promise<{ token1: number; token2: number }> {
+    const session =
+      (await this.activeSession(bot.id)) ??
+      (await this.sessionsRepo.findOne({ where: { botId: bot.id }, order: { startedAt: 'DESC' } }));
+
+    if (!session || upToTime < session.startedAt) {
+      return {
+        token1: bot.openPosition ? bot.positionSize : 0,
+        token2: bot.balance,
+      };
+    }
+
+    let token2 = session.startBalance;
+    let token1 = 0;
+    const sessionEnd = session.endedAt > 0 ? session.endedAt : Number.MAX_SAFE_INTEGER;
+    const trades = await this.tradesRepo.find({
+      where: {
+        botId: bot.id,
+        status: 'success',
+        time: Between(session.startedAt, Math.min(upToTime, sessionEnd)),
+      },
+      order: { time: 'ASC' },
+    });
+    for (const t of trades) {
+      if (t.side === 'buy') {
+        token2 = Math.max(0, token2 - t.amountIn);
+        token1 += t.amountOut ?? 0;
+      } else {
+        token2 += t.amountOut ?? 0;
+        token1 = Math.max(0, token1 - t.amountIn);
+      }
+    }
+    return { token1, token2 };
+  }
+
+  /** Сброс демо-счёта к initialBalance перед новой сессией. */
+  private resetDemoAccountForSession(bot: Bot): void {
+    bot.balance = bot.initialBalance;
+    bot.positionSize = 0;
+    bot.entryPrice = 0;
+    bot.openPosition = false;
+    bot.positionOpenedAt = 0;
+    bot.pnl = 0;
+    bot.pnlPct = 0;
+  }
+
+  /** Итоги торговли по журналу за окно времени [from, to] (unix ms).
+   * Считаем и по time (сигнал/котировка), и по createdAt (wall-clock) — иначе
+   * сделки с временем шага вне сессии пропадают из счётчика. */
   private async tradeStats(botId: string, from: number, to: number, initialBalance: number): Promise<BotLiveStats> {
     const r: { trades: string; failed: string; pnl: string | null } | undefined =
       await this.tradesRepo
@@ -130,7 +227,11 @@ export class BotsService {
         .select(`COUNT(*) FILTER (WHERE t.status = 'success')`, 'trades')
         .addSelect(`COUNT(*) FILTER (WHERE t.status = 'failed')`, 'failed')
         .addSelect(`COALESCE(SUM(t.pnl) FILTER (WHERE t.status = 'success'), 0)`, 'pnl')
-        .where('t.botId = :botId AND t.time >= :from AND t.time <= :to', { botId, from, to })
+        .where('t.botId = :botId', { botId })
+        .andWhere(
+          '(t.time BETWEEN :from AND :to OR (EXTRACT(EPOCH FROM t.createdAt) * 1000) BETWEEN :from AND :to)',
+          { from, to },
+        )
         .getRawOne();
     const pnl = Number(r?.pnl ?? 0);
     return {
@@ -316,12 +417,11 @@ export class BotsService {
     if (openingSession) bot.startedAt = Date.now();
     Object.assign(bot, patch);
     if (resetAccount && dto.balance === undefined) {
-      bot.balance = bot.initialBalance;
-      bot.positionSize = 0;
-      bot.entryPrice = 0;
-      bot.openPosition = false;
-      bot.pnl = 0;
-      bot.pnlPct = 0;
+      this.resetDemoAccountForSession(bot);
+    }
+    // Новая демо-сессия всегда стартует с initialBalance; дальше — от остатков сделок.
+    if (openingSession && bot.mode === 'demo-live') {
+      this.resetDemoAccountForSession(bot);
     }
     const saved = await this.repo.save(bot);
     if (openingSession) await this.openSession(saved, saved.startedAt);
@@ -500,22 +600,18 @@ export class BotsService {
       conditions: gates,
       triggerConditions: triggers,
       id: `bt_${bot.id}`,
+      buyExecutionDelayMs: 10_000,
+      sellExecutionDelayMs: 10_000,
     });
 
-    // Canonical per-step breakdown for the UI: a positionless dry run of the
-    // engine over every step (ProcessAllStepsAndRecordResultsOutput).
-    const stepResults = processAllStepsAndRecordResults({
-      steps: evalSteps,
-      strategy: engineStrategy,
-      conditions: gates,
-      triggerConditions: triggers,
-    });
+    // Per-step breakdown from the same run (with position) so stop-loss /
+    // take-profit / max-hold show as passed when they actually forced a sell.
     const stepIndexByTime = new Map<number, number>();
     for (let i = 0; i < quotes.length; i += 1) {
       stepIndexByTime.set(quotes[i].time, i);
     }
     const remappedStepResults: ProcessAllStepsAndRecordResultsOutput = {
-      records: stepResults.records.map((record) => ({
+      records: engineResult.stepRecords.map((record) => ({
         ...record,
         index: stepIndexByTime.get(record.step.time) ?? record.index,
       })),
@@ -655,6 +751,7 @@ export class BotsService {
     }
 
     await this.injectBotTradesIntoSteps(bot.id, evalSteps, time);
+    await this.applyPortfolioBalancesToSteps(bot, evalSteps, time);
 
     // Позиция: явная (симуляция из плеера бэктеста) или реальная позиция
     // бота — иначе sell-триггеры (стоп-лосс/trailing TP) на live-вкладке
@@ -789,6 +886,8 @@ export class BotsService {
       conditions: gates,
       triggerConditions: triggers,
       id: `est_${bot.id}`,
+      buyExecutionDelayMs: 10_000,
+      sellExecutionDelayMs: 10_000,
     });
     const singleRunMs = Math.max(1, Date.now() - t0);
 

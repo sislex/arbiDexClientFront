@@ -77,6 +77,7 @@ export function isBotLaunchValid(draft: BotDraft): boolean {
   const maxTurnover = Number(draft.launch.maxTurnover)
   const minStopBudget = Number(draft.launch.minStopBudget)
   const peakStopPercent = Number(draft.launch.peakStopPercent)
+  const slippagePct = Number(draft.launch.slippagePct ?? 0.5)
 
   return (
     startingBudget > 0 &&
@@ -84,7 +85,10 @@ export function isBotLaunchValid(draft: BotDraft): boolean {
     minStopBudget > 0 &&
     minStopBudget < startingBudget &&
     peakStopPercent > 0 &&
-    peakStopPercent <= 100
+    peakStopPercent <= 100 &&
+    Number.isFinite(slippagePct) &&
+    slippagePct >= 0 &&
+    slippagePct <= 50
   )
 }
 

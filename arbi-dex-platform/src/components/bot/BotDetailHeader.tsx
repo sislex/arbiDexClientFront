@@ -30,6 +30,9 @@ export interface BotDetailHeaderProps {
   onFundModeChange: (mode: FundMode) => void
   onTradeModeChange: (mode: TradeMode) => void
   tradeHandlers?: BotTradeHandlers | null
+  slippagePct?: number
+  onSlippagePctChange?: (value: number) => void | Promise<void>
+  slippageSaving?: boolean
 }
 
 export function BotDetailHeader({
@@ -55,6 +58,9 @@ export function BotDetailHeader({
   onFundModeChange,
   onTradeModeChange,
   tradeHandlers,
+  slippagePct,
+  onSlippagePctChange,
+  slippageSaving,
 }: BotDetailHeaderProps) {
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card/50 px-4 py-2">
@@ -117,6 +123,9 @@ export function BotDetailHeader({
         onTradeModeChange={onTradeModeChange}
         historyHref={historyHref}
         editHref={editableBotId ? `/bots/${editableBotId}/edit` : undefined}
+        slippagePct={slippagePct}
+        onSlippagePctChange={onSlippagePctChange}
+        slippageSaving={slippageSaving}
       />
 
       <BotTradingButtons

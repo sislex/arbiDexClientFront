@@ -220,19 +220,13 @@ export class BacktestEngine {
       }
     }
 
-    // 2. Trailing take-profit
+    // 2. Take-profit
     if (this.cfg.trailingTakeProfitPct != null) {
-      if (tradingBid > this.peakSellPrice) {
-        this.peakSellPrice = tradingBid;
-      }
-      const newTrailingLevel = this.peakSellPrice * (1 - Number(this.cfg.trailingTakeProfitPct) / 100);
-      if (newTrailingLevel > this.trailingSellLevel) {
-        this.trailingSellLevel = newTrailingLevel;
-      }
-      if (this.trailingSellLevel > 0 && tradingBid <= this.trailingSellLevel) {
+      const takeProfitLevel = this.buyPrice * (1 + Number(this.cfg.trailingTakeProfitPct) / 100);
+      if (tradingBid >= takeProfitLevel) {
         return {
           action: 'sell',
-          reason: `Trailing TP: bid ${tradingBid.toFixed(4)} ≤ trail ${this.trailingSellLevel.toFixed(4)} (peak ${this.peakSellPrice.toFixed(4)})`,
+          reason: `Take-profit: bid ${tradingBid.toFixed(4)} ≥ ${takeProfitLevel.toFixed(4)}`,
         };
       }
     }

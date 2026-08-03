@@ -33,7 +33,7 @@ export interface SimulateOptions {
  * Lightweight backtest simulator over a quote series. Faithful in spirit to the
  * engine: buy when the trading price sits below the observed average by a
  * threshold (sustained N steps), sell when it sits above; sell triggers
- * (stop-loss / trailing TP / max holding) force an exit. Enough to drive the
+ * (stop-loss / take-profit / max holding) force an exit. Enough to drive the
  * prototype's charts, stats and auto-tuning on mock data.
  */
 export function simulateBacktest(
@@ -64,7 +64,6 @@ export function simulateBacktest(
   let entryPrice = 0;
   let entryCash = 0;
   let openedAt = 0;
-  let peak = 0;
   let buyStreak = 0;
   let sellStreak = 0;
 
@@ -97,17 +96,15 @@ export function simulateBacktest(
         entryPrice = q.buyQuote;
         entryCash = cash;
         openedAt = q.time;
-        peak = q.sellQuote;
         cash = 0;
         buyStreak = 0;
         trades.push({ id: `t${trades.length}`, time: q.time, side: 'buy', price: q.buyQuote, amount: tokens });
       }
     } else {
-      // Long → track peak, check triggers then the sell gate.
-      if (q.sellQuote > peak) peak = q.sellQuote;
+      // Long → check triggers then the sell gate.
       let reason: string | undefined;
       if (stopLoss != null && ((entryPrice - q.sellQuote) / entryPrice) * 100 >= stopLoss) reason = 'stop_loss';
-      else if (trailingTP != null && ((peak - q.sellQuote) / peak) * 100 >= trailingTP) reason = 'trailing_take_profit';
+      else if (trailingTP != null && ((q.sellQuote - entryPrice) / entryPrice) * 100 >= trailingTP) reason = 'trailing_take_profit';
       else if (maxHoldMs != null && (q.time - openedAt) * 1000 >= maxHoldMs) reason = 'max_holding_time';
 
       const gateSell = spreadOk && sellStreak >= sellSteps;

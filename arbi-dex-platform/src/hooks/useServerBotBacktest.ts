@@ -5,6 +5,7 @@ import {
   executeBotTrade,
   type ExcludedTimeRange,
   fetchBotQuotes,
+  fetchBotTrades,
   fetchServerBot,
   fetchServerStepResult,
   runServerBacktest,
@@ -123,6 +124,11 @@ export interface UseBotBacktestOptions {
   onBotUpdated?: (bot: ServerBot) => void
   /** While picking period on chart, defer quote reload until pick completes. */
   suspendPeriodReload?: boolean
+  /**
+   * Keep chart in sync with the live tip: always poll for new steps/trades and
+   * follow the playhead when the user is at the end of the series.
+   */
+  followLive?: boolean
 }
 
 export function useBotBacktest({
@@ -133,6 +139,7 @@ export function useBotBacktest({
   onBotRefresh,
   onBotUpdated,
   suspendPeriodReload = false,
+  followLive = false,
 }: UseBotBacktestOptions) {
   const [quotes, setQuotes] = useState<ServerQuotePoint[]>([])
   const [serverChartData, setServerChartData] = useState<ChartPoint[]>([])
@@ -476,11 +483,27 @@ export function useBotBacktest({
   }, [period.from, period.to, bot.strategyConfigId, excludedRanges, invalidateSimulation])
 
   useEffect(() => {
-    // Old server-side demo/backtest trades must not leak into a new UI session.
-    // After a page reload the chart/log should start clean until the user runs
-    // a backtest or executes a manual trade in this session.
     setLiveTrades([])
   }, [bot.id])
+
+  useEffect(() => {
+    // Сделки сессии бота → журнал событий (раньше лог оставался пустым:
+    // liveTrades обнуляли и не подгружали, пока не сделают ручную сделку).
+    let cancelled = false
+    if (!enabled) return
+    const from = bot.startedAt > 0 ? bot.startedAt : period.from
+    if (from == null) return
+    void fetchBotTrades(bot.id, { from, limit: 2000 })
+      .then((rows) => {
+        if (!cancelled) setLiveTrades(rows)
+      })
+      .catch(() => {
+        /* keep previous / empty */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [bot.id, bot.startedAt, enabled, period.from])
 
   useEffect(() => {
     const onStrategyUpdated = (event: Event) => {
@@ -505,10 +528,13 @@ export function useBotBacktest({
   useEffect(() => {
     if (!enabled || suspendPeriodReload || period.from == null || period.to == null) return
     const latestBound = period.range?.historyTo
-    const followsLatest = latestBound == null || period.to >= latestBound
+    const followsLatest = followLive || latestBound == null || period.to >= latestBound
     if (!followsLatest) return
 
     const periodFrom = period.from
+    const pollIntervalMs = followLive
+      ? Math.min(CHART_POLL_INTERVAL_MS, 2000)
+      : CHART_POLL_INTERVAL_MS
     let cancelled = false
     const poll = async () => {
       if (pollInFlightRef.current) return
@@ -516,7 +542,7 @@ export function useBotBacktest({
       try {
         const currentQuotes = quotesRef.current
         const previousLastTime = currentQuotes[currentQuotes.length - 1]?.time ?? periodFrom
-        const [quoteResult, botResult] = await Promise.all([
+        const [quoteResult, botResult, tradeRows] = await Promise.all([
           fetchBotQuotes(bot.id, {
             // Keep one overlap point so a same-timestamp bid/ask update
             // replaces the previous value instead of creating a duplicate.
@@ -524,10 +550,20 @@ export function useBotBacktest({
             refresh: true,
           }),
           fetchServerBot(bot.id),
+          followLive
+            ? fetchBotTrades(bot.id, {
+                from: bot.startedAt > 0 ? Math.min(bot.startedAt, periodFrom) : periodFrom,
+                limit: 2000,
+              }).catch(() => [] as ServerBotTrade[])
+            : Promise.resolve(null),
         ])
         if (cancelled) return
 
         onBotUpdatedRef.current?.(botResult)
+
+        if (tradeRows) {
+          setLiveTrades((prev) => mergeTrades(prev, tradeRows))
+        }
 
         const incomingQuotes = quoteResult.quotes
         if (incomingQuotes.length === 0) return
@@ -564,14 +600,17 @@ export function useBotBacktest({
       }
     }
 
-    const timer = window.setInterval(() => void poll(), CHART_POLL_INTERVAL_MS)
+    void poll()
+    const timer = window.setInterval(() => void poll(), pollIntervalMs)
     return () => {
       cancelled = true
       window.clearInterval(timer)
     }
   }, [
     bot.id,
+    bot.startedAt,
     enabled,
+    followLive,
     period.from,
     period.range?.historyTo,
     period.to,
@@ -629,7 +668,7 @@ export function useBotBacktest({
     displayNetworks,
     tradingNetworkIds,
     lastPrice,
-    live: false,
+    live: followLive,
     token1Label: bot.baseAsset,
     token2Label: bot.quoteAsset,
     refreshChart,

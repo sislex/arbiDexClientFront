@@ -123,6 +123,7 @@ export class LiveEngineService implements OnModuleInit, OnModuleDestroy {
       quotes: { buyQuote: q.buyQuote, sellQuote: q.sellQuote, avgObservedQuote: q.avgObservedQuote },
     }));
     await this.botsService.enrichStepsWithTrades(bot.id, steps, last.time);
+    this.botsService.applyBotBalancesToSteps(bot, steps);
 
     const position: PositionState | null = bot.openPosition
       ? {
@@ -142,8 +143,10 @@ export class LiveEngineService implements OnModuleInit, OnModuleDestroy {
     const result = processStep(params);
     this.lastActedStep.set(bot.id, last.time);
 
-    const wantBuy = result.transaction.buy && !bot.openPosition && bot.balance > 0;
+    const buyDelayOk = result.condition.buy.transaction_delay_ok?.passed ?? true;
     const sellDelayOk = result.condition.sell.transaction_delay_ok?.passed ?? true;
+    const wantBuy =
+      buyDelayOk && result.transaction.buy && !bot.openPosition && bot.balance > 0;
     const wantSell =
       sellDelayOk &&
       (result.transaction.sell || result.transaction.forcedSell) &&

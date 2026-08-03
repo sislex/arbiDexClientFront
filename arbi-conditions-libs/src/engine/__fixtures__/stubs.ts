@@ -105,7 +105,7 @@ export const TEST_STRATEGY_STOP_LOSS: StrategyEngineConfig = {
   sell: { ...TEST_STRATEGY.sell, stopLossPercent: 5 },
 };
 
-/** Sell-side trailing take-profit: 3% pullback from the post-entry peak. */
+/** Sell-side take-profit: 3% above entry. */
 export const TEST_STRATEGY_TRAILING: StrategyEngineConfig = {
   buy: { ...TEST_STRATEGY.buy },
   sell: { ...TEST_STRATEGY.sell, trailingTakeProfitPercent: 3 },
@@ -123,19 +123,11 @@ export const WINDOW_STOP_HIT: MarketStep[] = [step(2_000, 100, 94, 100)];
 /** Exit price (sellQuote=97) above the stop level (95) — no stop. */
 export const WINDOW_STOP_MISS: MarketStep[] = [step(2_000, 100, 97, 100)];
 
-/** Peak exit 110 then pullback to 106 (< 110*0.97=106.7) — trailing fires. */
-export const WINDOW_TRAILING_HIT: MarketStep[] = [
-  step(1_000, 100, 100, 100),
-  step(2_000, 100, 110, 110),
-  step(3_000, 100, 106, 106),
-];
+/** Exit bid 103 ≥ entry 100 × 1.03 — take-profit fires. */
+export const WINDOW_TRAILING_HIT: MarketStep[] = [step(2_000, 100, 103, 100)];
 
-/** Peak exit 110 then only to 108 (> 106.7) — trailing does not fire. */
-export const WINDOW_TRAILING_MISS: MarketStep[] = [
-  step(1_000, 100, 100, 100),
-  step(2_000, 100, 110, 110),
-  step(3_000, 100, 108, 108),
-];
+/** Exit bid 102 < entry 100 × 1.03 = 103 — take-profit does not fire. */
+export const WINDOW_TRAILING_MISS: MarketStep[] = [step(2_000, 100, 102, 100)];
 
 /** Position (opened at 1000) held 5000ms by t=6000 — max-hold fires. */
 export const WINDOW_MAX_HOLD_HIT: MarketStep[] = [

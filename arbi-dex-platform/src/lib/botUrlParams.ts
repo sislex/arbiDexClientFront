@@ -6,6 +6,7 @@ export interface BotLaunchSettings {
   minStopBudget: string
   peakStopPercent: string
   profitCurrency: string
+  slippagePct: string
 }
 
 export interface BotDraft {
@@ -23,6 +24,7 @@ export const DEFAULT_BOT_LAUNCH: BotLaunchSettings = {
   minStopBudget: '300',
   peakStopPercent: '10',
   profitCurrency: 'USDT',
+  slippagePct: '0.5',
 }
 
 export function botDraftToSearchParams(draft: BotDraft): Record<string, string> {
@@ -36,6 +38,7 @@ export function botDraftToSearchParams(draft: BotDraft): Record<string, string> 
   if (draft.launch.minStopBudget) out.minStopBudget = draft.launch.minStopBudget
   if (draft.launch.peakStopPercent) out.peakStopPercent = draft.launch.peakStopPercent
   if (draft.launch.profitCurrency) out.profitCurrency = draft.launch.profitCurrency
+  if (draft.launch.slippagePct) out.slippagePct = draft.launch.slippagePct
   if (draft.status) out.status = draft.status
   return out
 }
@@ -57,6 +60,7 @@ export function botDraftFromSearchParams(params: URLSearchParams, fallback: BotD
       minStopBudget: params.get('minStopBudget') ?? fallback.launch.minStopBudget,
       peakStopPercent: params.get('peakStopPercent') ?? fallback.launch.peakStopPercent,
       profitCurrency: params.get('profitCurrency') ?? fallback.launch.profitCurrency,
+      slippagePct: params.get('slippagePct') ?? fallback.launch.slippagePct ?? '0.5',
     },
     status: (params.get('status') as Bot['status'] | null) ?? fallback.status,
   }
@@ -74,6 +78,7 @@ export function botToDraft(bot: Bot): BotDraft {
       minStopBudget: String(bot.minStopBudget ?? 300),
       peakStopPercent: String(bot.peakStopPercent ?? 10),
       profitCurrency: bot.profitCurrency ?? 'USDT',
+      slippagePct: String(bot.slippagePct ?? 0.5),
     },
     status: bot.status,
   }

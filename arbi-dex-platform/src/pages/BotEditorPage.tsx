@@ -130,6 +130,7 @@ export function BotEditorPage() {
     const maxTurnover = Number(draft.launch.maxTurnover)
     const minStopBudget = Number(draft.launch.minStopBudget)
     const peakStopPercent = Number(draft.launch.peakStopPercent)
+    const slippagePct = Number(draft.launch.slippagePct ?? 0.5)
     const pairSet = getTradingPairById(draft.pairSetId)
 
     setSaving(true)
@@ -160,6 +161,7 @@ export function BotEditorPage() {
           minStopBudget,
           peakStopPercent,
           profitCurrency: draft.launch.profitCurrency,
+          slippagePct,
         }))
 
         if (isAuthenticated) {
@@ -188,6 +190,7 @@ export function BotEditorPage() {
         minStopBudget,
         peakStopPercent,
         profitCurrency: draft.launch.profitCurrency,
+        slippagePct,
       }
 
       if (isAuthenticated) {
@@ -429,6 +432,24 @@ export function BotEditorPage() {
                 }
                 className="w-full px-4 py-2.5 bg-surface border border-border rounded-xl text-white text-sm"
               />
+            </div>
+            <div>
+              <label className="text-sm text-muted block mb-1.5">Допустимое проскальзывание, %</label>
+              <input
+                type="number"
+                min={0}
+                max={50}
+                step={0.1}
+                value={draft.launch.slippagePct ?? '0.5'}
+                onChange={(e) =>
+                  updateDraft({ launch: { ...draft.launch, slippagePct: e.target.value } })
+                }
+                className="w-full px-4 py-2.5 bg-surface border border-border rounded-xl text-white text-sm"
+                data-testid="bot-editor-slippage"
+              />
+              <p className="mt-1.5 text-xs text-muted">
+                Если котировка ушла сильнее — сделка отклоняется
+              </p>
             </div>
             <div className="md:col-span-2">
               <label className="text-sm text-muted block mb-1.5">Валюта прибыли</label>

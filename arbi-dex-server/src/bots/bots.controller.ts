@@ -127,10 +127,12 @@ export class BotsController {
     @Param('id') id: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('limit') limit?: string,
   ) {
     return this.liveTrading.listTrades(user.id, id, {
       from: from ? Number(from) : undefined,
       to: to ? Number(to) : undefined,
+      limit: limit ? Number(limit) : undefined,
     });
   }
 

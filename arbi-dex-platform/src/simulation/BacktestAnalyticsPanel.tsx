@@ -7,7 +7,7 @@ const REASON_LABEL: Record<string, string> = {
   auto_sell: 'auto_sell',
   sell: 'sell',
   stop_loss: 'стоп-лосс',
-  trailing_take_profit: 'trailing TP',
+  trailing_take_profit: 'take-profit',
   max_holding_time: 'время удержания',
   close_at_end: 'закрытие в конце',
 }

@@ -537,7 +537,8 @@ function BidAskChartLines({
       />
       <div ref={chartShellRef} className="relative flex-1 min-h-0">
         <ChartViewportControls
-          className="absolute top-2 right-2 z-20"
+          className="absolute z-20"
+          style={{ left: 76, top: 8 }}
           onZoomOut={() => zoomByButton(false)}
           onZoomIn={() => zoomByButton(true)}
           onPanLeft={() => panByButton(-1)}

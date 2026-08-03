@@ -30,7 +30,7 @@ export interface BuyTradingConditionsConfig {
  *
  * The first block are "gate" conditions (AND-ed to produce a sell signal).
  * The optional `*Percent`/`*Ms` fields below drive position "trigger" conditions
- * (stop-loss / trailing take-profit / max holding time) which are OR-ed into a
+ * (stop-loss / take-profit / max holding time) which are OR-ed into a
  * forced sell — see `TradingConditionsStepResult.transaction.forcedSell`.
  */
 export interface SellTradingConditionsConfig {
@@ -44,7 +44,7 @@ export interface SellTradingConditionsConfig {
 
   /** Stop-loss: % loss from entry price that forces a sell. `null`/undefined = off. */
   stopLossPercent?: number | null;
-  /** Trailing take-profit: % pullback from the post-entry peak. `null`/undefined = off. */
+  /** Take-profit: % gain from entry price that forces a sell. `null`/undefined = off. */
   trailingTakeProfitPercent?: number | null;
   /** Max holding time in ms; forces a sell once elapsed. `null`/undefined = off. */
   maxHoldingTimeMs?: number | null;
@@ -213,7 +213,7 @@ export interface TradingConditionsStepResult {
     buy: boolean;
     /** All sell gate conditions passed. */
     sell: boolean;
-    /** A sell TRIGGER fired (stop-loss / trailing TP / max holding) — OR-ed. */
+    /** A sell TRIGGER fired (stop-loss / take-profit / max holding) — OR-ed. */
     forcedSell: boolean;
   };
   condition: {

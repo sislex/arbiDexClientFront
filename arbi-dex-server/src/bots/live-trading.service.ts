@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { ethers } from 'ethers';
 import { Bot } from './entities/bot.entity';
 import { BotTrade, BotTradeMode } from './entities/bot-trade.entity';
@@ -123,22 +123,37 @@ export class LiveTradingService {
   }
 
   /** Live-сделки бота (успешные и зафейленные) в хронологическом порядке;
-   * опционально — только окно [from, to] (unix ms, например окно сессии). */
+   * опционально — только окно [from, to] (unix ms, например окно сессии).
+   * В окно попадают сделки по `time` ИЛИ по `createdAt` — после перехода на
+   * время сигнала котировки fill может быть чуть вне wall-clock сессии. */
   async listTrades(
     userId: string,
     botId: string,
     opts: { from?: number; to?: number; limit?: number } = {},
   ): Promise<BotTrade[]> {
     await this.findBot(userId, botId);
-    const where: Record<string, unknown> = { botId };
-    if (opts.from != null || opts.to != null) {
-      where.time = Between(opts.from ?? 0, opts.to ?? Number.MAX_SAFE_INTEGER);
+    const take = Math.min(Math.max(opts.limit ?? 2000, 1), 5000);
+    if (opts.from == null && opts.to == null) {
+      const rows = await this.tradesRepo.find({
+        where: { botId },
+        order: { time: 'DESC' },
+        take,
+      });
+      return rows.reverse();
     }
-    const rows = await this.tradesRepo.find({
-      where,
-      order: { time: 'DESC' },
-      take: opts.limit ?? 300,
-    });
+
+    const from = opts.from ?? 0;
+    const to = opts.to ?? Number.MAX_SAFE_INTEGER;
+    const rows = await this.tradesRepo
+      .createQueryBuilder('t')
+      .where('t.botId = :botId', { botId })
+      .andWhere(
+        '(t.time BETWEEN :from AND :to OR (EXTRACT(EPOCH FROM t.createdAt) * 1000) BETWEEN :from AND :to)',
+        { from, to },
+      )
+      .orderBy('t.time', 'DESC')
+      .take(take)
+      .getMany();
     return rows.reverse();
   }
 
@@ -248,7 +263,15 @@ export class LiveTradingService {
     }
 
     const slippagePct = bot.slippagePct ?? 0.5;
-    const time = Date.now();
+    const signalTime =
+      extras.stepResult &&
+      typeof extras.stepResult === 'object' &&
+      extras.stepResult.step &&
+      typeof (extras.stepResult.step as { time?: unknown }).time === 'number'
+        ? ((extras.stepResult.step as { time: number }).time)
+        : null;
+    // Время сделки = шаг сигнала (для delay/графика); иначе wall-clock (ручные сделки).
+    const time = signalTime ?? Date.now();
 
     let price: number | null = null;
     let rawPrice: number | null = null;
@@ -357,7 +380,7 @@ export class LiveTradingService {
     // Учёт бота (баланс/позиция/PnL) ведётся в ОБОИХ режимах: цель live-режима —
     // сравнение демо и реальной торговли один к одному.
     if (status === 'success' && rawPrice != null && amountOut != null) {
-      pnl = this.applyToAccount(bot, side, amountIn, amountOut, rawPrice);
+      pnl = this.applyToAccount(bot, side, amountIn, amountOut, rawPrice, time);
     }
 
     const trade = this.tradesRepo.create({
@@ -395,12 +418,13 @@ export class LiveTradingService {
     amountIn: number,
     amountOut: number,
     price: number,
+    atTime: number,
   ): number | null {
     if (side === 'buy') {
       bot.balance = Math.max(0, bot.balance - amountIn);
       bot.positionSize += amountOut;
       bot.entryPrice = price;
-      bot.positionOpenedAt = Date.now();
+      bot.positionOpenedAt = atTime;
       bot.openPosition = true;
       return null;
     }

@@ -150,11 +150,11 @@ export class AutoTradeEngine {
   get buyPrice(): number { return this.position?.entryPrice ?? 0; }
   get peakSellPrice(): number { return this.peak; }
 
-  /** Trailing-уровень: peak × (1 − trailingPct/100), 0 если нет позиции/порога. */
+  /** Take-profit уровень: entry × (1 + pct/100), 0 если нет позиции/порога. */
   get trailingSellLevel(): number {
     const pct = num(this.cfg.trailingTakeProfitPct);
-    if (this.position === null || pct === null || this.peak <= 0) return 0;
-    return this.peak * (1 - pct / 100);
+    if (this.position === null || pct === null) return 0;
+    return this.position.entryPrice * (1 + pct / 100);
   }
 
   /** Стоп-лосс уровень (или 0 если отключён). */
@@ -249,7 +249,9 @@ export class AutoTradeEngine {
       return `Stop-loss: bid ${bid.toFixed(4)} ≤ ${this.stopLossLevel.toFixed(4)}`;
     }
     if (result.condition.sell['trailing_take_profit']?.passed) {
-      return `Trailing TP: bid ${bid.toFixed(4)} ≤ trail ${this.trailingSellLevel.toFixed(4)} (peak ${this.peak.toFixed(4)})`;
+      const pct = num(this.cfg.trailingTakeProfitPct) ?? 0;
+      const level = this.position ? this.position.entryPrice * (1 + pct / 100) : 0;
+      return `Take-profit: bid ${bid.toFixed(4)} ≥ ${level.toFixed(4)}`;
     }
     const pct = num(this.cfg.autoSellThresholdPct) ?? 0;
     const level = avgRefMid * (1 + pct / 100);

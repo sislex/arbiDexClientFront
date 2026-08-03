@@ -1010,11 +1010,17 @@ export function StrategySimulationWorkspace({
     const buy: Array<{ t: number; y: number }> = [];
     const sell: Array<{ t: number; y: number }> = [];
     const error: Array<{ t: number; y: number }> = [];
-    const [clipMin, clipMax] = chartAxisDomain;
+    // Clip to the visible viewport. AG Charts clamps out-of-domain scatter X to
+    // the plot edge — without this filter, off-screen trades pile up on the left.
+    const [clipMin, clipMax] = chartSeriesClipRange;
+    const firstVisibleT = chartRenderData[0]?.t;
+    const lastVisibleT = chartRenderData[chartRenderData.length - 1]?.t;
+    const rangeMin = firstVisibleT != null ? Math.max(clipMin, firstVisibleT) : clipMin;
+    const rangeMax = lastVisibleT != null ? Math.min(clipMax, lastVisibleT) : clipMax;
     for (const ev of events) {
       if (ev.type !== "Buy" && ev.type !== "Sell" && ev.type !== "Error") continue;
       const ts = ev.markerTs ?? chartData[ev.dataIdx]?.t;
-      if (!ts || ts < clipMin || ts > clipMax) continue;
+      if (!Number.isFinite(ts) || (ts as number) < rangeMin || (ts as number) > rangeMax) continue;
       let y = ev.markerPrice;
       if (typeof y !== "number" || !Number.isFinite(y) || y <= 0) {
         const nearest = chartData[ev.dataIdx];
@@ -1029,13 +1035,13 @@ export function StrategySimulationWorkspace({
         }
       }
       if (typeof y !== "number" || !Number.isFinite(y)) continue;
-      const marker = { t: ts, y };
+      const marker = { t: ts as number, y };
       if (ev.type === "Buy") buy.push(marker);
       else if (ev.type === "Sell") sell.push(marker);
       else error.push(marker);
     }
     return { buy, sell, error };
-  }, [events, chartData, chartAxisDomain, networks]);
+  }, [events, chartData, chartRenderData, chartSeriesClipRange, networks]);
 
   const tradeExecutionBarData = useMemo(() => {
     const byId = new Map(events.map((event) => [event.id, event]));
@@ -1052,10 +1058,14 @@ export function StrategySimulationWorkspace({
     }> = [];
     const sell: typeof buy = [];
     const error: Array<(typeof buy)[0] & { requestSide: "buy" | "sell" }> = [];
-    const [clipMin, clipMax] = chartAxisDomain;
+    const [clipMin, clipMax] = chartSeriesClipRange;
+    const firstVisibleT = chartRenderData[0]?.t;
+    const lastVisibleT = chartRenderData[chartRenderData.length - 1]?.t;
+    const rangeMin = firstVisibleT != null ? Math.max(clipMin, firstVisibleT) : clipMin;
+    const rangeMax = lastVisibleT != null ? Math.min(clipMax, lastVisibleT) : clipMax;
     let yMin = Number.POSITIVE_INFINITY;
     let yMax = Number.NEGATIVE_INFINITY;
-    for (const point of visibleData) {
+    for (const point of chartRenderData) {
       const avg = point.avg;
       if (typeof avg === "number" && Number.isFinite(avg)) {
         if (avg < yMin) yMin = avg;
@@ -1096,7 +1106,7 @@ export function StrategySimulationWorkspace({
       if (!Number.isFinite(requestPriceNum) || !Number.isFinite(responsePriceNum)) continue;
 
       const inWindow =
-        requestTs >= clipMin && requestTs <= clipMax && responseTs >= clipMin && responseTs <= clipMax;
+        requestTs >= rangeMin && requestTs <= rangeMax && responseTs >= rangeMin && responseTs <= rangeMax;
       if (!inWindow) continue;
       const delayMs = Math.max(0, responseTs - requestTs);
       const slippagePct =
@@ -1119,7 +1129,7 @@ export function StrategySimulationWorkspace({
       }
     }
     return { buy, sell, error };
-  }, [events, chartData, visibleData, networks, chartAxisDomain]);
+  }, [events, chartData, chartRenderData, networks, chartSeriesClipRange]);
 
   const tradeExecutionBands = useMemo(() => {
     const toBands = (
@@ -1735,8 +1745,14 @@ export function StrategySimulationWorkspace({
               </ChartErrorBoundary>
               {chartSafeMode && (
                 <div
-                  className="absolute left-3 top-3 px-2 py-1 rounded text-[10px]"
-                  style={{ backgroundColor: `${accent}22`, border: `1px solid ${accent}55`, color: textSecondary }}
+                  className="absolute z-10 px-2 py-1 rounded text-[10px]"
+                  style={{
+                    left: getChartPlotInsets().left + 4,
+                    top: getChartPlotInsets().top + 40,
+                    backgroundColor: `${accent}22`,
+                    border: `1px solid ${accent}55`,
+                    color: textSecondary,
+                  }}
                 >
                   Safe chart mode
                 </div>
@@ -1856,7 +1872,11 @@ export function StrategySimulationWorkspace({
             </div>
           )}
           <div
-            className="absolute top-3 right-3 z-20"
+            className="absolute z-20"
+            style={{
+              left: getChartPlotInsets().left + 4,
+              top: getChartPlotInsets().top + 4,
+            }}
             onMouseEnter={() => setHoverCrosshair(null)}
             onMouseMove={(e) => {
               e.stopPropagation();
