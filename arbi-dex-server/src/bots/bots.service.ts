@@ -141,7 +141,7 @@ export class BotsService {
 
   /**
    * Подставляет демо-портфель в шаги: token2 = кэш (quote), token1 = база.
-   * Mapper `balance_ok`: buy читает token2, sell — token1.
+   * Mapper `balance_ok`: buy → token2; sell → token1 × bid (USDT).
    */
   applyBotBalancesToSteps(bot: Bot, steps: MarketStep[]): void {
     const balances = {

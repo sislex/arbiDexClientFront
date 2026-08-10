@@ -201,7 +201,8 @@ export function toEngineStrategy(
     },
   };
 
-  // Buy checks quote balance (token2 / USDT); sell checks base holdings (token1).
+  // Buy: free quote cash (token2 / USDT). Sell: base holdings in quote terms
+  // (token1 × bid) — порог в UI задаётся в USDT для обеих сторон.
   const balance: ConditionDef = {
     id: 'balance_ok',
     window: () => ({}),
@@ -218,7 +219,10 @@ export function toEngineStrategy(
       }
       const require = strategy.sell.requireToken2Balance;
       const minBalance = strategy.sell.minToken2Balance;
-      const bal = ctx.current.balances?.token1;
+      const token1 = ctx.current.balances?.token1;
+      const sellQuote = ctx.current.quotes.sellQuote;
+      const bal =
+        token1 == null || !(sellQuote > 0) ? undefined : token1 * sellQuote;
       return {
         passed: !require || (bal ?? Number.NEGATIVE_INFINITY) >= minBalance,
         actual: bal ?? '—',

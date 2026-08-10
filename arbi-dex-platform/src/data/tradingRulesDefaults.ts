@@ -59,7 +59,7 @@ export const TRADING_RULE_DEFINITIONS: TradingRuleDefinition[] = [
     side: 'buy',
     parts: [
       { type: 'text', text: 'Если Минимальный баланс USDT для покупки >= ' },
-      { type: 'param', key: 'percent', suffix: ' %', width: 64 },
+      { type: 'param', key: 'percent', suffix: ' USDT', width: 64 },
     ],
     defaults: { percent: 1000 },
     defaultEnabled: false,
@@ -110,8 +110,8 @@ export const TRADING_RULE_DEFINITIONS: TradingRuleDefinition[] = [
     number: 11,
     side: 'sell',
     parts: [
-      { type: 'text', text: 'Если Минимальный баланс USDT для продажи >= ' },
-      { type: 'param', key: 'percent', suffix: ' %', width: 64 },
+      { type: 'text', text: 'Если стоимость позиции в USDT для продажи >= ' },
+      { type: 'param', key: 'percent', suffix: ' USDT', width: 64 },
     ],
     defaults: { percent: 1000 },
     defaultEnabled: false,

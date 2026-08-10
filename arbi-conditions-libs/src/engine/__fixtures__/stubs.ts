@@ -48,7 +48,7 @@ export const TEST_STRATEGY_DISABLED: StrategyEngineConfig = {
   sell: { ...TEST_STRATEGY.sell, enabled: false },
 };
 
-/** Requires token balances (for balance-gate tests). */
+/** Requires quote balances: buy → cash (token2), sell → base×bid notional ≥ min. */
 export const TEST_STRATEGY_REQUIRE_BALANCE: StrategyEngineConfig = {
   buy: { ...TEST_STRATEGY.buy, requireToken1Balance: true, minToken1Balance: 500 },
   sell: { ...TEST_STRATEGY.sell, requireToken2Balance: true, minToken2Balance: 500 },
@@ -63,35 +63,35 @@ export const TEST_STRATEGY_2STEPS: StrategyEngineConfig = {
 const startedBuyTx: TransactionEvent = { id: 'tx-1', side: 'buy', status: 'started' };
 const finishedBuyTx: TransactionEvent = { id: 'tx-1', side: 'buy', status: 'finished', txHash: '0xabc' };
 
-/** Single qualifying step: observed above both quotes, spread tiny. */
-export const WINDOW_SINGLE: MarketStep[] = [step(1_000, 100, 101, 102)];
+/** Single qualifying step: buyQuote below avg, sellQuote above avg, spread tiny. */
+export const WINDOW_SINGLE: MarketStep[] = [step(1_000, 100, 103, 102)];
 
 /** Two qualifying steps — satisfies a 2-step lookback. */
 export const WINDOW_TWO_QUALIFY: MarketStep[] = [
-  step(1_000, 100, 101, 102),
-  step(2_000, 100, 101, 102),
+  step(1_000, 100, 103, 102),
+  step(2_000, 100, 103, 102),
 ];
 
 /** Two steps where the FIRST fails (observed below buy quote) — 2-step lookback fails. */
 export const WINDOW_TWO_MIXED: MarketStep[] = [
   step(1_000, 100, 101, 99), // avg 99 < buy 100 -> negative percent
-  step(2_000, 100, 101, 102),
+  step(2_000, 100, 103, 102),
 ];
 
 /** Current step carries an open (started, never finished) transaction. */
 export const WINDOW_TX_OPEN: MarketStep[] = [
-  step(1_000, 100, 101, 102, { events: { transaction: startedBuyTx } }),
+  step(1_000, 100, 103, 102, { events: { transaction: startedBuyTx } }),
 ];
 
 /** Transaction started, then finished at t=6000 — no longer in progress. */
 export const WINDOW_TX_CLOSED: MarketStep[] = [
-  step(1_000, 100, 101, 102, { events: { transaction: startedBuyTx } }),
-  step(6_000, 100, 101, 102, { events: { transaction: finishedBuyTx } }),
+  step(1_000, 100, 103, 102, { events: { transaction: startedBuyTx } }),
+  step(6_000, 100, 103, 102, { events: { transaction: finishedBuyTx } }),
 ];
 
 /** Current step carries token balances. */
 export const WINDOW_WITH_BALANCES: MarketStep[] = [
-  step(1_000, 100, 101, 102, { balances: { token1: 1000, token2: 1000 } }),
+  step(1_000, 100, 103, 102, { balances: { token1: 1000, token2: 1000 } }),
 ];
 
 // ── Position / trigger fixtures ──────────────────────────────────────────────

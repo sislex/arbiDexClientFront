@@ -122,14 +122,15 @@ export const CONDITIONS_CATALOG: ConditionCatalogEntry[] = [
   {
     id: 'balance_ok',
     title: 'Достаточный баланс',
-    description: 'Требовать минимальный баланс актива для входа в сделку.',
+    description:
+      'Buy: свободный кэш (quote) ≥ порога. Sell: стоимость базы по bid (token1 × sellQuote) ≥ порога. Порог в единицах quote (USDT).',
     kind: 'gate',
     sides: ['buy', 'sell'],
     params: [
       { key: 'require', label: 'Требовать', type: 'boolean', default: true },
       {
         key: 'minBalance',
-        label: 'Мин. баланс',
+        label: 'Мин. баланс (USDT)',
         type: 'number',
         default: 10,
         min: 0,

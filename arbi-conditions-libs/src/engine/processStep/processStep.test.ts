@@ -34,7 +34,7 @@ describe('processStep', () => {
 
   it('exposes actual/required on each condition outcome', () => {
     const result = processStep({ steps: WINDOW_SINGLE, strategy: TEST_STRATEGY });
-    // spread = pctDiff(100, 101) ≈ -0.99, cap 100.
+    // spread = pctDiff(100, 103), cap 100.
     expect(result.condition.buy.spread_ok).toMatchObject({ passed: true, required: 100 });
     expect(typeof result.condition.buy.spread_ok.actual).toBe('number');
   });

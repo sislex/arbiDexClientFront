@@ -22,6 +22,7 @@ export interface BuyTradingConditionsConfig {
   maxBuySellSpreadPercent: number;
   minDelayAfterLastFinishedTransactionMs: number;
   requireToken1Balance: boolean;
+  /** Min free quote cash (token2 / USDT). Field name is historical. */
   minToken1Balance: number;
 }
 
@@ -40,6 +41,7 @@ export interface SellTradingConditionsConfig {
   maxBuySellSpreadPercent: number;
   minDelayAfterLastFinishedTransactionMs: number;
   requireToken2Balance: boolean;
+  /** Min position notional in quote (token1 × sellQuote). Field name is historical. */
   minToken2Balance: number;
 
   /** Stop-loss: % loss from entry price that forces a sell. `null`/undefined = off. */
