@@ -5,7 +5,6 @@ import { PageHeader, PageContent } from '../components/layout/PageHeader'
 import { Card, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { SearchInput } from '../components/ui/SearchInput'
-import { ExchangeViewDropdown } from '../components/ui/ExchangeViewDropdown'
 import { SortableTableHead } from '../components/ui/SortableTableHead'
 import {
   ResizableTable,
@@ -45,7 +44,7 @@ function getPairSortValue(pair: TradingPair, key: PairSortKey, botCounts: Map<st
     case 'type':
       return isMonitoringPair(pair) ? 'monitoring' : 'trading'
     case 'exchange':
-      return pair.exchanges.join(', ')
+      return pair.exchanges.length
     case 'runningBots':
       return botCounts.get(pair.id) ?? 0
     case 'created':
@@ -197,13 +196,8 @@ export function TradingPairsPage() {
                             </span>
                           )}
                         </td>
-                        <td className={TABLE_CELL} onClick={(e) => e.stopPropagation()}>
-                          <ExchangeViewDropdown
-                            exchanges={pair.exchanges}
-                            tradingExchange={pair.tradingExchange}
-                            monitoring={isMonitoringPair(pair)}
-                            compact
-                          />
+                        <td className={cn(TABLE_CELL, 'text-muted')}>
+                          {pair.exchanges.length}
                         </td>
                         <td className={cn(TABLE_CELL, 'text-center text-white')}>{pairBotCounts.get(pair.id) ?? 0}</td>
                         <td className={cn(TABLE_CELL, 'text-muted truncate')}>{pair.created}</td>

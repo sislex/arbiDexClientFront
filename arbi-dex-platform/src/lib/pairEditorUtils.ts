@@ -1,3 +1,7 @@
+import type { TradingPair } from '../data/mockData'
+import type { ChartPairSelection } from '../types/chart'
+import { rebuildSelectedExchanges } from '../types/chart'
+
 export function resolvePairEntry(
   sel: ChartPairSelection,
   allowedCexNames?: Iterable<string>,

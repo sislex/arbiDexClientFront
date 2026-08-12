@@ -106,7 +106,8 @@ export function TradingPairEditorPage() {
     if (!submitEnabled || !primary?.pair || saving) return
     setSaving(true)
     try {
-      const allowedCex = storeCexNames
+      // Пустой список ≠ «запретить все CEX»: пока каталог не готов, не фильтруем.
+      const allowedCex = storeCexNames.length > 0 ? storeCexNames : undefined
       if (isNew) {
         const newEntries = selections.map((sel) =>
           selectionToTradingPair(
