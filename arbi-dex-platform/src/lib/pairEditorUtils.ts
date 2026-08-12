@@ -1,13 +1,10 @@
-import { getExchangesForPair } from '../data/mockData'
-import type { TradingPair } from '../data/mockData'
-import type { ChartPairSelection } from '../types/chart'
-import { rebuildSelectedExchanges } from '../types/chart'
-
-export function resolvePairEntry(sel: ChartPairSelection) {
+export function resolvePairEntry(
+  sel: ChartPairSelection,
+  allowedCexNames?: Iterable<string>,
+) {
   const dexEntries = sel.dexEntries ?? []
-  const rawExchanges =
-    sel.selectedExchanges.length > 0 ? sel.selectedExchanges : getExchangesForPair(sel.pair)
-  const exchanges = rebuildSelectedExchanges(rawExchanges, dexEntries)
+  const rawExchanges = sel.selectedExchanges.length > 0 ? sel.selectedExchanges : []
+  const exchanges = rebuildSelectedExchanges(rawExchanges, dexEntries, allowedCexNames)
   const monitoring = sel.purpose === 'monitoring' || !sel.tradingExchange
   const tradingExchange =
     monitoring || !sel.tradingExchange || !exchanges.includes(sel.tradingExchange)
@@ -26,8 +23,12 @@ export function resolvePairEntry(sel: ChartPairSelection) {
 export function selectionToTradingPair(
   sel: ChartPairSelection,
   existing?: TradingPair,
+  allowedCexNames?: Iterable<string>,
 ): TradingPair {
-  const { purpose, exchanges, tradingExchange, dexAddresses, dexEntries } = resolvePairEntry(sel)
+  const { purpose, exchanges, tradingExchange, dexAddresses, dexEntries } = resolvePairEntry(
+    sel,
+    allowedCexNames,
+  )
 
   return {
     id: existing?.id ?? sel.id,

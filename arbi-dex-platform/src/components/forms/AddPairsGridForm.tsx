@@ -1,13 +1,12 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Plus, Trash2, Check, Star, Eye, TrendingUp } from 'lucide-react'
 import {
   CEX_SOURCES,
-  DEX_NETWORKS,
   getDefaultTradingExchange,
   getExchangesForPair,
   migrateDexData,
 } from '../../data/mockData'
-import { useCatalogPairs } from '../../hooks/useCatalogPairs'
+import { useStoreMarketCatalog } from '../../hooks/useStoreMarketCatalog'
 import { filterStandardCexPairSymbols, isStandardCexPairSymbol } from '../../lib/pairSymbols'
 import {
   defaultDexAddresses,
@@ -16,6 +15,7 @@ import {
   formatDexPoolOptionLabel,
   getDexPoolPresets,
 } from '../../lib/dexStoreKeys'
+import type { DerivedDexPool } from '../../lib/parseMarketDataKeys'
 import type { ExchangeSource } from '../../data/mockData'
 import type { ChartPairSelection, DexEntry, DexTokenAddresses, PairPurpose } from '../../types/chart'
 import {
@@ -131,6 +131,8 @@ function DexEntryCard({
   isTrading,
   showTradingStar,
   addresses,
+  dexNetworks,
+  livePools,
   onToggle,
   onSetTrading,
   onNetworkChange,
@@ -144,6 +146,8 @@ function DexEntryCard({
   isTrading: boolean
   showTradingStar: boolean
   addresses: DexTokenAddresses
+  dexNetworks: Array<{ id: string; name: string }>
+  livePools: DerivedDexPool[]
   onToggle: () => void
   onSetTrading: () => void
   onNetworkChange: (network: string) => void
@@ -151,13 +155,20 @@ function DexEntryCard({
   onRemove: () => void
 }) {
   const label = getDexEntryLabel(entry, entries)
+  const networkOptions = useMemo(() => {
+    const opts = dexNetworks.map((n) => ({ value: n.name, label: n.name }))
+    if (entry.network && !opts.some((o) => o.value === entry.network)) {
+      opts.unshift({ value: entry.network, label: entry.network })
+    }
+    return opts
+  }, [dexNetworks, entry.network])
   const poolPresets = useMemo(
-    () => getDexPoolPresets(entry.network, pair),
-    [entry.network, pair],
+    () => getDexPoolPresets(entry.network, pair, livePools),
+    [entry.network, pair, livePools],
   )
   const selectedPool = useMemo(
-    () => findDexPoolPreset(entry.network, pair, addresses),
-    [entry.network, pair, addresses],
+    () => findDexPoolPreset(entry.network, pair, addresses, livePools),
+    [entry.network, pair, addresses, livePools],
   )
   const poolSelectValue = selectedPool
     ? dexPoolPresetValue(selectedPool)
@@ -202,7 +213,11 @@ function DexEntryCard({
           <Select
             value={entry.network}
             onChange={onNetworkChange}
-            options={DEX_NETWORKS.map((n) => ({ value: n.name, label: n.name }))}
+            options={
+              networkOptions.length > 0
+                ? networkOptions
+                : [{ value: entry.network || '', label: 'Нет сетей в store' }]
+            }
             className="w-full text-sm"
           />
         </div>
@@ -280,6 +295,10 @@ function PairSection({
   canRemove,
   pairOptions,
   pairsLoading,
+  pairsError,
+  cexSources,
+  dexNetworks,
+  livePools,
   onNameChange,
   onPurposeChange,
   onPairChange,
@@ -296,6 +315,10 @@ function PairSection({
   canRemove: boolean
   pairOptions: { value: string; label: string }[]
   pairsLoading: boolean
+  pairsError: string | null
+  cexSources: ExchangeSource[]
+  dexNetworks: Array<{ id: string; name: string }>
+  livePools: DerivedDexPool[]
   onNameChange: (name: string) => void
   onPurposeChange: (purpose: PairPurpose) => void
   onPairChange: (pair: string) => void
@@ -357,28 +380,41 @@ function PairSection({
                 onChange={onPairChange}
                 options={
                   pairsLoading && pairOptions.length === 0
-                    ? [{ value: selection.pair, label: 'Загрузка пар…' }]
-                    : pairOptions
+                    ? [{ value: selection.pair || '', label: 'Загрузка пар из store…' }]
+                    : pairOptions.length > 0
+                      ? pairOptions
+                      : [
+                          {
+                            value: selection.pair || '',
+                            label: pairsError ?? 'Нет пар в store/keys',
+                          },
+                        ]
                 }
                 className="w-full text-sm"
               />
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-              {CEX_SOURCES.map((source) => {
-                const active = selection.selectedExchanges.includes(source.name)
-                const isTrading = selection.tradingExchange === source.name
-                return (
-                  <CexExchangeCard
-                    key={source.id}
-                    source={source}
-                    active={active}
-                    isTrading={isTrading}
-                    showTradingStar
-                    onToggle={() => onToggleExchange(source.name)}
-                    onSetTrading={() => onSetTradingExchange(source.name)}
-                  />
-                )
-              })}
+              {cexSources.length === 0 ? (
+                <p className="text-xs text-muted col-span-full py-4 text-center rounded-xl border border-dashed border-border">
+                  {pairsLoading ? 'Загрузка CEX из store…' : 'Нет CEX-источников в store/keys'}
+                </p>
+              ) : (
+                cexSources.map((source) => {
+                  const active = selection.selectedExchanges.includes(source.name)
+                  const isTrading = selection.tradingExchange === source.name
+                  return (
+                    <CexExchangeCard
+                      key={source.id}
+                      source={source}
+                      active={active}
+                      isTrading={isTrading}
+                      showTradingStar
+                      onToggle={() => onToggleExchange(source.name)}
+                      onSetTrading={() => onSetTradingExchange(source.name)}
+                    />
+                  )
+                })
+              )}
             </div>
           </div>
 
@@ -393,7 +429,8 @@ function PairSection({
               <button
                 type="button"
                 onClick={onAddDex}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-dashed border-accent-purple/40 text-accent-purple hover:bg-accent-purple/10 transition-colors shrink-0"
+                disabled={dexNetworks.length === 0}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-dashed border-accent-purple/40 text-accent-purple hover:bg-accent-purple/10 transition-colors shrink-0 disabled:opacity-40 disabled:pointer-events-none"
               >
                 <Plus size={14} />
                 Добавить DEX
@@ -423,6 +460,8 @@ function PairSection({
                       isTrading={isTrading}
                       showTradingStar
                       addresses={addresses}
+                      dexNetworks={dexNetworks}
+                      livePools={livePools}
                       onToggle={() => onToggleDex(entry.id)}
                       onSetTrading={() => onSetTradingExchange(label)}
                       onNetworkChange={(network) => onDexNetworkChange(entry.id, network)}
@@ -442,15 +481,64 @@ function PairSection({
 
 export function AddPairsGridForm({ selections, onChange, mode = 'add' }: AddPairsGridFormProps) {
   const isEdit = mode === 'edit'
-  const { pairs: catalogPairs, loading: pairsLoading } = useCatalogPairs()
+  const { catalog, loading: pairsLoading, error: pairsError } = useStoreMarketCatalog()
+  const livePools = catalog.dexPools
+  const dexNetworks = catalog.dexNetworks
+
+  const cexSources = useMemo(() => {
+    if (catalog.cexSourceIds.length === 0) return []
+    const byId = new Map(CEX_SOURCES.map((s) => [s.id, s]))
+    return catalog.cexSourceIds
+      .map((id) => byId.get(id) ?? { id, name: id.charAt(0).toUpperCase() + id.slice(1), type: 'CEX' as const })
+      .filter(Boolean)
+  }, [catalog.cexSourceIds])
+
   const pairOptions = useMemo(() => {
-    const fromCatalog = filterStandardCexPairSymbols(catalogPairs)
+    const fromCatalog = filterStandardCexPairSymbols(catalog.pairSymbols)
     const fromSelections = selections.map((s) => s.pair).filter(isStandardCexPairSymbol)
     const symbols = [...new Set([...fromCatalog, ...fromSelections])].sort((a, b) =>
       a.localeCompare(b),
     )
     return symbols.map((p) => ({ value: p, label: p }))
-  }, [catalogPairs, selections])
+  }, [catalog.pairSymbols, selections])
+
+  const pickDefaultNetwork = (pair: string): string => {
+    const withPool = dexNetworks.find((n) => getDexPoolPresets(n.name, pair, livePools).length > 0)
+    return withPool?.name ?? dexNetworks[0]?.name ?? ''
+  }
+
+  const pickDefaultPool = (network: string, pair: string) =>
+    getDexPoolPresets(network, pair, livePools)[0] ??
+    defaultDexAddresses(network, pair) ??
+    emptyDexAddresses()
+
+  const allowedCexNames = useMemo(() => cexSources.map((s) => s.name), [cexSources])
+
+  // Убираем «призрачные» CEX (OKX/Kraken и т.п.), которых нет в store и в UI-карточках.
+  useEffect(() => {
+    if (pairsLoading || allowedCexNames.length === 0) return
+    let changed = false
+    const next = selections.map((col) => {
+      const pruned = rebuildSelectedExchanges(col.selectedExchanges, col.dexEntries, allowedCexNames)
+      if (
+        pruned.length === col.selectedExchanges.length &&
+        pruned.every((ex, i) => ex === col.selectedExchanges[i])
+      ) {
+        return col
+      }
+      changed = true
+      const tradingExchange =
+        col.tradingExchange && pruned.includes(col.tradingExchange) ? col.tradingExchange : null
+      return {
+        ...col,
+        selectedExchanges: pruned,
+        tradingExchange,
+        purpose: tradingExchange ? ('trading' as const) : ('monitoring' as const),
+      }
+    })
+    if (changed) onChange(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allowedCexNames.join('|'), pairsLoading])
 
   const updateSelection = (id: string, patch: Partial<ChartPairSelection>) => {
     onChange(selections.map((s) => (s.id === id ? { ...s, ...patch } : s)))
@@ -499,7 +587,8 @@ export function AddPairsGridForm({ selections, onChange, mode = 'add' }: AddPair
     onChange(
       selections.map((col) => {
         if (col.id !== id) return col
-        const network = DEX_NETWORKS[0]?.name ?? 'Ethereum'
+        const network = pickDefaultNetwork(col.pair)
+        if (!network) return col
         const entry: DexEntry = {
           id: generateSelectionId(),
           network,
@@ -507,10 +596,7 @@ export function AddPairsGridForm({ selections, onChange, mode = 'add' }: AddPair
         const dexEntries = [...col.dexEntries, entry]
         const enabledIds = getEnabledDexEntryIds(col.dexEntries, col.selectedExchanges)
         enabledIds.add(entry.id)
-        const preset =
-          getDexPoolPresets(network, col.pair)[0] ??
-          defaultDexAddresses(network, col.pair) ??
-          emptyDexAddresses()
+        const preset = pickDefaultPool(network, col.pair)
         return {
           ...col,
           dexEntries,
@@ -566,10 +652,7 @@ export function AddPairsGridForm({ selections, onChange, mode = 'add' }: AddPair
         const finalTrading =
           tradingExchange && selectedExchanges.includes(tradingExchange) ? tradingExchange : null
         const purpose = finalTrading ? 'trading' : 'monitoring'
-        const preset =
-          getDexPoolPresets(network, col.pair)[0] ??
-          defaultDexAddresses(network, col.pair) ??
-          emptyDexAddresses()
+        const preset = pickDefaultPool(network, col.pair)
         return {
           ...col,
           dexEntries,
@@ -660,10 +743,8 @@ export function AddPairsGridForm({ selections, onChange, mode = 'add' }: AddPair
         const selectedExchanges = [...new Set([...cexSelected, ...dexLabels])]
         const dexAddresses = { ...col.dexAddresses }
         for (const entry of col.dexEntries) {
-          const preset =
-            getDexPoolPresets(entry.network, pair)[0] ??
-            defaultDexAddresses(entry.network, pair)
-          if (preset) {
+          const preset = pickDefaultPool(entry.network, pair)
+          if (preset.base || preset.quote) {
             dexAddresses[entry.id] = { base: preset.base, quote: preset.quote }
           }
         }
@@ -695,6 +776,10 @@ export function AddPairsGridForm({ selections, onChange, mode = 'add' }: AddPair
             canRemove={!isEdit && selections.length > 1}
             pairOptions={pairOptions}
             pairsLoading={pairsLoading}
+            pairsError={pairsError}
+            cexSources={cexSources}
+            dexNetworks={dexNetworks}
+            livePools={livePools}
             onNameChange={(name) => updateSelection(sel.id, { name })}
             onPurposeChange={(purpose) => setPurpose(sel.id, purpose)}
             onPairChange={(pair) => changePair(sel.id, pair)}
@@ -714,14 +799,14 @@ export function AddPairsGridForm({ selections, onChange, mode = 'add' }: AddPair
   )
 }
 
-export function buildInitialSelections(primaryPair: string): ChartPairSelection[] {
+export function buildInitialSelections(
+  primaryPair: string,
+  exchanges?: string[],
+): ChartPairSelection[] {
+  const selected =
+    exchanges && exchanges.length > 0 ? exchanges : getExchangesForPair(primaryPair || 'BTC/USDT')
   return [
-    createDefaultSelection(
-      primaryPair,
-      getExchangesForPair(primaryPair),
-      null,
-      { purpose: 'monitoring' },
-    ),
+    createDefaultSelection(primaryPair, selected, null, { purpose: 'monitoring' }),
   ]
 }
 

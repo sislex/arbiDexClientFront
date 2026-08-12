@@ -1,12 +1,12 @@
 import { useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
-import { loadCatalogPairSymbols } from '../../services/catalogService'
+import { loadStoreMarketCatalog } from '../../services/storeMarketCatalog'
 import { Sidebar } from './Sidebar'
 import { TopToolbar } from './TopToolbar'
 
 export function Layout() {
   useEffect(() => {
-    void loadCatalogPairSymbols()
+    void loadStoreMarketCatalog()
   }, [])
 
   return (

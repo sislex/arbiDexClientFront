@@ -81,7 +81,10 @@ const LEGACY_DEX_KEY_MAP: Record<string, string> = {
 }
 
 export function isDexNetwork(name: string): boolean {
-  return DEX_NETWORKS.some((n) => n.name === name)
+  if (DEX_NETWORKS.some((n) => n.name === name)) return true
+  // Сети из store/keys (например Blast), которых нет в статическом списке
+  if (!name || isCexExchange(name)) return false
+  return /^[A-Za-z][A-Za-z0-9]*$/.test(name) && !name.includes('/')
 }
 
 /** @deprecated use isDexNetwork */
@@ -378,10 +381,10 @@ export function generateExchangeChartData(pair: string, points = 60, pairSetId?:
 
 export function getExchangesForPair(pair: string): string[] {
   const tp = getTradingPairs().find((p) => p.pair === pair)
-  if (!tp) return [...EXCHANGES]
+  if (!tp) return []
   const cleaned = rebuildSelectedExchanges(tp.exchanges ?? [], tp.dexEntries ?? [])
   const cexOnly = cleaned.filter((name) => isCexExchange(name))
-  return cexOnly.length > 0 ? cexOnly : [...EXCHANGES]
+  return cexOnly
 }
 
 export function getDefaultTradingExchange(pair: string): string | null {

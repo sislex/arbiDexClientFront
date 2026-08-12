@@ -29,7 +29,7 @@ export function filterStandardCexPairSymbols(symbols: readonly string[]): string
   return [...new Set(symbols.filter(isStandardCexPairSymbol))].sort((a, b) => a.localeCompare(b))
 }
 
-export function getDefaultCexPairSymbol(symbols: readonly string[], fallback = 'BTC/USDT'): string {
+export function getDefaultCexPairSymbol(symbols: readonly string[], fallback = ''): string {
   const standard = filterStandardCexPairSymbols(symbols)
   return standard[0] ?? fallback
 }

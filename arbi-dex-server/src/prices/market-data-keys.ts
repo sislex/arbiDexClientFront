@@ -27,17 +27,50 @@ export interface ParsedMarketKey {
 
 /** Маппинг адреса контракта → человекочитаемое символ */
 const TOKEN_NAMES: Record<string, string> = {
+  // Arbitrum
   '0x82af49447d8a07e3bd95bd0d56f35241523fbab1': 'WETH',
   '0xaf88d065e77c8cc2239327c5edb3a432268e5831': 'USDC',
   '0xff970a61a04b1ca14834a43f5de4533ebddb5cc8': 'USDC.e',
   '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9': 'USDT',
   '0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f': 'WBTC',
   '0x912ce59144191c1204e64559fe8253a0e49e6548': 'ARB',
+  // Linea
+  '0xe5d7c2a44ffddf6b295a15c148167daaaf5cf34f': 'WETH',
+  '0x176211869ca2b568f2a7d4ee941e073a821ee1ff': 'USDC',
+  '0xa219439258ca9da29e9cc4ce5596924745e12b93': 'USDT',
+  '0x3aab2285ddcddad8edf438c1bab47e1a9d05a9b4': 'WBTC',
 };
+
+/**
+ * Символ → адрес по сети (для построения DEX store keys).
+ * Нельзя строить единый reverse из TOKEN_NAMES: один символ на разных сетях.
+ */
+const DEX_TOKEN_ADDRS: Record<string, Record<string, string>> = {
+  arbitrum: {
+    WETH: '0x82af49447d8a07e3bd95bd0d56f35241523fbab1',
+    USDC: '0xaf88d065e77c8cc2239327c5edb3a432268e5831',
+    'USDC.e': '0xff970a61a04b1ca14834a43f5de4533ebddb5cc8',
+    USDT: '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9',
+    WBTC: '0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f',
+    ARB: '0x912ce59144191c1204e64559fe8253a0e49e6548',
+  },
+  linea: {
+    WETH: '0xe5d7c2a44ffddf6b295a15c148167daaaf5cf34f',
+    USDC: '0x176211869ca2b568f2a7d4ee941e073a821ee1ff',
+    USDT: '0xa219439258ca9da29e9cc4ce5596924745e12b93',
+    WBTC: '0x3aab2285ddcddad8edf438c1bab47e1a9d05a9b4',
+  },
+};
+
+function resolveDexTokenAddr(sourceId: string, symbol: string): string {
+  const network = sourceId.startsWith('dex:') ? sourceId.slice(4) : sourceId;
+  return DEX_TOKEN_ADDRS[network]?.[symbol] ?? symbol;
+}
 
 /** Маппинг источника → метаданные для каталога */
 export const SOURCE_META: Record<string, { displayName: string; type: 'dex' | 'cex' }> = {
   'dex:arbitrum': { displayName: 'Arbitrum DEX', type: 'dex' },
+  'dex:linea':    { displayName: 'Linea DEX',    type: 'dex' },
   'binance':      { displayName: 'Binance',      type: 'cex' },
   'mexc':         { displayName: 'MEXC',          type: 'cex' },
   'bybit':        { displayName: 'Bybit',         type: 'cex' },
@@ -138,9 +171,31 @@ export function makePairDisplayName(base: string, quote: string): string {
 }
 
 /**
+ * Нормализует ответ GET /store/keys: раньше API отдавал string[],
+ * сейчас может отдавать объекты `{ key, points, … }`.
+ */
+export function normalizeStoreKeysResponse(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const keys: string[] = [];
+  for (const item of raw) {
+    if (typeof item === 'string' && item.length > 0) {
+      keys.push(item);
+      continue;
+    }
+    if (item && typeof item === 'object' && 'key' in item) {
+      const key = (item as { key: unknown }).key;
+      if (typeof key === 'string' && key.length > 0) keys.push(key);
+    }
+  }
+  return keys;
+}
+
+/**
  * Определяет формат ключей по массиву ключей.
+ * По умолчанию pipe — актуальный формат arbiDexMarketData.
  */
 export function detectKeyFormat(keys: string[]): 'pipe' | 'concat' {
+  if (!keys.length) return 'pipe';
   return keys.some((k) => k.includes('|')) ? 'pipe' : 'concat';
 }
 
@@ -164,14 +219,12 @@ export function buildPoolKey(
 
   const [baseDisplay, quoteDisplay] = parts;
 
-  // Обратный маппинг: символ → адрес (для DEX)
-  const reverseTokens: Record<string, string> = {};
-  for (const [addr, name] of Object.entries(TOKEN_NAMES)) {
-    reverseTokens[name] = addr;
-  }
-
-  const base = sourceId.startsWith('dex:') ? (reverseTokens[baseDisplay] ?? baseDisplay) : baseDisplay;
-  const quote = sourceId.startsWith('dex:') ? (reverseTokens[quoteDisplay] ?? quoteDisplay) : quoteDisplay;
+  const base = sourceId.startsWith('dex:')
+    ? resolveDexTokenAddr(sourceId, baseDisplay)
+    : baseDisplay;
+  const quote = sourceId.startsWith('dex:')
+    ? resolveDexTokenAddr(sourceId, quoteDisplay)
+    : quoteDisplay;
 
   const field = side === 'bid' ? 'bidPool' : 'askPool';
   return `${sourceId}|${base}/${quote}|${field}`;
@@ -187,22 +240,20 @@ export function buildPoolKey(
 export function buildStoreKeys(
   sourceId: string,
   pairId: string,
-  format: 'pipe' | 'concat' = 'concat',
+  format: 'pipe' | 'concat' = 'pipe',
 ): { bidKey: string; askKey: string } | null {
   const parts = pairId.split('_');
   if (parts.length !== 2) return null;
 
   const [baseDisplay, quoteDisplay] = parts;
 
-  // Обратный маппинг: символ → адрес (для DEX)
-  const reverseTokens: Record<string, string> = {};
-  for (const [addr, name] of Object.entries(TOKEN_NAMES)) {
-    reverseTokens[name] = addr;
-  }
-
-  // Для DEX подставляем адреса, для CEX используем символы как есть
-  const base = sourceId.startsWith('dex:') ? (reverseTokens[baseDisplay] ?? baseDisplay) : baseDisplay;
-  const quote = sourceId.startsWith('dex:') ? (reverseTokens[quoteDisplay] ?? quoteDisplay) : quoteDisplay;
+  // Для DEX подставляем адреса сети из sourceId, для CEX — символы как есть
+  const base = sourceId.startsWith('dex:')
+    ? resolveDexTokenAddr(sourceId, baseDisplay)
+    : baseDisplay;
+  const quote = sourceId.startsWith('dex:')
+    ? resolveDexTokenAddr(sourceId, quoteDisplay)
+    : quoteDisplay;
 
   const pair = `${base}/${quote}`;
 

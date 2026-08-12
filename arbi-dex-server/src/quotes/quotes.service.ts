@@ -6,6 +6,7 @@ import {
   parseMarketDataKey,
   makePairId,
   SOURCE_META,
+  normalizeStoreKeysResponse,
 } from '../prices/market-data-keys';
 
 /** Точка из arbiDexMarketData snapshot */
@@ -61,9 +62,11 @@ export class QuotesService {
     let priceKeys: string[];
     try {
       const keysResp = await firstValueFrom(
-        this.httpService.get<string[]>(`${this.marketDataUrl}/store/keys`),
+        this.httpService.get<unknown>(`${this.marketDataUrl}/store/keys`),
       );
-      priceKeys = (keysResp.data ?? []).filter((k) => parseMarketDataKey(k) !== null);
+      priceKeys = normalizeStoreKeysResponse(keysResp.data).filter(
+        (k) => parseMarketDataKey(k) !== null,
+      );
     } catch (error) {
       this.logger.error(`Ошибка при запросе ключей из arbiDexMarketData: ${error.message}`);
       return [];

@@ -58,4 +58,39 @@ describe('PricesService DEX orientation', () => {
       keys: [bidKey, askKey],
     });
   });
+
+  it('нормализует GET /store/keys с объектами { key } и выбирает pipe', async () => {
+    const bidKey =
+      'dex:arbitrum|0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9/0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f|bidPrice';
+    const askKey =
+      'dex:arbitrum|0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9/0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f|askPrice';
+    const http = {
+      get: jest.fn().mockReturnValue(
+        of({
+          data: [
+            { key: bidKey, points: 100 },
+            { key: askKey, points: 100 },
+          ],
+        }),
+      ),
+      post: jest.fn().mockReturnValue(
+        of({
+          data: {
+            [bidKey]: { points: [{ t: 1_000, v: 64_900 }] },
+            [askKey]: { points: [{ t: 1_000, v: 65_000 }] },
+          },
+        }),
+      ),
+    };
+    const config = {
+      getOrThrow: jest.fn().mockReturnValue('http://market-data'),
+    };
+    const service = new PricesService(http as never, config as never, {} as never);
+
+    await service.getPricesByMarket('dex:arbitrum', 'WBTC_USDT', true);
+
+    expect(http.post).toHaveBeenCalledWith('http://market-data/store/keys', {
+      keys: [bidKey, askKey],
+    });
+  });
 });

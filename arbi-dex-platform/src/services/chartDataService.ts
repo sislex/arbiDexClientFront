@@ -31,6 +31,22 @@ export const CHART_POLL_INTERVAL_MS = parsePositiveInt(import.meta.env.VITE_CHAR
 let cachedStoreKeyCatalog: string[] | null = null
 let catalogLoadPromise: Promise<string[]> | null = null
 
+function normalizeStoreKeysResponse(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  const keys: string[] = []
+  for (const item of raw) {
+    if (typeof item === 'string' && item.length > 0) {
+      keys.push(item)
+      continue
+    }
+    if (item && typeof item === 'object' && 'key' in item) {
+      const key = (item as { key: unknown }).key
+      if (typeof key === 'string' && key.length > 0) keys.push(key)
+    }
+  }
+  return keys
+}
+
 export async function fetchStoreKeyCatalog(force = false): Promise<string[]> {
   if (!force && cachedStoreKeyCatalog) return cachedStoreKeyCatalog
   if (!force && catalogLoadPromise) return catalogLoadPromise
@@ -42,9 +58,8 @@ export async function fetchStoreKeyCatalog(force = false): Promise<string[]> {
         cache: 'no-store',
       })
       if (!res.ok) return []
-      const keys = (await res.json()) as unknown
-      if (!Array.isArray(keys)) return []
-      cachedStoreKeyCatalog = keys.filter((k): k is string => typeof k === 'string')
+      const keys = normalizeStoreKeysResponse(await res.json())
+      cachedStoreKeyCatalog = keys
       return cachedStoreKeyCatalog
     } catch {
       return []

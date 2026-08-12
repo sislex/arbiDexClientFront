@@ -5,7 +5,12 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { Subscription } from '../subscriptions/entities/subscription.entity';
-import { buildStoreKeys, detectKeyFormat, SOURCE_META } from './market-data-keys';
+import {
+  buildStoreKeys,
+  detectKeyFormat,
+  normalizeStoreKeysResponse,
+  SOURCE_META,
+} from './market-data-keys';
 
 /** Точка из PriceStore arbiDexServerBots */
 interface BotsPricePoint {
@@ -125,14 +130,14 @@ export class PricesService {
     }
 
     // Определяем формат ключей market-data (pipe / concat).
-    let format: 'pipe' | 'concat' = 'concat';
+    let format: 'pipe' | 'concat' = 'pipe';
     try {
       const keysResp = await firstValueFrom(
-        this.httpService.get<string[]>(`${this.marketDataUrl}/store/keys`),
+        this.httpService.get<unknown>(`${this.marketDataUrl}/store/keys`),
       );
-      format = detectKeyFormat(keysResp.data);
+      format = detectKeyFormat(normalizeStoreKeysResponse(keysResp.data));
     } catch {
-      /* формат по умолчанию */
+      /* формат по умолчанию — pipe */
     }
 
     const isDex = sourceId.startsWith('dex');

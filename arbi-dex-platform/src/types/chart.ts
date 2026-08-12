@@ -36,6 +36,21 @@ const DEX_NETWORK_NAMES = new Set([
   'zkSync',
   'Linea',
   'Fantom',
+  'Blast',
+  'Scroll',
+  'Mantle',
+])
+
+/** Известные CEX — всё остальное без DEX-записи отбрасывается при нормализации. */
+const CEX_EXCHANGE_NAMES = new Set([
+  'Binance',
+  'Bybit',
+  'dzengi',
+  'Gate.io',
+  'KuCoin',
+  'MEXC',
+  'OKX',
+  'Kraken',
 ])
 
 const LEGACY_DEX_LABEL_MAP: Record<string, string> = {
@@ -48,7 +63,13 @@ export function normalizeExchangeLabel(name: string): string {
 }
 
 export function isDexNetworkName(name: string): boolean {
-  return DEX_NETWORK_NAMES.has(name)
+  if (DEX_NETWORK_NAMES.has(name)) return true
+  // Сети из store (Title Case), которых нет в статическом списке
+  return /^[A-Z][A-Za-z0-9]*$/.test(name) && !CEX_EXCHANGE_NAMES.has(name)
+}
+
+export function isCexExchangeName(name: string): boolean {
+  return CEX_EXCHANGE_NAMES.has(name)
 }
 
 /** Текущая или устаревшая DEX-метка (не CEX) */
@@ -78,8 +99,17 @@ export function mergeSelectedExchanges(
   selectedExchanges: string[],
   dexEntries: DexEntry[],
   enabledDexEntryIds: Iterable<string>,
+  allowedCexNames?: Iterable<string>,
 ): string[] {
-  const cex = selectedExchanges.filter((ex) => !isDexRelatedLabel(ex, dexEntries))
+  const allowedCex =
+    allowedCexNames == null ? null : new Set([...allowedCexNames].map((n) => n.trim()).filter(Boolean))
+
+  const cex = selectedExchanges.filter((ex) => {
+    if (isDexRelatedLabel(ex, dexEntries)) return false
+    if (!isCexExchangeName(ex)) return false
+    if (allowedCex && !allowedCex.has(ex)) return false
+    return true
+  })
   const enabledIds = new Set(enabledDexEntryIds)
   const dexLabels = dexEntries
     .filter((entry) => enabledIds.has(entry.id))
@@ -90,10 +120,11 @@ export function mergeSelectedExchanges(
 export function rebuildSelectedExchanges(
   selectedExchanges: string[],
   dexEntries: DexEntry[],
+  allowedCexNames?: Iterable<string>,
 ): string[] {
   const normalized = selectedExchanges.map(normalizeExchangeLabel)
   const enabledIds = getEnabledDexEntryIds(dexEntries, normalized)
-  return mergeSelectedExchanges(normalized, dexEntries, enabledIds)
+  return mergeSelectedExchanges(normalized, dexEntries, enabledIds, allowedCexNames)
 }
 
 export function resolveDexTradingExchange(

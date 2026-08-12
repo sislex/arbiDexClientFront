@@ -6,7 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
-import { buildPoolKey } from '../prices/market-data-keys';
+import { buildPoolKey, normalizeStoreKeysResponse } from '../prices/market-data-keys';
 
 /** Метаданные пула из arbiDexMarketData (значение ключа bidPool/askPool) */
 export interface PoolInfo {
@@ -87,9 +87,9 @@ export class MarketDataService {
   async getStoreKeys(): Promise<string[]> {
     try {
       const response = await firstValueFrom(
-        this.httpService.get<string[]>(`${this.marketDataUrl}/store/keys`),
+        this.httpService.get<unknown>(`${this.marketDataUrl}/store/keys`),
       );
-      return response.data ?? [];
+      return normalizeStoreKeysResponse(response.data);
     } catch (error) {
       this.logger.error(`Store keys GET failed: ${(error as Error).message}`);
       throw new BadRequestException(

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { Edit2, Trash2, Plus, LineChart } from 'lucide-react'
 import { PageHeader, PageContent } from '../components/layout/PageHeader'
 import { Card, CardHeader, CardTitle } from '../components/ui/Card'
@@ -15,11 +15,13 @@ import {
   TABLE_HEAD,
   type ResizableColumnConfig,
 } from '../components/ui/ResizableTable'
-import { getBots, isMonitoringPair, type TradingPair } from '../data/mockData'
+import { getBots, isMonitoringPair, CEX_SOURCES, type TradingPair } from '../data/mockData'
 import { loadTradingPairs } from '../lib/tradingPairsStorage'
 import { buildPairBotCountMap } from '../lib/botCounts'
 import { useTableSort } from '../hooks/useTableSort'
 import { useUndoDelete } from '../context/UndoDeleteContext'
+import { useStoreMarketCatalog } from '../hooks/useStoreMarketCatalog'
+import { rebuildSelectedExchanges } from '../types/chart'
 import { cn } from '../lib/utils'
 
 type PairSortKey = 'name' | 'pair' | 'type' | 'exchange' | 'runningBots' | 'created'
@@ -53,11 +55,29 @@ function getPairSortValue(pair: TradingPair, key: PairSortKey, botCounts: Map<st
 
 export function TradingPairsPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [pairs, setPairs] = useState<TradingPair[]>(() => loadTradingPairs())
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<TradingPair | null>(() => loadTradingPairs()[0] ?? null)
   const { sortKey, direction, toggleSort, sort } = useTableSort<PairSortKey>()
   const { scheduleDelete, isEntityPending, deleteRevision, pendingKeys } = useUndoDelete()
+  const { catalog } = useStoreMarketCatalog()
+
+  const allowedCexNames = useMemo(() => {
+    if (catalog.cexSourceIds.length === 0) return null
+    const byId = new Map(CEX_SOURCES.map((s) => [s.id, s.name]))
+    return catalog.cexSourceIds.map(
+      (id) => byId.get(id) ?? id.charAt(0).toUpperCase() + id.slice(1),
+    )
+  }, [catalog.cexSourceIds])
+
+  const displayPairs = useMemo(() => {
+    if (!allowedCexNames) return pairs
+    return pairs.map((pair) => ({
+      ...pair,
+      exchanges: rebuildSelectedExchanges(pair.exchanges, pair.dexEntries ?? [], allowedCexNames),
+    }))
+  }, [pairs, allowedCexNames])
 
   useEffect(() => {
     const next = loadTradingPairs()
@@ -68,7 +88,7 @@ export function TradingPairsPage() {
       }
       return next.find((pair) => !isEntityPending('pair', pair.id)) ?? null
     })
-  }, [deleteRevision, isEntityPending])
+  }, [deleteRevision, isEntityPending, location.key])
 
   useEffect(() => {
     setSelected((sel) => {
@@ -80,14 +100,14 @@ export function TradingPairsPage() {
   const bots = useMemo(() => getBots(), [deleteRevision])
 
   const pairBotCounts = useMemo(
-    () => buildPairBotCountMap(bots, pairs),
-    [bots, pairs],
+    () => buildPairBotCountMap(bots, displayPairs),
+    [bots, displayPairs],
   )
 
   const filtered = useMemo(
     () =>
       sort(
-        pairs.filter((p) => {
+        displayPairs.filter((p) => {
           if (isEntityPending('pair', p.id)) return false
           const q = search.toLowerCase()
           if (q && !p.name.toLowerCase().includes(q) && !p.pair.toLowerCase().includes(q)) return false
@@ -95,10 +115,15 @@ export function TradingPairsPage() {
         }),
         (pair, key) => getPairSortValue(pair, key, pairBotCounts),
       ),
-    [pairs, search, sort, pendingKeys, isEntityPending, pairBotCounts],
+    [displayPairs, search, sort, pendingKeys, isEntityPending, pairBotCounts],
   )
 
-  const selectedBotCount = selected ? pairBotCounts.get(selected.id) ?? 0 : 0
+  const selectedDisplay = useMemo(() => {
+    if (!selected) return null
+    return displayPairs.find((p) => p.id === selected.id) ?? selected
+  }, [selected, displayPairs])
+
+  const selectedBotCount = selectedDisplay ? pairBotCounts.get(selectedDisplay.id) ?? 0 : 0
 
   const handleDeletePair = (pair: TradingPair, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -218,32 +243,32 @@ export function TradingPairsPage() {
             </Card>
 
             <div className="flex-[3] min-w-0 flex flex-col gap-4 overflow-y-auto min-h-0">
-              {selected && !isEntityPending('pair', selected.id) ? (
+              {selectedDisplay && !isEntityPending('pair', selectedDisplay.id) ? (
                 <>
                   <Card>
                     <div className="space-y-4">
                       <div>
-                        <p className="text-2xl font-bold text-white">{selected.name}</p>
+                        <p className="text-2xl font-bold text-white">{selectedDisplay.name}</p>
                         <p className="text-sm text-muted mt-1">
-                          {selected.pair}
-                          {isMonitoringPair(selected)
+                          {selectedDisplay.pair}
+                          {isMonitoringPair(selectedDisplay)
                             ? ' · Только мониторинг'
-                            : ` · Торговая биржа: ${selected.tradingExchange}`}
+                            : ` · Торговая биржа: ${selectedDisplay.tradingExchange}`}
                         </p>
-                        <p className="text-[10px] text-muted font-mono mt-1">ID: {selected.id}</p>
+                        <p className="text-[10px] text-muted font-mono mt-1">ID: {selectedDisplay.id}</p>
                       </div>
                       <div className="p-3 rounded-xl bg-surface">
                         <p className="text-xs text-muted">
-                          {isMonitoringPair(selected) ? 'Назначение' : 'Bots'}
+                          {isMonitoringPair(selectedDisplay) ? 'Назначение' : 'Bots'}
                         </p>
                         <p className="text-lg font-bold text-white">
-                          {isMonitoringPair(selected) ? 'Мониторинг' : selectedBotCount}
+                          {isMonitoringPair(selectedDisplay) ? 'Мониторинг' : selectedBotCount}
                         </p>
                       </div>
-                      <Link to={`/pairs/${selected.id}/edit`}>
+                      <Link to={`/pairs/${selectedDisplay.id}/edit`}>
                         <Button variant="outline" className="w-full">Редактировать</Button>
                       </Link>
-                      <Link to={`/chart/${selected.id}`}>
+                      <Link to={`/chart/${selectedDisplay.id}`}>
                         <Button className="w-full">
                           <LineChart size={16} /> График отслеживания
                         </Button>
@@ -254,11 +279,11 @@ export function TradingPairsPage() {
                   <Card>
                     <CardHeader><CardTitle>Connected Exchanges</CardTitle></CardHeader>
                     <div className="space-y-2">
-                      {selected.exchanges.map((ex) => (
+                      {selectedDisplay.exchanges.map((ex) => (
                         <div key={ex} className="flex items-center justify-between p-2.5 rounded-xl bg-surface">
                           <span className="text-sm text-white truncate">
                             {ex}
-                            {!isMonitoringPair(selected) && ex === selected.tradingExchange && (
+                            {!isMonitoringPair(selectedDisplay) && ex === selectedDisplay.tradingExchange && (
                               <span className="ml-2 text-[10px] text-accent-purple uppercase">Trade</span>
                             )}
                           </span>

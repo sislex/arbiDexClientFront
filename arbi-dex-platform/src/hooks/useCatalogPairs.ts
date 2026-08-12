@@ -1,16 +1,20 @@
 import { useEffect, useState } from 'react'
-import { getCachedCatalogPairSymbols, loadCatalogPairSymbols } from '../services/catalogService'
+import {
+  getCachedStoreMarketCatalog,
+  loadStoreMarketCatalog,
+} from '../services/storeMarketCatalog'
 
 export function useCatalogPairs() {
-  const [pairs, setPairs] = useState<string[]>(() => getCachedCatalogPairSymbols())
-  const [loading, setLoading] = useState(() => pairs.length <= 6)
+  const cached = getCachedStoreMarketCatalog()?.pairSymbols ?? []
+  const [pairs, setPairs] = useState<string[]>(cached)
+  const [loading, setLoading] = useState(() => cached.length === 0)
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    loadCatalogPairSymbols()
-      .then((next) => {
-        if (!cancelled) setPairs(next)
+    loadStoreMarketCatalog()
+      .then((catalog) => {
+        if (!cancelled) setPairs(catalog.pairSymbols)
       })
       .finally(() => {
         if (!cancelled) setLoading(false)

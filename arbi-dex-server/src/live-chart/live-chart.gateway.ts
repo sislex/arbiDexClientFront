@@ -12,7 +12,7 @@ import { Repository } from 'typeorm';
 import type { Namespace, Socket } from 'socket.io';
 import { io as ioClient, Socket as ClientSocket } from 'socket.io-client';
 import { Subscription } from '../subscriptions/entities/subscription.entity';
-import { buildStoreKeys, detectKeyFormat } from '../prices/market-data-keys';
+import { buildStoreKeys, detectKeyFormat, normalizeStoreKeysResponse } from '../prices/market-data-keys';
 
 /** Сообщение dataChange от arbiDexMarketData */
 interface DataChangeMessage {
@@ -170,12 +170,12 @@ export class LiveChartGateway
    */
   private async sendSnapshot(client: Socket, sourceId: string, pairId: string): Promise<void> {
     try {
-      let format: 'pipe' | 'concat' = 'concat';
+      let format: 'pipe' | 'concat' = 'pipe';
       try {
         const resp = await fetch(`${this.marketDataUrl}/store/keys`);
-        const allKeys: string[] = await resp.json();
+        const allKeys = normalizeStoreKeysResponse(await resp.json());
         format = detectKeyFormat(allKeys);
-      } catch { /* по умолчанию concat */ }
+      } catch { /* по умолчанию pipe */ }
       const keys = buildStoreKeys(sourceId, pairId, format);
       if (!keys) return;
 
@@ -206,12 +206,12 @@ export class LiveChartGateway
    */
   private async startRoom(roomId: string, sourceId: string, pairId: string): Promise<void> {
     // Определяем формат ключей на сервере
-    let format: 'pipe' | 'concat' = 'concat';
+    let format: 'pipe' | 'concat' = 'pipe';
     try {
       const resp = await fetch(`${this.marketDataUrl}/store/keys`);
-      const allKeys: string[] = await resp.json();
+      const allKeys = normalizeStoreKeysResponse(await resp.json());
       format = detectKeyFormat(allKeys);
-    } catch { /* по умолчанию concat */ }
+    } catch { /* по умолчанию pipe */ }
 
     // Никаких хардкод-фолбэков: если ключи не собрались — upstream не запускаем
     const keys = buildStoreKeys(sourceId, pairId, format);

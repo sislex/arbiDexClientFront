@@ -1,10 +1,10 @@
 import { loadAuthResult } from '../lib/authStorage'
-import { extractPairSymbolsFromKeys } from '../lib/parseMarketDataKeys'
+import {
+  getCachedStoreMarketCatalog,
+  loadStoreMarketCatalog,
+} from './storeMarketCatalog'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api'
-const STORE_API_BASE = import.meta.env.VITE_STORE_API_BASE ?? '/market-api'
-
-const FALLBACK_PAIR_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'BNB/USDT', 'ADA/USDT']
 
 export interface CatalogPairDto {
   id: string
@@ -17,7 +17,7 @@ let cachedPairSymbols: string[] | null = null
 let loadPromise: Promise<string[]> | null = null
 
 export function getCachedCatalogPairSymbols(): string[] {
-  return cachedPairSymbols ?? FALLBACK_PAIR_SYMBOLS
+  return cachedPairSymbols ?? getCachedStoreMarketCatalog()?.pairSymbols ?? []
 }
 
 async function fetchPairsFromAuthCatalog(): Promise<string[] | null> {
@@ -35,23 +35,17 @@ async function fetchPairsFromAuthCatalog(): Promise<string[] | null> {
 
   const symbols = pairs
     .map((p) => p.displayName || `${p.base}/${p.quote}`)
-    .filter((symbol) => symbol.includes('/'))
+    .filter((symbol) => symbol.includes('/') && !symbol.includes('0x'))
 
   return [...new Set(symbols)].sort((a, b) => a.localeCompare(b))
 }
 
 async function fetchPairsFromStoreKeys(): Promise<string[]> {
-  const res = await fetch(`${STORE_API_BASE}/store/keys`, {
-    signal: AbortSignal.timeout(8000),
-  })
-  if (!res.ok) throw new Error(`store keys ${res.status}`)
-
-  const keys = (await res.json()) as string[]
-  if (!Array.isArray(keys)) throw new Error('invalid store keys payload')
-
-  const symbols = extractPairSymbolsFromKeys(keys)
-  if (symbols.length === 0) throw new Error('no pairs in store keys')
-  return symbols
+  const catalog = await loadStoreMarketCatalog()
+  if (catalog.pairSymbols.length === 0) {
+    throw new Error('no pairs in store keys')
+  }
+  return catalog.pairSymbols
 }
 
 export async function loadCatalogPairSymbols(force = false): Promise<string[]> {
@@ -59,7 +53,6 @@ export async function loadCatalogPairSymbols(force = false): Promise<string[]> {
   if (!force && loadPromise) return loadPromise
 
   loadPromise = (async () => {
-    // Store API не требует arbi-dex-server — приоритет в dev
     try {
       const fromStore = await fetchPairsFromStoreKeys()
       if (fromStore.length > 0) {
@@ -80,8 +73,8 @@ export async function loadCatalogPairSymbols(force = false): Promise<string[]> {
       // server unavailable
     }
 
-    cachedPairSymbols = FALLBACK_PAIR_SYMBOLS
-    return FALLBACK_PAIR_SYMBOLS
+    cachedPairSymbols = []
+    return []
   })().finally(() => {
     loadPromise = null
   })

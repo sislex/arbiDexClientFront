@@ -12,6 +12,7 @@ import {
   makePairDisplayName,
   tokenDisplayName,
   SOURCE_META,
+  normalizeStoreKeysResponse,
 } from '../prices/market-data-keys';
 import { MARKETS } from '../demo/engine/markets';
 import type { Market } from '../demo/engine/types';
@@ -138,9 +139,9 @@ export class CatalogService {
   /** Запрос GET /store/keys из arbiDexMarketData */
   private async fetchMarketDataKeys(): Promise<string[]> {
     const response = await firstValueFrom(
-      this.httpService.get<string[]>(`${this.marketDataUrl}/store/keys`),
+      this.httpService.get<unknown>(`${this.marketDataUrl}/store/keys`),
     );
-    return response.data;
+    return normalizeStoreKeysResponse(response.data);
   }
 
   /** Извлечь уникальные источники из ключей */

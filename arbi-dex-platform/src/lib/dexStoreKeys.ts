@@ -1,4 +1,5 @@
 import type { DexTokenAddresses } from '../types/chart'
+import { getDexPoolsForPair, type DerivedDexPool } from './parseMarketDataKeys'
 
 export interface DexPoolPreset {
   id: string
@@ -8,59 +9,7 @@ export interface DexPoolPreset {
   quote: string
 }
 
-/** Преднастроенные пулы DEX: сеть + пара → адреса base/quote */
-export const DEX_POOL_CATALOG: Array<DexPoolPreset & { network: string }> = [
-  {
-    id: 'arb-btc-usdt-native',
-    network: 'arbitrum',
-    pair: 'BTC/USDT',
-    label: 'WBTC / USDT',
-    base: '0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f',
-    quote: '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9',
-  },
-  {
-    id: 'arb-btc-usdc',
-    network: 'arbitrum',
-    pair: 'BTC/USDC',
-    label: 'WBTC / USDC',
-    base: '0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f',
-    quote: '0xaf88d065e77c8cc2239327c5edb3a432268e5831',
-  },
-  {
-    id: 'arb-eth-usdt',
-    network: 'arbitrum',
-    pair: 'ETH/USDT',
-    label: 'WETH / USDT',
-    base: '0x82af49447d8a07e3bd95bd0d56f35241523fbab1',
-    quote: '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9',
-  },
-  {
-    id: 'arb-eth-usdc',
-    network: 'arbitrum',
-    pair: 'ETH/USDC',
-    label: 'WETH / USDC',
-    base: '0x82af49447d8a07e3bd95bd0d56f35241523fbab1',
-    quote: '0xaf88d065e77c8cc2239327c5edb3a432268e5831',
-  },
-  {
-    id: 'eth-btc-usdt',
-    network: 'ethereum',
-    pair: 'BTC/USDT',
-    label: 'WBTC / USDT',
-    base: '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599',
-    quote: '0xdac17f958d2ee523a2206206994597c13d831ec7',
-  },
-  {
-    id: 'eth-eth-usdt',
-    network: 'ethereum',
-    pair: 'ETH/USDT',
-    label: 'WETH / USDT',
-    base: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
-    quote: '0xdac17f958d2ee523a2206206994597c13d831ec7',
-  },
-]
-
-/** Известные контракты по сетям (lowercase) */
+/** Известные контракты по сетям (lowercase) — для резолва адресов в графиках/ботах. */
 export const DEX_KNOWN_TOKENS: Record<string, Record<string, string>> = {
   arbitrum: {
     BTC: '0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f',
@@ -72,10 +21,37 @@ export const DEX_KNOWN_TOKENS: Record<string, Record<string, string>> = {
   },
   ethereum: {
     WBTC: '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599',
+    BTC: '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599',
     USDT: '0xdac17f958d2ee523a2206206994597c13d831ec7',
     WETH: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+    ETH: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+  },
+  optimism: {
+    WETH: '0x4200000000000000000000000000000000000006',
+    ETH: '0x4200000000000000000000000000000000000006',
+    USDC: '0x0b2c639c533813f4aa9d7837caf62653d097ff85',
+    WBTC: '0x68f180fcce6836688e9084f035309e29bf0a2095',
+    BTC: '0x68f180fcce6836688e9084f035309e29bf0a2095',
+  },
+  base: {
+    WETH: '0x4200000000000000000000000000000000000006',
+    ETH: '0x4200000000000000000000000000000000000006',
+    USDC: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913',
+    CBBTC: '0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf',
+    BTC: '0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf',
+  },
+  linea: {
+    WETH: '0xe5d7c2a44ffddf6b295a15c148167daaaf5cf34f',
+    ETH: '0xe5d7c2a44ffddf6b295a15c148167daaaf5cf34f',
+    USDC: '0x176211869ca2b568f2a7d4ee941e073a821ee1ff',
+    USDT: '0xa219439258ca9da29e9cc4ce5596924745e12b93',
+    WBTC: '0x3aab2285ddcddad8edf438c1bab47e1a9d05a9b4',
+    BTC: '0x3aab2285ddcddad8edf438c1bab47e1a9d05a9b4',
   },
 }
+
+/** @deprecated пулы берутся из store/keys через deriveStoreMarketCatalog */
+export const DEX_POOL_CATALOG: Array<DexPoolPreset & { network: string }> = []
 
 const STABLE_QUOTE_SYMBOLS = new Set(['USDT', 'USDC', 'DAI', 'USD', 'USDC.E', 'BUSD'])
 
@@ -111,8 +87,20 @@ export function defaultDexAddresses(network: string, pair: string): DexTokenAddr
   const tokens = DEX_KNOWN_TOKENS[network.trim().toLowerCase()]
   if (!tokens) return null
 
-  const base = tokens[baseSym] ?? tokens[`W${baseSym}`]
-  const quote = tokens[quoteSym] ?? tokens[`W${quoteSym}`]
+  const resolve = (sym: string): string | undefined => {
+    const upper = sym.toUpperCase()
+    return (
+      tokens[sym] ??
+      tokens[upper] ??
+      tokens[`W${upper}`] ??
+      tokens[`w${upper}`] ??
+      (upper === 'BTC' ? tokens.WBTC ?? tokens.CBBTC ?? tokens.cbBTC : undefined) ??
+      (upper === 'ETH' ? tokens.WETH : undefined)
+    )
+  }
+
+  const base = resolve(baseSym)
+  const quote = resolve(quoteSym)
   if (!base || !quote) return null
 
   return { base, quote }
@@ -132,32 +120,45 @@ export function dexPoolPresetValue(preset: Pick<DexPoolPreset, 'base' | 'quote'>
   return `${normalizeAddr(preset.base)}|${normalizeAddr(preset.quote)}`
 }
 
-export function getDexPoolPresets(network: string, pair: string): DexPoolPreset[] {
-  const net = network.trim().toLowerCase()
-  const curated = DEX_POOL_CATALOG.filter((p) => p.network === net && p.pair === pair)
-  if (curated.length > 0) return curated
+function toPoolPreset(pool: DerivedDexPool): DexPoolPreset {
+  return {
+    id: pool.id,
+    label: pool.label,
+    pair: pool.pair,
+    base: pool.base,
+    quote: pool.quote,
+  }
+}
 
-  const defaults = defaultDexAddresses(network, pair)
-  if (!defaults) return []
-
-  const [baseSym, quoteSym] = pair.split('/')
-  return [
-    {
-      id: `${net}-${pair.replace('/', '-')}-default`,
-      label: `${baseSym} / ${quoteSym}`,
+/** Пулы из live store catalog (без захардкоженного списка). */
+export function getDexPoolPresets(
+  network: string,
+  pair: string,
+  livePools: DerivedDexPool[] = [],
+): DexPoolPreset[] {
+  if (livePools.length > 0) {
+    return getDexPoolsForPair(
+      {
+        keys: [],
+        pairSymbols: [],
+        cexSourceIds: [],
+        dexNetworks: [],
+        dexPools: livePools,
+      },
+      network,
       pair,
-      base: defaults.base,
-      quote: defaults.quote,
-    },
-  ]
+    ).map(toPoolPreset)
+  }
+  return []
 }
 
 export function findDexPoolPreset(
   network: string,
   pair: string,
   addresses: DexTokenAddresses,
+  livePools: DerivedDexPool[] = [],
 ): DexPoolPreset | null {
-  const pools = getDexPoolPresets(network, pair)
+  const pools = getDexPoolPresets(network, pair, livePools)
   const base = normalizeAddr(addresses.base)
   const quote = normalizeAddr(addresses.quote)
   if (!base || !quote) return pools[0] ?? null
